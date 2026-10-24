@@ -1,0 +1,18 @@
+[package]
+name = "elegence"
+description = "Rust bindings to Elegence, with a SwiftUI-style DSL (elg!)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+elegence-sys = { path = "../elegence-sys" }
+elegence-macros = { path = "../elegence-macros" }
+inventory = "0.3"
+
+[[example]]
+name = "counter"
+
+[[example]]
+name = "todos"
