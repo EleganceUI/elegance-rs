@@ -1,0 +1,10 @@
+[package]
+name = "cargo-elegence"
+description = "`cargo elegence preview`: shows an Elegence app's previews and reloads them as you edit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json = "1"

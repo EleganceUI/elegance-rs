@@ -10,7 +10,7 @@
 
 use crate::animation::{Animation, Transition};
 use crate::app::TitleBar;
-use crate::color::{Color, ColorScheme, ThemeColor};
+use crate::color::{Color, ColorScheme, Material, ThemeColor};
 use crate::events::{Cursor, Key};
 use crate::font::{Font, Weight};
 use crate::geometry::{Alignment, Axis, ContentMode, Edges, HorizontalAlignment, UnitPoint, VerticalAlignment};
@@ -18,7 +18,7 @@ use crate::hot_reload::HotReloadShow;
 use crate::media::VideoFormat;
 use crate::path::{FillRule, LineCap, LineJoin};
 use crate::text::TextAlignment;
-use crate::view::{AccessibilityRole, PopoverEdge};
+use crate::view::{AccessibilityRole, BlendMode, PopoverEdge};
 use crate::views::{MenuEdge, PickerStyle, ScrollAxes};
 use crate::window::WindowControlsStyle;
 
@@ -110,6 +110,33 @@ dots! {
     clear { Color => Color::CLEAR }
     light { ColorScheme => ColorScheme::Light, Weight => Weight::Light }
     dark { ColorScheme => ColorScheme::Dark }
+
+    // Materials (frosted glass): `.background(.thin_material)`.
+    ultra_thin_material { Material => Material::ULTRA_THIN }
+    thin_material { Material => Material::THIN }
+    regular_material { Material => Material::REGULAR }
+    thick_material { Material => Material::THICK }
+    ultra_thick_material { Material => Material::ULTRA_THICK }
+
+    // Blend modes.
+    normal { BlendMode => BlendMode::Normal }
+    multiply { BlendMode => BlendMode::Multiply }
+    darken { BlendMode => BlendMode::Darken }
+    color_burn { BlendMode => BlendMode::ColorBurn }
+    plus_darker { BlendMode => BlendMode::PlusDarker }
+    screen { BlendMode => BlendMode::Screen }
+    lighten { BlendMode => BlendMode::Lighten }
+    color_dodge { BlendMode => BlendMode::ColorDodge }
+    plus_lighter { BlendMode => BlendMode::PlusLighter }
+    overlay { BlendMode => BlendMode::Overlay }
+    soft_light { BlendMode => BlendMode::SoftLight }
+    hard_light { BlendMode => BlendMode::HardLight }
+    difference { BlendMode => BlendMode::Difference }
+    exclusion { BlendMode => BlendMode::Exclusion }
+    hue { BlendMode => BlendMode::Hue }
+    saturation { BlendMode => BlendMode::Saturation }
+    color { BlendMode => BlendMode::Color }
+    luminosity { BlendMode => BlendMode::Luminosity }
 
     // Weights and fonts.
     ultra_light { Weight => Weight::UltraLight }

@@ -16,7 +16,10 @@ use std::rc::Rc;
 
 use elegence_sys as sys;
 
-use crate::color::{Color, ColorScheme, LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeColor};
+use crate::color::{
+    AngularGradient, Color, ColorScheme, EllipticalGradient, LinearGradient, Material, RadialGradient, ShapeStyle, Theme,
+    ThemeColor,
+};
 use crate::dot;
 use crate::environment::EnvironmentValues;
 use crate::events::HoverDelay;
@@ -225,6 +228,21 @@ impl ResolveStyle for RadialGradient {
         ShapeStyle::Radial(self)
     }
 }
+impl ResolveStyle for EllipticalGradient {
+    fn resolve_style(self, _: &EnvironmentValues) -> ShapeStyle {
+        ShapeStyle::Elliptical(self)
+    }
+}
+impl ResolveStyle for AngularGradient {
+    fn resolve_style(self, _: &EnvironmentValues) -> ShapeStyle {
+        ShapeStyle::Angular(self)
+    }
+}
+impl ResolveStyle for Material {
+    fn resolve_style(self, _: &EnvironmentValues) -> ShapeStyle {
+        ShapeStyle::Material(self)
+    }
+}
 
 // Closures may return theme colors, so color and style closures resolve in the environment.
 impl<F: Fn() -> R + 'static, R: ResolveColor> IntoProp<Color> for F {
@@ -266,6 +284,24 @@ impl IntoProp<ShapeStyle> for LinearGradient {
 impl IntoProp<ShapeStyle> for RadialGradient {
     fn into_prop(self) -> Prop<ShapeStyle> {
         Prop::Value(ShapeStyle::Radial(self))
+    }
+}
+
+impl IntoProp<ShapeStyle> for EllipticalGradient {
+    fn into_prop(self) -> Prop<ShapeStyle> {
+        Prop::Value(ShapeStyle::Elliptical(self))
+    }
+}
+
+impl IntoProp<ShapeStyle> for AngularGradient {
+    fn into_prop(self) -> Prop<ShapeStyle> {
+        Prop::Value(ShapeStyle::Angular(self))
+    }
+}
+
+impl IntoProp<ShapeStyle> for Material {
+    fn into_prop(self) -> Prop<ShapeStyle> {
+        Prop::Value(ShapeStyle::Material(self))
     }
 }
 
@@ -324,6 +360,22 @@ macro_rules! color_markers {
     )*};
 }
 color_markers!(black, white, clear);
+
+macro_rules! material_markers {
+    ($($marker:ident),*) => {$(
+        impl IntoProp<ShapeStyle> for dot::$marker {
+            fn into_prop(self) -> Prop<ShapeStyle> {
+                Prop::Value(ShapeStyle::Material(self.into()))
+            }
+        }
+        impl ResolveStyle for dot::$marker {
+            fn resolve_style(self, _: &EnvironmentValues) -> ShapeStyle {
+                ShapeStyle::Material(self.into())
+            }
+        }
+    )*};
+}
+material_markers!(ultra_thin_material, thin_material, regular_material, thick_material, ultra_thick_material);
 
 macro_rules! value_markers {
     ($t:ty: $($marker:ident),*) => {$(

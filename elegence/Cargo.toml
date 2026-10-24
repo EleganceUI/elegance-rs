@@ -11,6 +11,13 @@ elegence-sys = { path = "../elegence-sys" }
 elegence-macros = { path = "../elegence-macros" }
 inventory = "0.3"
 
+[features]
+# Link Elegence dynamically (elegence.dll) instead of statically: for HotReload views.
+dynamic = ["elegence-sys/dynamic"]
+# Build as a views module for the preview host (`cargo elegence preview` turns this on): exports
+# the module entry and registers #[preview] functions, which ordinary builds leave out.
+preview = ["dynamic"]
+
 [[example]]
 name = "counter"
 

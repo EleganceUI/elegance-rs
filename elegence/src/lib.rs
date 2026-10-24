@@ -93,7 +93,10 @@ pub use elegence_macros::{component, elg, preview};
 
 pub use animation::{with_animation, Animation, AnimationValue, Pose, Transition};
 pub use app::{post_to_ui_thread, set_cursor, version, App, AppHandle, TitleBar, WindowDesc};
-pub use color::{Color, ColorScheme, ColorTokens, GradientStop, LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeColor};
+pub use color::{
+    AngularGradient, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop, LinearGradient, Material,
+    RadialGradient, ShapeStyle, Theme, ThemeColor,
+};
 pub use environment::{Environment, EnvironmentKey, EnvironmentValues};
 pub use error::{Error, ErrorKind};
 pub use events::{
@@ -110,7 +113,9 @@ pub use grid::{
     grid_tracks_length, resolve_grid_tracks, Grid, GridItem, GridItemKind, GridLayout, GridRow, GridTrack, HGrid,
     HGridLayout, VGrid, VGridLayout,
 };
-pub use hot_reload::{HotReload, HotReloadShow};
+#[cfg(feature = "dynamic")]
+pub use hot_reload::HotReload;
+pub use hot_reload::HotReloadShow;
 pub use image::{
     register_icon_set, set_default_icon_set, AsyncImage, AsyncImagePhase, IconFont, IconSetOptions, IconVariant,
     Image, ImageSource, Label,
@@ -118,8 +123,9 @@ pub use image::{
 pub use layout::{Cached, CachedLayout, HStackLayout, Layout, LayoutChild, LayoutValueKey, VStackLayout, ZStackLayout};
 pub use media::{
     audio_input_devices, audio_output_devices, camera_devices, AudioDevice, AudioPlayer, AudioRecorder,
-    AudioRecorderOptions, AudioStream, AudioStreamOptions, Camera, CameraDevice, CameraOptions, CameraView,
-    PlayOptions, Sound, VideoControls, VideoFeed, VideoFeedView, VideoFormat, VideoPlayer, VideoView,
+    AudioRecorderOptions, AudioStream, AudioStreamOptions, Camera, CameraDevice, CameraOptions, CameraView, GpuFrame,
+    GpuImage, GpuImageOrigin, GpuImageSync, GpuImageView, PlayOptions, Sound, VideoControls, VideoFeed, VideoFeedView,
+    VideoFormat, VideoPlayer, VideoView,
 };
 pub use modifier::{
     AsDecoration, AsEffect, AsEnvironment, AsEvent, AsLayout, DecorationModifier, EffectModifier, Effects,
@@ -138,8 +144,9 @@ pub use styles::{
 };
 pub use text::{RunStyle, StyledText, Text, TextAlignment, TextRun, TextSpan};
 pub use view::{
-    AccessibilityRole, AspectRatioOptions, Component, DecorationOptions, DropOptions, FrameOptions, IntoView,
-    PopoverEdge, PopoverOptions, Shadow, TapOptions, View, ViewExt,
+    AccessibilityRole, AnchorOptions, AspectRatioOptions, BlendMode, BlurOptions, ColorFilter, Component,
+    DecorationOptions, DropOptions, FrameOptions, IntoView, PopoverEdge, PopoverOptions, Shadow, TapOptions, View,
+    ViewExt,
 };
 pub use views::{
     Button, Divider, EmptyView, ForEach, HStack, If, IntoItemKey, IntoLabel, ItemKey, ItemsSource, LazyHStack,
@@ -162,7 +169,7 @@ pub mod prelude {
 #[doc(hidden)]
 pub mod __private {
     pub use crate::dsl::{if_view, match_view, ElgChildren, ElgNew, Interpolated, Missing};
-    pub use crate::preview::{module_entry, PreviewItem};
+    pub use crate::preview::PreviewItem;
     pub use inventory;
     pub use crate::view::{Component, IntoView, View, ViewExt};
 }

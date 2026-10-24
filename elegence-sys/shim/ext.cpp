@@ -326,11 +326,11 @@ ELG_EXPORT View* elg_mod_rust_layout_modifier(const View* v, ElgClosure layout) 
     return out(v->modifier(RustLayoutModifier(std::make_shared<const RustFn>(layout))));
     ELG_CATCH(nullptr)
 }
-ELG_EXPORT View* elg_mod_rust_decoration_modifier(const View* v, ElgClosure decoration, bool in_front, ElgAlignment a) {
+// placement: DecorationModifier::Placement (behind, in_front, mask).
+ELG_EXPORT View* elg_mod_rust_decoration_modifier(const View* v, ElgClosure decoration, int32_t placement, ElgAlignment a) {
     ELG_TRY
-    return out(v->modifier(RustDecorationModifier(
-        std::make_shared<const RustFn>(decoration),
-        in_front ? DecorationModifier::Placement::in_front : DecorationModifier::Placement::behind, alignment(a))));
+    return out(v->modifier(RustDecorationModifier(std::make_shared<const RustFn>(decoration),
+                                                  static_cast<DecorationModifier::Placement>(placement), alignment(a))));
     ELG_CATCH(nullptr)
 }
 ELG_EXPORT View* elg_mod_rust_environment_modifier(const View* v, ElgClosure apply) {
@@ -391,6 +391,78 @@ ELG_EXPORT void elg_effects_set_content_shape(Effects* e, const Shape* shape) {
     } else {
         e->content_shape.reset();
     }
+}
+ELG_EXPORT void elg_effects_set_inner_shadow(Effects* e, const ElgShadow* s) {
+    if (s) {
+        e->inner_shadow = shadow(*s);
+    } else {
+        e->inner_shadow.reset();
+    }
+}
+ELG_EXPORT void elg_effects_set_blur(Effects* e, const ElgProp* radius, bool opaque) {
+    ELG_TRY
+    if (radius) {
+        e->blur = prop<float>(*radius);
+    } else {
+        e->blur.reset();
+    }
+    e->blur_opaque = opaque;
+    ELG_CATCH_VOID
+}
+// kind < 0: none.
+ELG_EXPORT void elg_effects_set_color_filter(Effects* e, int32_t kind, ElgProp amount, ElgProp c) {
+    ELG_TRY
+    if (kind < 0) {
+        e->color_filter.reset();
+        return;
+    }
+    ColorFilter filter;
+    filter.kind = static_cast<ColorFilter::Kind>(kind);
+    filter.amount = prop<float>(amount);
+    filter.color = prop<Color>(c);
+    e->color_filter = std::move(filter);
+    ELG_CATCH_VOID
+}
+ELG_EXPORT int32_t elg_effects_blend_mode(const Effects* e) {
+    return static_cast<int32_t>(e->blend_mode);
+}
+ELG_EXPORT void elg_effects_set_blend_mode(Effects* e, int32_t mode) {
+    e->blend_mode = static_cast<BlendMode>(mode);
+}
+ELG_EXPORT bool elg_effects_compositing_group(const Effects* e) {
+    return e->compositing_group;
+}
+ELG_EXPORT void elg_effects_set_compositing_group(Effects* e, bool group) {
+    e->compositing_group = group;
+}
+ELG_EXPORT void elg_effects_set_rotation(Effects* e, const ElgProp* degrees) {
+    ELG_TRY
+    if (degrees) {
+        e->rotation = prop<float>(*degrees);
+    } else {
+        e->rotation.reset();
+    }
+    ELG_CATCH_VOID
+}
+ELG_EXPORT void elg_effects_set_scale(Effects* e, const ElgProp* x, const ElgProp* y) {
+    ELG_TRY
+    if (x) {
+        e->scale_x = prop<float>(*x);
+    } else {
+        e->scale_x.reset();
+    }
+    if (y) {
+        e->scale_y = prop<float>(*y);
+    } else {
+        e->scale_y.reset();
+    }
+    ELG_CATCH_VOID
+}
+ELG_EXPORT ElgPoint elg_effects_anchor(const Effects* e) {
+    return {e->anchor.x, e->anchor.y};
+}
+ELG_EXPORT void elg_effects_set_anchor(Effects* e, ElgPoint anchor) {
+    e->anchor = unit_point(anchor);
 }
 ELG_EXPORT bool elg_effects_allows_hit_testing(const Effects* e) {
     return e->allows_hit_testing;

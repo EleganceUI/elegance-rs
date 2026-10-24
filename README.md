@@ -28,31 +28,47 @@ fn main() -> Result<std::process::ExitCode, Error> {
 
 - `elegence-sys`: a C++ shim (`shim/*.cpp`) giving Elegence's C++23 API a C ABI, and the raw FFI.
 - `elegence`: the safe API: views, modifiers, reactive state, environment, styles, layouts, custom
-  modifiers, animation, media, HTTP/WebSocket, desktop, hot reload.
-- `elegence-macros`: `elg!` and `#[component]`.
+  modifiers, effects, animation, media, GPU images, HTTP/WebSocket, desktop, previews.
+- `elegence-macros`: `elg!`, `#[component]`, and `#[preview]`.
+- `cargo-elegence`: `cargo elegence preview`, the preview host runner.
 
 ## Building
 
-The shim passes `std::string` and `std::function` across the DLL boundary, so it must be built with
-the same compiler and C runtime as `elegence.dll`. Rust uses the release CRT (`/MD`), so link
-against the `dev-release` build of Elegence, not `dev-debug` (`/MDd`):
-
-```bat
-:: in a VS developer prompt, in ElegenceMain
-cmake --preset dev-release
-cmake --build build/dev-release --target elegence
-```
-
-Then, here:
-
 ```sh
 cargo run --example counter
-cargo run --example todos
+cargo run --example effects
 ```
 
-`ELEGENCE_ROOT` (default `../ElegenceMain`) and `ELEGENCE_BUILD_DIR` (default
-`$ELEGENCE_ROOT/build/dev-release`) point the build elsewhere. The build copies `elegence.dll` and
-its dependencies next to the built binaries.
+Elegence is linked statically by default: an app is one executable plus the DLLs Elegence's
+dependencies come in (copied next to the binaries). `elegence-sys`'s build script picks the
+Elegence build to link, in this order:
+
+1. `ELEGENCE_BUILD_DIR` (static) / `ELEGENCE_SHARED_BUILD_DIR` (the `dynamic` feature), if set;
+2. the `dev-release-static` / `dev-release` preset's tree in `$ELEGENCE_ROOT/build`, if it's built;
+3. otherwise it builds Elegence itself with CMake into `$ELEGENCE_ROOT/build/cargo-release-static`
+   (or `cargo-release`). The first build installs Elegence's vcpkg dependencies and takes a while
+   (`cargo build -vv` shows its progress); later builds only rebuild what changed in Elegence.
+
+For that build it finds vcpkg with the baseline `vcpkg.json` pins: `VCPKG_ROOT`, the `VCPKG_ROOT`
+Elegence's `CMakeUserPresets.json` sets, `vcpkg` on PATH, or else it clones and bootstraps its own
+into `ELEGENCE_VCPKG_DIR` (default `%LOCALAPPDATA%\elegence\vcpkg`, `~/.cache/elegence/vcpkg`).
+CMake (Elegence needs 4.3+) and Ninja come from `CMAKE`/`NINJA`, PATH, Visual Studio's bundled
+copies, or `vcpkg fetch`; MSVC's environment is found without a developer prompt. Set
+`ELEGENCE_AUTO_BUILD=0` to get an error instead. `ELEGENCE_ROOT` defaults to `../ElegenceMain`.
+The choice is made when the build script runs: if you build a preset tree after cargo has fallen
+back to its own, `cargo clean -p elegence-sys` to switch to it.
+
+To build the trees yourself (in a VS developer prompt, in ElegenceMain):
+
+```bat
+cmake --preset dev-release-static && cmake --build build/dev-release-static --target elegence
+cmake --preset dev-release && cmake --build build/dev-release --target elegence elegence-preview
+```
+
+Two requirements, which the automatic build and the presets handle: the shim passes `std::string`
+and `std::function` to Elegence, so Elegence must use the release C runtime (`/MD`) like Rust, not
+`dev-debug`'s `/MDd`; and a static Elegence needs `-DELG_ACCESSKIT_SHARED=ON`, since AccessKit's
+static library is a Rust staticlib whose own Rust standard library clashes with the app's.
 
 ## The `elg!` DSL
 
@@ -97,28 +113,49 @@ current directory.
 
 ## Previews and hot reload
 
-A library crate of views (`crate-type = ["cdylib", "rlib"]`) can be a views module for
-Elegence's preview host, which shows it and rebuilds and reloads it as you edit:
+Mark functions with `#[preview]` anywhere in an app; no library/binary split is needed:
 
 ```rust
-// src/lib.rs
 #[preview("Counter")]
 fn counter() -> impl IntoView {
     elg! { Counter() }
 }
 
-elegence::module!(Root); // or elegence::module!() for previews only
+#[preview(root)] // the whole app, for `--root`
+fn app() -> impl IntoView {
+    elg! { Root() }
+}
 ```
+
+Then run the preview host, which rebuilds and reloads the views as you edit:
 
 ```sh
-# build the host once (in ElegenceMain): cmake --build build/dev-release --target elegence-preview
-elegence-preview --module target/debug/my_views.dll --build "cargo build --lib" --watch src
-elegence-preview --root ...   # the module's root view instead of the previews
+cargo install --path cargo-elegence
+cargo elegence preview            # the previews
+cargo elegence preview --root     # the root view
+cargo elegence preview -p my-app --bin my-app --release
 ```
 
-`../mod-launcher` is set up this way (`preview.cmd`). Give the library its own name
-(`[lib] name = "..._views"`): a library and binary with the same name collide on their `.pdb` files.
-A reload rebuilds the views, so state in them starts over.
+`cargo elegence` builds the crate (its binary, or its library if it has no binary) a second time
+as a views module: a cdylib, with `elegence/preview` enabled, in `target/elegence-preview`. That
+build links the shared Elegence (`dynamic`), which the module and the host share. Without the
+`preview` feature, `#[preview]` functions register nothing, so the app itself carries no preview
+code. A reload rebuilds the views, so state in them starts over. `../mod-launcher` is set up this
+way.
+
+## Effects
+
+Materials, blur, color adjustments, blend modes, inner shadows and spread, elliptical and angular
+gradients, rotation/scale effects, and masks (see `examples/effects.rs`):
+
+```rust
+Text("Hi").padding(12).background_in(Material::THIN, RoundedRectangle(12))
+tile().grayscale(1).blend_mode(.multiply).rotation_effect(15.0)
+backdrop().mask(LinearGradient::colors([Color::BLACK, Color::CLEAR]))
+```
+
+`GpuImage` (`elegence::media`) shows frames another renderer (OpenGL, Vulkan, Direct3D) draws into
+shared, triple-buffered textures, e.g. a game or emulator embedded in a view.
 
 ## State
 

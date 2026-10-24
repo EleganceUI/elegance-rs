@@ -447,6 +447,72 @@ ELG_EXPORT View* elg_video_controls(const VideoPlayer* player) {
     ELG_CATCH(nullptr)
 }
 
+// --- GPU images (the app's own rendering) ---
+
+struct ElgGpuFrame {
+    uint32_t buffer;
+    uint32_t width;
+    uint32_t height;
+    void* texture;
+    void* fence;
+    uint64_t fence_value;
+    uint8_t adapter_luid[8];
+};
+
+// origin: GpuImage::Origin.
+ELG_EXPORT GpuImage* elg_gpu_image_new(uint32_t width, uint32_t height, int32_t origin) {
+    ELG_TRY
+    return new GpuImage({.width = width, .height = height, .origin = static_cast<GpuImage::Origin>(origin)});
+    ELG_CATCH(nullptr)
+}
+ELG_EXPORT GpuImage* elg_gpu_image_clone(const GpuImage* image) {
+    return new GpuImage(*image);
+}
+ELG_EXPORT void elg_gpu_image_free(GpuImage* image) {
+    delete image;
+}
+ELG_EXPORT bool elg_gpu_image_same(const GpuImage* a, const GpuImage* b) {
+    return *a == *b;
+}
+// False: no buffer (not yet, or not supported here).
+ELG_EXPORT bool elg_gpu_image_begin_frame(const GpuImage* image, ElgGpuFrame* frame) {
+    ELG_TRY
+    const std::optional<GpuImage::Frame> f = image->begin_frame();
+    if (!f) {
+        return false;
+    }
+    *frame = {f->buffer, f->width, f->height, f->texture, f->fence, f->fence_value, {}};
+    std::copy(f->adapter_luid.begin(), f->adapter_luid.end(), frame->adapter_luid);
+    return true;
+    ELG_CATCH(false)
+}
+// sync: GpuImage::Sync.
+ELG_EXPORT void elg_gpu_image_end_frame(const GpuImage* image, const ElgGpuFrame* frame, int32_t sync) {
+    ELG_TRY
+    GpuImage::Frame f;
+    f.buffer = frame->buffer;
+    f.width = frame->width;
+    f.height = frame->height;
+    f.texture = frame->texture;
+    f.fence = frame->fence;
+    f.fence_value = frame->fence_value;
+    std::copy(std::begin(frame->adapter_luid), std::end(frame->adapter_luid), f.adapter_luid.begin());
+    image->end_frame(f, static_cast<GpuImage::Sync>(sync));
+    ELG_CATCH_VOID
+}
+ELG_EXPORT ElgSize elg_gpu_image_size(const GpuImage* image) {
+    const Size s = image->size();
+    return {s.width, s.height};
+}
+ELG_EXPORT int32_t elg_gpu_image_origin(const GpuImage* image) {
+    return static_cast<int32_t>(image->origin());
+}
+ELG_EXPORT View* elg_gpu_image_view(const GpuImage* image, int32_t mode) {
+    ELG_TRY
+    return out(GpuImageView(*image, static_cast<ContentMode>(mode)));
+    ELG_CATCH(nullptr)
+}
+
 ELG_EXPORT VideoFeed* elg_video_feed_new() {
     ELG_TRY
     return new VideoFeed();

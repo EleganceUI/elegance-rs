@@ -19,11 +19,11 @@ use crate::color::Color;
 use crate::environment::EnvironmentValues;
 use crate::events::{EventResult, HoverDelay, KeyEvent, PointerEvent, ScrollEvent, TextInputEvent};
 use crate::ffi as cffi;
-use crate::geometry::{Alignment, ContentMode, EdgeInsets, ProposedSize, Rect, Size};
+use crate::geometry::{Alignment, ContentMode, EdgeInsets, ProposedSize, Rect, Size, UnitPoint};
 use crate::layout::LayoutChild;
 use crate::prop::{with_prop, IntoProp, Prop};
 use crate::shapes::Shape;
-use crate::view::{FrameOptions, Shadow, View, ViewExt};
+use crate::view::{BlendMode, ColorFilter, FrameOptions, Shadow, View, ViewExt};
 
 /// Anything `.modifier()` takes.
 pub trait Modifier {
@@ -54,6 +54,8 @@ pub enum Placement {
     Behind,
     /// An overlay.
     InFront,
+    /// Not drawn: its alpha masks the content.
+    Mask,
 }
 
 /// Adds a secondary view sized to the content, behind or in front of it. It doesn't affect
@@ -109,6 +111,68 @@ impl Effects {
     /// Hit test this shape (filling the bounds) instead of the drawn content.
     pub fn set_content_shape(&mut self, shape: Option<Shape>) {
         unsafe { sys::elg_effects_set_content_shape(self.ptr, shape.as_ref().map_or(std::ptr::null(), Shape::as_ptr)) }
+    }
+    /// A shadow inside the content, from its edges inward.
+    pub fn set_inner_shadow(&mut self, shadow: Option<Shadow>) {
+        let c = shadow.map(Shadow::c);
+        unsafe {
+            sys::elg_effects_set_inner_shadow(self.ptr, c.as_ref().map_or(std::ptr::null(), |s| s as *const sys::ElgShadow))
+        }
+    }
+    /// Gaussian blur radius in points; `opaque`: edges stay sharp.
+    pub fn set_blur(&mut self, radius: Option<Prop<f32>>, opaque: bool) {
+        match radius {
+            Some(r) => with_prop(r, |p| crate::error::ffi!(sys::elg_effects_set_blur(self.ptr, &p, opaque))),
+            None => crate::error::ffi!(sys::elg_effects_set_blur(self.ptr, std::ptr::null(), opaque)),
+        }
+    }
+    pub fn set_color_filter(&mut self, filter: Option<ColorFilter>) {
+        match filter {
+            Some(f) => f.with_c(|kind, amount, color| {
+                crate::error::ffi!(sys::elg_effects_set_color_filter(self.ptr, kind, amount, color))
+            }),
+            None => with_prop(Prop::Value(1.0), |amount| {
+                with_prop(Prop::Value(Color::WHITE), |color| {
+                    crate::error::ffi!(sys::elg_effects_set_color_filter(self.ptr, -1, amount, color))
+                })
+            }),
+        }
+    }
+    pub fn blend_mode(&self) -> BlendMode {
+        BlendMode::from_c(unsafe { sys::elg_effects_blend_mode(self.ptr) })
+    }
+    pub fn set_blend_mode(&mut self, mode: BlendMode) {
+        unsafe { sys::elg_effects_set_blend_mode(self.ptr, mode as i32) }
+    }
+    /// Drawn offscreen first even when nothing else needs it.
+    pub fn compositing_group(&self) -> bool {
+        unsafe { sys::elg_effects_compositing_group(self.ptr) }
+    }
+    pub fn set_compositing_group(&mut self, group: bool) {
+        unsafe { sys::elg_effects_set_compositing_group(self.ptr, group) }
+    }
+    /// Rotation of the drawn content, in degrees clockwise, about the anchor.
+    pub fn set_rotation(&mut self, degrees: Option<Prop<f32>>) {
+        match degrees {
+            Some(d) => with_prop(d, |p| crate::error::ffi!(sys::elg_effects_set_rotation(self.ptr, &p))),
+            None => crate::error::ffi!(sys::elg_effects_set_rotation(self.ptr, std::ptr::null())),
+        }
+    }
+    /// Scale of the drawn content about the anchor, per axis.
+    pub fn set_scale(&mut self, scale: Option<(Prop<f32>, Prop<f32>)>) {
+        match scale {
+            Some((x, y)) => with_prop(x, |px| {
+                with_prop(y, |py| crate::error::ffi!(sys::elg_effects_set_scale(self.ptr, &px, &py)))
+            }),
+            None => crate::error::ffi!(sys::elg_effects_set_scale(self.ptr, std::ptr::null(), std::ptr::null())),
+        }
+    }
+    /// What rotation and scale pivot around.
+    pub fn anchor(&self) -> UnitPoint {
+        UnitPoint::from_c(unsafe { sys::elg_effects_anchor(self.ptr) })
+    }
+    pub fn set_anchor(&mut self, anchor: UnitPoint) {
+        unsafe { sys::elg_effects_set_anchor(self.ptr, anchor.c()) }
     }
     pub fn allows_hit_testing(&self) -> bool {
         unsafe { sys::elg_effects_allows_hit_testing(self.ptr) }
@@ -242,9 +306,9 @@ fn layout_modifier(content: View, m: impl LayoutModifier) -> View {
 }
 
 fn decoration_modifier(content: View, m: impl DecorationModifier) -> View {
-    let (in_front, alignment) = (m.placement() == Placement::InFront, m.alignment().c());
+    let (placement, alignment) = (m.placement() as i32, m.alignment().c());
     let decoration = cffi::closure(move |_, ret| unsafe { m.decoration().write_into(ret) });
-    content.modify(|v| unsafe { sys::elg_mod_rust_decoration_modifier(v, decoration, in_front, alignment) })
+    content.modify(|v| unsafe { sys::elg_mod_rust_decoration_modifier(v, decoration, placement, alignment) })
 }
 
 pub(crate) fn environment_modifier(content: View, apply: impl Fn(&mut EnvironmentValues) + 'static) -> View {

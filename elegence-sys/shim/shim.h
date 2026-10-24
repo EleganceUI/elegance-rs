@@ -83,7 +83,9 @@ struct ElgGradientStop {
 };
 
 // kind 0: color; 1: linear gradient from (x0, y0) to (x1, y1); 2: radial gradient around (x0, y0)
-// from radius r0 to r1.
+// from radius r0 to r1; 3: elliptical gradient around (x0, y0) from radius fraction r0 to r1;
+// 4: angular gradient around (x0, y0) from angle r0 to r1 (degrees); 5: material: `color` is its
+// tint, `dark_tint` (when has_dark_tint) the tint in dark mode.
 struct ElgShapeStyle {
     int32_t kind;
     ElgColor color;
@@ -91,6 +93,9 @@ struct ElgShapeStyle {
     size_t stop_count;
     float x0, y0, x1, y1;
     float r0, r1;
+    float blur, saturation, noise;
+    bool has_dark_tint;
+    ElgColor dark_tint;
 };
 
 // A reactive argument. kind 0: `value` points at the static value (its C form); 1: `fn` returns
@@ -161,6 +166,7 @@ struct ElgHoverDelay {
 struct ElgShadow {
     ElgColor color;
     float radius, x, y;
+    float spread;
 };
 
 struct ElgStrokeStyle {
@@ -385,8 +391,23 @@ inline elg::ShapeStyle shape_style(const ElgShapeStyle& s) {
     switch (s.kind) {
     case 1: return elg::LinearGradient(stops(s), elg::UnitPoint{s.x0, s.y0}, elg::UnitPoint{s.x1, s.y1});
     case 2: return elg::RadialGradient(stops(s), elg::UnitPoint{s.x0, s.y0}, s.r0, s.r1);
+    case 3: return elg::EllipticalGradient(stops(s), elg::UnitPoint{s.x0, s.y0}, s.r0, s.r1);
+    case 4: return elg::AngularGradient(stops(s), elg::UnitPoint{s.x0, s.y0}, s.r0, s.r1);
+    case 5: {
+        elg::Material material;
+        material.blur = s.blur;
+        material.saturation = s.saturation;
+        material.tint = color(s.color);
+        material.dark_tint = s.has_dark_tint ? std::optional<elg::Color>(color(s.dark_tint)) : std::nullopt;
+        material.noise = s.noise;
+        return material;
+    }
     default: return color(s.color);
     }
+}
+
+inline elg::UnitPoint unit_point(ElgPoint p) {
+    return {p.x, p.y};
 }
 
 inline elg::HoverDelay hover_delay(ElgHoverDelay d) {
@@ -394,7 +415,7 @@ inline elg::HoverDelay hover_delay(ElgHoverDelay d) {
 }
 
 inline elg::Shadow shadow(ElgShadow s) {
-    return {color(s.color), s.radius, s.x, s.y};
+    return {color(s.color), s.radius, s.x, s.y, s.spread};
 }
 
 inline elg::StrokeStyle stroke_style(const ElgStrokeStyle& s) {

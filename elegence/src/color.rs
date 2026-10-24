@@ -277,12 +277,129 @@ impl RadialGradient {
     }
 }
 
-/// How a shape or background is filled: a color or a gradient.
+/// Colors blend outward from `center` along ellipses shaped like the filled bounds. The radii are
+/// fractions of the bounds' size: 0.5 reaches the middle of each edge.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EllipticalGradient {
+    pub stops: Vec<GradientStop>,
+    pub center: UnitPoint,
+    pub start_radius_fraction: f32,
+    pub end_radius_fraction: f32,
+}
+
+impl EllipticalGradient {
+    pub fn new(stops: Vec<GradientStop>, center: UnitPoint, start_radius_fraction: f32, end_radius_fraction: f32) -> Self {
+        Self { stops, center, start_radius_fraction, end_radius_fraction }
+    }
+    /// Evenly spaced colors from the center out to the edges.
+    pub fn colors(colors: impl IntoIterator<Item = Color>) -> Self {
+        Self::new(even_stops(colors), UnitPoint::CENTER, 0.0, 0.5)
+    }
+}
+
+/// Colors sweep around `center` (a conic gradient), clockwise from `start_angle` to `end_angle`,
+/// in degrees; 0 points trailing (right), 90 down.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AngularGradient {
+    pub stops: Vec<GradientStop>,
+    pub center: UnitPoint,
+    pub start_angle: f32,
+    pub end_angle: f32,
+}
+
+impl AngularGradient {
+    pub fn new(stops: Vec<GradientStop>, center: UnitPoint, start_angle: f32, end_angle: f32) -> Self {
+        Self { stops, center, start_angle, end_angle }
+    }
+    /// Evenly spaced colors, a full turn around the center.
+    pub fn colors(colors: impl IntoIterator<Item = Color>) -> Self {
+        Self::new(even_stops(colors), UnitPoint::CENTER, 0.0, 360.0)
+    }
+    pub fn angles(mut self, start: f32, end: f32) -> Self {
+        self.start_angle = start;
+        self.end_angle = end;
+        self
+    }
+}
+
+/// Frosted glass: the shape shows what's drawn behind it in the window, blurred, with its colors
+/// boosted, under a translucent tint and a little grain. The presets follow the color scheme:
+///
+/// ```ignore
+/// Text("Now playing").padding(12).background_in(Material::REGULAR, RoundedRectangle(12))
+/// Rectangle().fill(.thin_material)
+/// ```
+///
+/// Inside an offscreen group (opacity below 1, a shadow, a blur, ...) a material sees only what
+/// the group drew behind it, as CSS's backdrop-filter does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Material {
+    /// Blur radius in points.
+    pub blur: f32,
+    /// Of what shows through; 1 keeps the colors.
+    pub saturation: f32,
+    pub tint: Color,
+    /// The tint in dark mode; `None` uses `tint` in both.
+    pub dark_tint: Option<Color>,
+    /// Grain, 0...1, so smooth gradients don't band.
+    pub noise: f32,
+}
+
+impl Default for Material {
+    fn default() -> Self {
+        Self::REGULAR
+    }
+}
+
+impl Material {
+    const fn preset(blur: f32, light_alpha: f32, dark_alpha: f32) -> Self {
+        Self {
+            blur,
+            saturation: 1.8,
+            tint: Color::new(0.97, 0.97, 0.98, light_alpha),
+            dark_tint: Some(Color::new(0.11, 0.11, 0.12, dark_alpha)),
+            noise: 0.02,
+        }
+    }
+    pub const ULTRA_THIN: Material = Material::preset(24.0, 0.2, 0.3);
+    pub const THIN: Material = Material::preset(28.0, 0.38, 0.45);
+    pub const REGULAR: Material = Material::preset(30.0, 0.55, 0.6);
+    pub const THICK: Material = Material::preset(36.0, 0.72, 0.74);
+    pub const ULTRA_THICK: Material = Material::preset(40.0, 0.86, 0.86);
+
+    pub fn blur(mut self, radius: f32) -> Self {
+        self.blur = radius;
+        self
+    }
+    pub fn saturation(mut self, saturation: f32) -> Self {
+        self.saturation = saturation;
+        self
+    }
+    /// The tint in both color schemes.
+    pub fn tint(mut self, tint: impl Into<Color>) -> Self {
+        self.tint = tint.into();
+        self.dark_tint = None;
+        self
+    }
+    pub fn dark_tint(mut self, tint: impl Into<Color>) -> Self {
+        self.dark_tint = Some(tint.into());
+        self
+    }
+    pub fn noise(mut self, noise: f32) -> Self {
+        self.noise = noise;
+        self
+    }
+}
+
+/// How a shape or background is filled: a color, a gradient, or a material.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeStyle {
     Color(Color),
     Linear(LinearGradient),
     Radial(RadialGradient),
+    Elliptical(EllipticalGradient),
+    Angular(AngularGradient),
+    Material(Material),
 }
 
 impl From<Color> for ShapeStyle {
@@ -300,6 +417,25 @@ impl From<RadialGradient> for ShapeStyle {
         ShapeStyle::Radial(g)
     }
 }
+impl From<EllipticalGradient> for ShapeStyle {
+    fn from(g: EllipticalGradient) -> Self {
+        ShapeStyle::Elliptical(g)
+    }
+}
+impl From<AngularGradient> for ShapeStyle {
+    fn from(g: AngularGradient) -> Self {
+        ShapeStyle::Angular(g)
+    }
+}
+impl From<Material> for ShapeStyle {
+    fn from(m: Material) -> Self {
+        ShapeStyle::Material(m)
+    }
+}
+
+fn c_stops(stops: &[GradientStop]) -> Vec<sys::ElgGradientStop> {
+    stops.iter().map(|s| sys::ElgGradientStop { color: s.color.c(), location: s.location }).collect()
+}
 
 impl ShapeStyle {
     /// Calls `f` with the C form (valid for the call).
@@ -315,25 +451,48 @@ impl ShapeStyle {
             y1: 0.0,
             r0: 0.0,
             r1: 0.0,
+            blur: 0.0,
+            saturation: 0.0,
+            noise: 0.0,
+            has_dark_tint: false,
+            dark_tint: sys::ElgColor::default(),
         };
-        let stops: Vec<sys::ElgGradientStop>;
-        match self {
-            ShapeStyle::Color(color) => c.color = color.c(),
+        let stops = match self {
+            ShapeStyle::Color(color) => {
+                c.color = color.c();
+                Vec::new()
+            }
             ShapeStyle::Linear(g) => {
-                stops = g.stops.iter().map(|s| sys::ElgGradientStop { color: s.color.c(), location: s.location }).collect();
                 c.kind = 1;
-                c.stops = stops.as_ptr();
-                c.stop_count = stops.len();
                 (c.x0, c.y0, c.x1, c.y1) = (g.start.x, g.start.y, g.end.x, g.end.y);
+                c_stops(&g.stops)
             }
             ShapeStyle::Radial(g) => {
-                stops = g.stops.iter().map(|s| sys::ElgGradientStop { color: s.color.c(), location: s.location }).collect();
                 c.kind = 2;
-                c.stops = stops.as_ptr();
-                c.stop_count = stops.len();
                 (c.x0, c.y0, c.r0, c.r1) = (g.center.x, g.center.y, g.start_radius, g.end_radius);
+                c_stops(&g.stops)
             }
-        }
+            ShapeStyle::Elliptical(g) => {
+                c.kind = 3;
+                (c.x0, c.y0, c.r0, c.r1) = (g.center.x, g.center.y, g.start_radius_fraction, g.end_radius_fraction);
+                c_stops(&g.stops)
+            }
+            ShapeStyle::Angular(g) => {
+                c.kind = 4;
+                (c.x0, c.y0, c.r0, c.r1) = (g.center.x, g.center.y, g.start_angle, g.end_angle);
+                c_stops(&g.stops)
+            }
+            ShapeStyle::Material(m) => {
+                c.kind = 5;
+                (c.blur, c.saturation, c.noise, c.color) = (m.blur, m.saturation, m.noise, m.tint.c());
+                if let Some(dark) = m.dark_tint {
+                    (c.has_dark_tint, c.dark_tint) = (true, dark.c());
+                }
+                Vec::new()
+            }
+        };
+        c.stops = stops.as_ptr();
+        c.stop_count = stops.len();
         f(&c)
     }
 }

@@ -80,6 +80,8 @@ opaque!(
     Camera,
     /// `elg::VideoPlayer`
     VideoPlayer,
+    /// `elg::GpuImage`
+    GpuImage,
     /// `elg::VideoFeed`
     VideoFeed,
     /// `elg::http::Task`
@@ -149,11 +151,7 @@ impl ElgBytes {
     /// # Safety
     /// The pointer must be valid for `len` bytes, for `'a`.
     pub unsafe fn as_slice<'a>(&self) -> &'a [u8] {
-        if self.ptr.is_null() {
-            &[]
-        } else {
-            std::slice::from_raw_parts(self.ptr, self.len)
-        }
+        if self.ptr.is_null() { &[] } else { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
@@ -233,6 +231,11 @@ pub struct ElgShapeStyle {
     pub y1: f32,
     pub r0: f32,
     pub r1: f32,
+    pub blur: f32,
+    pub saturation: f32,
+    pub noise: f32,
+    pub has_dark_tint: bool,
+    pub dark_tint: ElgColor,
 }
 
 #[repr(C)]
@@ -331,6 +334,33 @@ pub struct ElgShadow {
     pub radius: f32,
     pub x: f32,
     pub y: f32,
+    pub spread: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct ElgGpuFrame {
+    pub buffer: u32,
+    pub width: u32,
+    pub height: u32,
+    pub texture: *mut c_void,
+    pub fence: *mut c_void,
+    pub fence_value: u64,
+    pub adapter_luid: [u8; 8],
+}
+
+impl Default for ElgGpuFrame {
+    fn default() -> Self {
+        Self {
+            buffer: 0,
+            width: 0,
+            height: 0,
+            texture: std::ptr::null_mut(),
+            fence: std::ptr::null_mut(),
+            fence_value: 0,
+            adapter_luid: [0; 8],
+        }
+    }
 }
 
 #[repr(C)]
@@ -944,7 +974,12 @@ extern "C" {
         border_width: f32,
     );
     pub fn elg_gc_fill_path(gc: *mut GraphicsContext, path: *const Path, style: *const ElgShapeStyle, rule: i32);
-    pub fn elg_gc_stroke_path(gc: *mut GraphicsContext, path: *const Path, color: ElgColor, style: *const ElgStrokeStyle);
+    pub fn elg_gc_stroke_path(
+        gc: *mut GraphicsContext,
+        path: *const Path,
+        color: ElgColor,
+        style: *const ElgStrokeStyle,
+    );
     pub fn elg_gc_push_clip(gc: *mut GraphicsContext, rect: ElgRect, radii: *const f32);
     pub fn elg_gc_pop_clip(gc: *mut GraphicsContext);
 
@@ -990,6 +1025,15 @@ extern "C" {
     pub fn elg_mod_corner_radius(v: *const View, radius: f32) -> *mut View;
     pub fn elg_mod_opacity(v: *const View, opacity: ElgProp) -> *mut View;
     pub fn elg_mod_shadow(v: *const View, shadow: ElgShadow) -> *mut View;
+    pub fn elg_mod_inner_shadow(v: *const View, shadow: ElgShadow) -> *mut View;
+    pub fn elg_mod_blur(v: *const View, radius: ElgProp, opaque: bool) -> *mut View;
+    pub fn elg_mod_color_filter(v: *const View, kind: i32, amount: ElgProp, color: ElgProp) -> *mut View;
+    pub fn elg_mod_blend_mode(v: *const View, mode: i32) -> *mut View;
+    pub fn elg_mod_compositing_group(v: *const View) -> *mut View;
+    pub fn elg_mod_rotation_effect(v: *const View, degrees: ElgProp, anchor: ElgPoint) -> *mut View;
+    pub fn elg_mod_scale_effect(v: *const View, x: ElgProp, y: *const ElgProp, anchor: ElgPoint) -> *mut View;
+    pub fn elg_mod_mask(v: *const View, take_mask: *mut View, alignment: ElgAlignment) -> *mut View;
+    pub fn elg_mod_mask_style(v: *const View, style: ElgProp) -> *mut View;
     pub fn elg_mod_content_shape(v: *const View, shape: *const Shape) -> *mut View;
     pub fn elg_mod_allows_hit_testing(v: *const View, enabled: bool) -> *mut View;
     pub fn elg_mod_on_tap_gesture(v: *const View, on_tap: ElgClosure, count: i32) -> *mut View;
@@ -1120,7 +1164,7 @@ extern "C" {
     pub fn elg_mod_rust_decoration_modifier(
         v: *const View,
         decoration: ElgClosure,
-        in_front: bool,
+        placement: i32,
         alignment: ElgAlignment,
     ) -> *mut View;
     pub fn elg_mod_rust_environment_modifier(v: *const View, apply: ElgClosure) -> *mut View;
@@ -1134,6 +1178,17 @@ extern "C" {
     pub fn elg_effects_set_offset(e: *mut Effects, x: ElgProp, y: ElgProp);
     pub fn elg_effects_set_z_index(e: *mut Effects, z: *const ElgProp);
     pub fn elg_effects_set_content_shape(e: *mut Effects, shape: *const Shape);
+    pub fn elg_effects_set_inner_shadow(e: *mut Effects, shadow: *const ElgShadow);
+    pub fn elg_effects_set_blur(e: *mut Effects, radius: *const ElgProp, opaque: bool);
+    pub fn elg_effects_set_color_filter(e: *mut Effects, kind: i32, amount: ElgProp, color: ElgProp);
+    pub fn elg_effects_blend_mode(e: *const Effects) -> i32;
+    pub fn elg_effects_set_blend_mode(e: *mut Effects, mode: i32);
+    pub fn elg_effects_compositing_group(e: *const Effects) -> bool;
+    pub fn elg_effects_set_compositing_group(e: *mut Effects, group: bool);
+    pub fn elg_effects_set_rotation(e: *mut Effects, degrees: *const ElgProp);
+    pub fn elg_effects_set_scale(e: *mut Effects, x: *const ElgProp, y: *const ElgProp);
+    pub fn elg_effects_anchor(e: *const Effects) -> ElgPoint;
+    pub fn elg_effects_set_anchor(e: *mut Effects, anchor: ElgPoint);
     pub fn elg_effects_allows_hit_testing(e: *const Effects) -> bool;
     pub fn elg_effects_set_allows_hit_testing(e: *mut Effects, enabled: bool);
 
@@ -1220,6 +1275,15 @@ extern "C" {
     pub fn elg_video_player_binding(player: *const VideoPlayer, which: i32) -> *mut BindingF32;
     pub fn elg_video_view(player: *const VideoPlayer, mode: i32) -> *mut View;
     pub fn elg_video_controls(player: *const VideoPlayer) -> *mut View;
+    pub fn elg_gpu_image_new(width: u32, height: u32, origin: i32) -> *mut GpuImage;
+    pub fn elg_gpu_image_clone(image: *const GpuImage) -> *mut GpuImage;
+    pub fn elg_gpu_image_free(image: *mut GpuImage);
+    pub fn elg_gpu_image_same(a: *const GpuImage, b: *const GpuImage) -> bool;
+    pub fn elg_gpu_image_begin_frame(image: *const GpuImage, frame: *mut ElgGpuFrame) -> bool;
+    pub fn elg_gpu_image_end_frame(image: *const GpuImage, frame: *const ElgGpuFrame, sync: i32);
+    pub fn elg_gpu_image_size(image: *const GpuImage) -> ElgSize;
+    pub fn elg_gpu_image_origin(image: *const GpuImage) -> i32;
+    pub fn elg_gpu_image_view(image: *const GpuImage, mode: i32) -> *mut View;
     pub fn elg_video_feed_new() -> *mut VideoFeed;
     pub fn elg_video_feed_clone(feed: *const VideoFeed) -> *mut VideoFeed;
     pub fn elg_video_feed_free(feed: *mut VideoFeed);

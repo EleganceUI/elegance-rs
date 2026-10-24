@@ -929,6 +929,46 @@ ELG_EXPORT View* elg_mod_opacity(const View* v, ElgProp opacity) {
 ELG_EXPORT View* elg_mod_shadow(const View* v, ElgShadow s) {
     MOD_TRY(v->shadow(shadow(s)))
 }
+ELG_EXPORT View* elg_mod_inner_shadow(const View* v, ElgShadow s) {
+    MOD_TRY(v->inner_shadow(shadow(s)))
+}
+ELG_EXPORT View* elg_mod_blur(const View* v, ElgProp radius, bool opaque) {
+    MOD_TRY(v->blur(prop<float>(radius), opaque))
+}
+// kind: ColorFilter::Kind. `amount` (unused for multiply, luminance_to_alpha), `color` (multiply only).
+ELG_EXPORT View* elg_mod_color_filter(const View* v, int32_t kind, ElgProp amount, ElgProp c) {
+    ELG_TRY
+    ColorFilter filter;
+    filter.kind = static_cast<ColorFilter::Kind>(kind);
+    filter.amount = prop<float>(amount);
+    filter.color = prop<Color>(c);
+    return out(v->modifier(ColorFilterModifier(std::move(filter))));
+    ELG_CATCH(nullptr)
+}
+ELG_EXPORT View* elg_mod_blend_mode(const View* v, int32_t mode) {
+    MOD_TRY(v->blend_mode(static_cast<BlendMode>(mode)))
+}
+ELG_EXPORT View* elg_mod_compositing_group(const View* v) {
+    MOD_TRY(v->compositing_group())
+}
+ELG_EXPORT View* elg_mod_rotation_effect(const View* v, ElgProp degrees, ElgPoint anchor) {
+    MOD_TRY(v->rotation_effect(prop<float>(degrees), unit_point(anchor)))
+}
+// `y` null: a uniform scale by `x`.
+ELG_EXPORT View* elg_mod_scale_effect(const View* v, ElgProp x, const ElgProp* y, ElgPoint anchor) {
+    ELG_TRY
+    if (!y) {
+        return out(v->scale_effect(prop<float>(x), unit_point(anchor)));
+    }
+    return out(v->scale_effect(prop<float>(x), prop<float>(*y), unit_point(anchor)));
+    ELG_CATCH(nullptr)
+}
+ELG_EXPORT View* elg_mod_mask(const View* v, View* take_mask, ElgAlignment a) {
+    MOD_TRY(v->mask(take(take_mask), alignment(a)))
+}
+ELG_EXPORT View* elg_mod_mask_style(const View* v, ElgProp style) {
+    MOD_TRY(v->mask(prop<ShapeStyle>(style)))
+}
 ELG_EXPORT View* elg_mod_content_shape(const View* v, const Shape* shape) {
     MOD_TRY(v->content_shape(*shape))
 }
@@ -1246,7 +1286,7 @@ ELG_EXPORT View* elg_hot_reload(ElgStr module, ElgStr build_command, const ElgSt
 
 // --- Views modules (hot reload and previews) ---
 //
-// A Rust views library exports elg_module_entry (elegence::module!), which calls this. The entry
+// A Rust views module exports elg_module_entry (elegence's `preview` feature), which calls this. The entry
 // holds plain `View (*)()` functions, so each preview gets a thunk from a fixed table that calls
 // back into Rust with its index (-1: the root view).
 

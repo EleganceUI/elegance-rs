@@ -40,9 +40,9 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
     component::expand(attr.into(), item.into()).into()
 }
 
-/// Registers a preview for the preview host (`elegence-preview`), named by the argument or the
-/// function. The function takes nothing and returns a view; the crate exports
-/// `elegence::module!(...)`.
+/// Registers a preview for the preview host (`cargo elegence preview`), named by the argument or
+/// the function; `#[preview(root)]` marks the app's root view instead (`--root`). The function
+/// takes nothing and returns a view. Only preview builds register previews.
 ///
 /// ```ignore
 /// #[preview("Counter at 5")]

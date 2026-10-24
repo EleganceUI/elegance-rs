@@ -1,11 +1,12 @@
-// #[preview] / #[preview("Name")] fn name() -> impl IntoView { ... }
+// #[preview] / #[preview("Name")] / #[preview(root)] fn name() -> impl IntoView { ... }
 //
-// keeps the function and registers it with the module's previews (by `inventory`, as
-// ELG_PREVIEW registers at static-init time in C++).
+// keeps the function and registers it with the views module (by `inventory`, as ELG_PREVIEW
+// registers at static-init time in C++). The registration is `elegence::__preview!`, which only
+// preview builds (the `preview` feature) expand, so apps don't carry their previews.
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::{ItemFn, LitStr};
+use quote::quote;
+use syn::{Ident, ItemFn, LitStr};
 
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     match expand_inner(attr, item) {
@@ -20,19 +21,21 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
         return Err(syn::Error::new_spanned(&function.sig, "a preview takes no arguments: `fn name() -> impl IntoView`"));
     }
     let ident = &function.sig.ident;
-    let name = if attr.is_empty() { ident.to_string() } else { syn::parse2::<LitStr>(attr)?.value() };
-    let body = format_ident!("__elg_preview_{}", ident);
+    let (name, root) = if attr.is_empty() {
+        (ident.to_string(), false)
+    } else if let Ok(marker) = syn::parse2::<Ident>(attr.clone()) {
+        if marker != "root" {
+            return Err(syn::Error::new_spanned(marker, "expected a name (`#[preview(\"Name\")]`) or `root`"));
+        }
+        (ident.to_string(), true)
+    } else {
+        (syn::parse2::<LitStr>(attr)?.value(), false)
+    };
     Ok(quote! {
+        // Only previews use it; ordinary builds leave them out.
+        #[allow(dead_code)]
         #function
 
-        #[doc(hidden)]
-        #[allow(non_snake_case)]
-        fn #body() -> ::elegence::View {
-            ::elegence::IntoView::into_view(#ident())
-        }
-
-        ::elegence::__private::inventory::submit! {
-            ::elegence::__private::PreviewItem { name: #name, body: #body, file: ::std::file!(), line: ::std::line!() }
-        }
+        ::elegence::__preview!(#name, #root, #ident);
     })
 }

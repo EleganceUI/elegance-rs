@@ -665,3 +665,167 @@ impl IntoView for VideoFeedView {
         View::from_raw(ffi!(sys::elg_video_feed_view(self.feed.as_ptr(), self.mode as i32, self.mirrored)))
     }
 }
+
+/// Where the app's first row goes in a [`GpuImage`]. OpenGL draws the bottom row first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum GpuImageOrigin {
+    #[default]
+    TopLeft,
+    BottomLeft,
+}
+
+/// How [`GpuImage::end_frame`] learns the drawing is done.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum GpuImageSync {
+    /// The app signals the frame's fence to `fence_value` (GPU to GPU, no waiting).
+    #[default]
+    Fence,
+    /// The app's GPU work on it has completed (e.g. after `glFinish`).
+    Finished,
+}
+
+/// A buffer of a [`GpuImage`] to draw the next frame into.
+#[derive(Clone, Copy, Debug)]
+pub struct GpuFrame {
+    /// 0 ... [`GpuImage::BUFFERS`] - 1. Its handles never change: import each once.
+    pub buffer: u32,
+    pub width: u32,
+    pub height: u32,
+    /// Windows: an NT handle to an `ID3D11Texture2D` the image owns (don't close it):
+    /// `GL_HANDLE_TYPE_D3D11_IMAGE_EXT`, `VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT`.
+    pub texture: *mut std::ffi::c_void,
+    /// The image's fence (the same for every frame): `GL_HANDLE_TYPE_D3D12_FENCE_EXT`,
+    /// `VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT`.
+    pub fence: *mut std::ffi::c_void,
+    /// [`GpuImageSync::Fence`]: signal the fence to this when drawn.
+    pub fence_value: u64,
+    /// The GPU the renderer uses: draw on the same one.
+    pub adapter_luid: [u8; 8],
+}
+
+impl GpuFrame {
+    fn from_c(f: sys::ElgGpuFrame) -> Self {
+        Self {
+            buffer: f.buffer,
+            width: f.width,
+            height: f.height,
+            texture: f.texture,
+            fence: f.fence,
+            fence_value: f.fence_value,
+            adapter_luid: f.adapter_luid,
+        }
+    }
+    fn c(&self) -> sys::ElgGpuFrame {
+        sys::ElgGpuFrame {
+            buffer: self.buffer,
+            width: self.width,
+            height: self.height,
+            texture: self.texture,
+            fence: self.fence,
+            fence_value: self.fence_value,
+            adapter_luid: self.adapter_luid,
+        }
+    }
+}
+
+/// An image the app renders with its own GPU code (OpenGL, Vulkan, Direct3D), shown by
+/// `GpuImageView` without copies:
+///
+/// ```ignore
+/// let image = GpuImage::new(512, 512, GpuImageOrigin::BottomLeft)?;
+/// // in the UI:  GpuImageView(&image)
+/// // on the app's render thread, every frame:
+/// if let Some(frame) = image.begin_frame() {
+///     // import frame.texture once per frame.buffer, draw into it, then signal frame.fence to
+///     // frame.fence_value from the same GPU queue
+///     image.end_frame(&frame, GpuImageSync::Fence);
+/// }
+/// ```
+///
+/// The image has a few buffers, so the app draws the next frame while the renderer shows the
+/// last. Windows shares them as Direct3D 11 textures (`DXGI_FORMAT_R8G8B8A8_UNORM`, gamma-encoded
+/// like sRGB) and a shared D3D fence, which OpenGL, Vulkan, and Direct3D 11/12 can all import.
+/// Other platforms don't support it yet: `begin_frame` gives nothing.
+pub struct GpuImage {
+    ptr: NonNull<sys::GpuImage>,
+}
+handle!(GpuImage, GpuImage, elg_gpu_image_clone, elg_gpu_image_free);
+unsafe impl Send for GpuImage {}
+unsafe impl Sync for GpuImage {}
+
+impl PartialEq for GpuImage {
+    fn eq(&self, other: &Self) -> bool {
+        unsafe { sys::elg_gpu_image_same(self.as_ptr(), other.as_ptr()) }
+    }
+}
+
+impl GpuImage {
+    /// How many buffers an image has.
+    pub const BUFFERS: u32 = 3;
+
+    /// An image of `width` x `height` pixels.
+    pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<GpuImage, Error> {
+        Self::from_raw(unsafe { sys::elg_gpu_image_new(width, height, origin as i32) })
+    }
+    /// A buffer the renderer isn't reading, once the renderer's GPU is known (from the first frame
+    /// of a window), or `None`: not yet, or not supported here. May wait for the GPU to finish
+    /// reading the buffer. One thread draws: call `begin_frame` and `end_frame` from it.
+    pub fn begin_frame(&self) -> Option<GpuFrame> {
+        let mut frame = sys::ElgGpuFrame::default();
+        let ready = unsafe { sys::elg_gpu_image_begin_frame(self.as_ptr(), &mut frame) };
+        crate::error::check();
+        ready.then(|| GpuFrame::from_c(frame))
+    }
+    /// Shows the frame, next time windows showing the image draw.
+    pub fn end_frame(&self, frame: &GpuFrame, sync: GpuImageSync) {
+        let c = frame.c();
+        ffi!(sys::elg_gpu_image_end_frame(self.as_ptr(), &c, sync as i32));
+    }
+    /// In pixels.
+    pub fn size(&self) -> Size {
+        Size::from_c(unsafe { sys::elg_gpu_image_size(self.as_ptr()) })
+    }
+    pub fn origin(&self) -> GpuImageOrigin {
+        match unsafe { sys::elg_gpu_image_origin(self.as_ptr()) } {
+            1 => GpuImageOrigin::BottomLeft,
+            _ => GpuImageOrigin::TopLeft,
+        }
+    }
+}
+
+/// A [`GpuImage`], fitted into (or filling, clipped to) the space offered, on black. Its ideal
+/// size is the image's own.
+pub struct GpuImageView {
+    image: GpuImage,
+    mode: ContentMode,
+}
+
+impl GpuImageView {
+    pub fn new(image: &GpuImage) -> Self {
+        Self { image: image.clone(), mode: ContentMode::Fit }
+    }
+    pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
+        self.mode = mode.into();
+        self
+    }
+}
+
+impl ElgNew<(&GpuImage,)> for GpuImageView {
+    type Out = GpuImageView;
+    fn elg_new((image,): (&GpuImage,)) -> Self {
+        GpuImageView::new(image)
+    }
+}
+
+impl ElgNew<(GpuImage,)> for GpuImageView {
+    type Out = GpuImageView;
+    fn elg_new((image,): (GpuImage,)) -> Self {
+        GpuImageView { image, mode: ContentMode::Fit }
+    }
+}
+
+impl IntoView for GpuImageView {
+    fn into_view(self) -> View {
+        View::from_raw(ffi!(sys::elg_gpu_image_view(self.image.as_ptr(), self.mode as i32)))
+    }
+}

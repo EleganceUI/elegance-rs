@@ -348,6 +348,13 @@ impl UnitPoint {
     pub const TOP_TRAILING: Self = Self::new(1.0, 0.0);
     pub const BOTTOM_LEADING: Self = Self::new(0.0, 1.0);
     pub const BOTTOM_TRAILING: Self = Self::new(1.0, 1.0);
+
+    pub(crate) fn c(self) -> sys::ElgPoint {
+        sys::ElgPoint { x: self.x, y: self.y }
+    }
+    pub(crate) fn from_c(p: sys::ElgPoint) -> Self {
+        Self { x: p.x, y: p.y }
+    }
 }
 
 /// How content with an aspect ratio fills space.

@@ -14,8 +14,8 @@ use crate::error::ffi;
 use crate::events::{HoverDelay, Key, KeyEvent};
 use crate::ffi as cffi;
 use crate::font::{Font, Weight};
-use crate::geometry::{Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size};
-use crate::prop::{with_prop, IntoProp};
+use crate::geometry::{Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size, UnitPoint};
+use crate::prop::{with_prop, IntoProp, Prop};
 use crate::reactive::Binding;
 use crate::shapes::Shape;
 use crate::styles::{IntoButtonStyle, IntoTextFieldStyle, IntoToggleStyle};
@@ -211,18 +211,134 @@ impl PopoverOptions {
     }
 }
 
-/// A drop shadow: `radius` is the blur radius in points, (x, y) the offset.
+/// A drop shadow: `radius` is the blur radius in points, (x, y) the offset. `spread` grows (or,
+/// negative, shrinks) the shape before blurring; it applies to single shapes (rects, rounded
+/// rects, capsules, circles), as in Figma, and is ignored for other content. Stack shadows by
+/// chaining `.shadow(...)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
     pub color: Color,
     pub radius: f32,
     pub x: f32,
     pub y: f32,
+    pub spread: f32,
 }
 
 impl Default for Shadow {
     fn default() -> Self {
-        Self { color: Color::BLACK.opacity(0.33), radius: 8.0, x: 0.0, y: 0.0 }
+        Self { color: Color::BLACK.opacity(0.33), radius: 8.0, x: 0.0, y: 0.0, spread: 0.0 }
+    }
+}
+
+/// How a view's pixels combine with what's behind them: the W3C compositing modes, as in CSS
+/// mix-blend-mode, Figma, and SwiftUI. Blending reads the window behind the view (or, inside an
+/// offscreen group, what the group drew behind it).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum BlendMode {
+    #[default]
+    Normal,
+    // Darken
+    Multiply,
+    Darken,
+    ColorBurn,
+    PlusDarker,
+    // Lighten
+    Screen,
+    Lighten,
+    ColorDodge,
+    PlusLighter,
+    // Contrast
+    Overlay,
+    SoftLight,
+    HardLight,
+    // Inversion
+    Difference,
+    Exclusion,
+    // Component
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+}
+
+impl BlendMode {
+    pub(crate) fn from_c(mode: i32) -> Self {
+        use BlendMode::*;
+        const ALL: [BlendMode; 18] = [
+            Normal, Multiply, Darken, ColorBurn, PlusDarker, Screen, Lighten, ColorDodge, PlusLighter, Overlay,
+            SoftLight, HardLight, Difference, Exclusion, Hue, Saturation, Color, Luminosity,
+        ];
+        ALL.get(mode as usize).copied().unwrap_or_default()
+    }
+}
+
+/// A color adjustment, applied to the content's pixels in sRGB with straight alpha, as CSS
+/// filter functions are. Each amount is reactive and animatable.
+#[derive(Clone)]
+pub enum ColorFilter {
+    /// Adds to each channel: -1 black ... 0 unchanged ... 1 white.
+    Brightness(Prop<f32>),
+    /// 0 flat gray, 1 unchanged, above 1 more contrast.
+    Contrast(Prop<f32>),
+    /// 0 gray, 1 unchanged, above 1 more vivid.
+    Saturation(Prop<f32>),
+    /// 0 unchanged ... 1 fully gray.
+    Grayscale(Prop<f32>),
+    /// Rotates hues around the color wheel, in degrees.
+    HueRotation(Prop<f32>),
+    /// 0 unchanged ... 1 fully sepia-toned.
+    Sepia(Prop<f32>),
+    /// 0 unchanged ... 1 inverted.
+    Invert(Prop<f32>),
+    /// Multiplies every pixel by the color (alpha too): tints white content, darkens the rest.
+    Multiply(Prop<Color>),
+    /// Brightness becomes opacity: white stays, black disappears (for masks).
+    LuminanceToAlpha,
+}
+
+impl ColorFilter {
+    /// Calls `f` with the C form: the kind (`elg::ColorFilter::Kind`), the amount, and the color.
+    pub(crate) fn with_c<R>(self, f: impl FnOnce(i32, sys::ElgProp, sys::ElgProp) -> R) -> R {
+        let (kind, amount, color): (i32, Prop<f32>, Prop<Color>) = match self {
+            ColorFilter::Brightness(a) => (0, a, Prop::Value(Color::WHITE)),
+            ColorFilter::Contrast(a) => (1, a, Prop::Value(Color::WHITE)),
+            ColorFilter::Saturation(a) => (2, a, Prop::Value(Color::WHITE)),
+            ColorFilter::Grayscale(a) => (3, a, Prop::Value(Color::WHITE)),
+            ColorFilter::HueRotation(a) => (4, a, Prop::Value(Color::WHITE)),
+            ColorFilter::Sepia(a) => (5, a, Prop::Value(Color::WHITE)),
+            ColorFilter::Invert(a) => (6, a, Prop::Value(Color::WHITE)),
+            ColorFilter::Multiply(c) => (7, Prop::Value(1.0), c),
+            ColorFilter::LuminanceToAlpha => (8, Prop::Value(1.0), Prop::Value(Color::WHITE)),
+        };
+        with_prop(amount, |a| with_prop(color, |c| f(kind, a, c)))
+    }
+}
+
+/// Options for [`ViewExt::blur_with`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BlurOptions {
+    /// The content fills its bounds: edges stay sharp instead of fading out.
+    pub opaque: bool,
+}
+
+impl BlurOptions {
+    pub fn opaque(mut self, opaque: bool) -> Self {
+        self.opaque = opaque;
+        self
+    }
+}
+
+/// Where a rotation or scale effect pivots: a unit point of the view's bounds (the center by
+/// default).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AnchorOptions {
+    pub anchor: UnitPoint,
+}
+
+impl AnchorOptions {
+    pub fn anchor(mut self, anchor: impl Into<UnitPoint>) -> Self {
+        self.anchor = anchor.into();
+        self
     }
 }
 
@@ -243,8 +359,12 @@ impl Shadow {
         self.y = y.to_f32();
         self
     }
+    pub fn spread(mut self, spread: impl Number) -> Self {
+        self.spread = spread.to_f32();
+        self
+    }
     pub(crate) fn c(self) -> sys::ElgShadow {
-        sys::ElgShadow { color: self.color.c(), radius: self.radius, x: self.x, y: self.y }
+        sys::ElgShadow { color: self.color.c(), radius: self.radius, x: self.x, y: self.y, spread: self.spread }
     }
 }
 
@@ -534,6 +654,130 @@ pub trait ViewExt: IntoView + Sized {
     /// `.shadow(radius: 4, y: 2)` in `elg!`.
     fn shadow_with(self, shadow: impl FnOnce(Shadow) -> Shadow) -> View {
         self.shadow(shadow(Shadow::default()))
+    }
+    /// A shadow cast inside the view's content, from its edges inward (pressed-in, embossed).
+    fn inner_shadow(self, shadow: Shadow) -> View {
+        let s = shadow.c();
+        self.into_view().modify(|v| unsafe { sys::elg_mod_inner_shadow(v, s) })
+    }
+    /// `.inner_shadow(radius: 4, y: 2)` in `elg!`; the default is a soft dark shadow from above.
+    fn inner_shadow_with(self, shadow: impl FnOnce(Shadow) -> Shadow) -> View {
+        let default = Shadow { color: Color::BLACK.opacity(0.25), radius: 6.0, y: 2.0, ..Shadow::default() };
+        self.inner_shadow(shadow(default))
+    }
+    /// Gaussian blur of the content; `radius` in points. Reactive and animatable.
+    fn blur(self, radius: impl IntoProp<f32>) -> View {
+        self.blur_with(radius, |o| o)
+    }
+    /// `.blur(12, opaque: true)` in `elg!`.
+    fn blur_with(self, radius: impl IntoProp<f32>, options: impl FnOnce(BlurOptions) -> BlurOptions) -> View {
+        let (view, opaque) = (self.into_view(), options(BlurOptions::default()).opaque);
+        with_prop(radius.into_prop(), |r| view.modify(|v| unsafe { sys::elg_mod_blur(v, r, opaque) }))
+    }
+    /// A color adjustment ([`ColorFilter`]); the shorthands below cover each kind.
+    fn color_filter(self, filter: ColorFilter) -> View {
+        let view = self.into_view();
+        filter.with_c(|kind, amount, color| view.modify(|v| unsafe { sys::elg_mod_color_filter(v, kind, amount, color) }))
+    }
+    /// Adds to each channel: -1 black ... 0 unchanged ... 1 white.
+    fn brightness(self, amount: impl IntoProp<f32>) -> View {
+        self.color_filter(ColorFilter::Brightness(amount.into_prop()))
+    }
+    /// 0 flat gray, 1 unchanged, above 1 more contrast.
+    fn contrast(self, amount: impl IntoProp<f32>) -> View {
+        self.color_filter(ColorFilter::Contrast(amount.into_prop()))
+    }
+    /// 0 gray, 1 unchanged, above 1 more vivid.
+    fn saturation(self, amount: impl IntoProp<f32>) -> View {
+        self.color_filter(ColorFilter::Saturation(amount.into_prop()))
+    }
+    /// 0 unchanged ... 1 fully gray.
+    fn grayscale(self, amount: impl IntoProp<f32>) -> View {
+        self.color_filter(ColorFilter::Grayscale(amount.into_prop()))
+    }
+    /// Rotates hues around the color wheel by `degrees`.
+    fn hue_rotation(self, degrees: impl IntoProp<f32>) -> View {
+        self.color_filter(ColorFilter::HueRotation(degrees.into_prop()))
+    }
+    /// 0 unchanged ... 1 fully sepia-toned.
+    fn sepia(self, amount: impl IntoProp<f32>) -> View {
+        self.color_filter(ColorFilter::Sepia(amount.into_prop()))
+    }
+    /// Inverts the colors.
+    fn color_invert(self) -> View {
+        self.color_invert_amount(1.0)
+    }
+    /// Inverts the colors partly: 0 unchanged ... 1 inverted.
+    fn color_invert_amount(self, amount: impl IntoProp<f32>) -> View {
+        self.color_filter(ColorFilter::Invert(amount.into_prop()))
+    }
+    /// Multiplies every pixel by `color` (alpha too): tints white content, darkens the rest.
+    fn color_multiply(self, color: impl IntoProp<Color>) -> View {
+        self.color_filter(ColorFilter::Multiply(color.into_prop()))
+    }
+    /// Brightness becomes opacity: white stays, black disappears (for masks).
+    fn luminance_to_alpha(self) -> View {
+        self.color_filter(ColorFilter::LuminanceToAlpha)
+    }
+    /// Blends the view with what's behind it: `.blend_mode(.multiply)`.
+    fn blend_mode(self, mode: impl Into<BlendMode>) -> View {
+        let mode = mode.into() as i32;
+        self.into_view().modify(|v| unsafe { sys::elg_mod_blend_mode(v, mode) })
+    }
+    /// Draws the content offscreen first, then composites it as one image: blend modes inside it
+    /// blend with each other only, and a material inside sees only what the group drew.
+    fn compositing_group(self) -> View {
+        self.into_view().modify(|v| unsafe { sys::elg_mod_compositing_group(v) })
+    }
+    /// Rotates the drawn content by `degrees` (clockwise) about its center, without affecting
+    /// layout or hit testing. Reactive and animatable.
+    fn rotation_effect(self, degrees: impl IntoProp<f32>) -> View {
+        self.rotation_effect_with(degrees, |o| o)
+    }
+    /// `.rotation_effect(45, anchor: .top_leading)` in `elg!`.
+    fn rotation_effect_with(self, degrees: impl IntoProp<f32>, options: impl FnOnce(AnchorOptions) -> AnchorOptions) -> View {
+        let (view, anchor) = (self.into_view(), options(AnchorOptions::default()).anchor.c());
+        with_prop(degrees.into_prop(), |d| view.modify(|v| unsafe { sys::elg_mod_rotation_effect(v, d, anchor) }))
+    }
+    /// Scales the drawn content about its center, without affecting layout or hit testing. A
+    /// uniform scale stays sharp (vector). Reactive and animatable.
+    fn scale_effect(self, scale: impl IntoProp<f32>) -> View {
+        self.scale_effect_with(scale, |o| o)
+    }
+    /// `.scale_effect(1.2, anchor: .bottom)` in `elg!`.
+    fn scale_effect_with(self, scale: impl IntoProp<f32>, options: impl FnOnce(AnchorOptions) -> AnchorOptions) -> View {
+        let (view, anchor) = (self.into_view(), options(AnchorOptions::default()).anchor.c());
+        with_prop(scale.into_prop(), |s| view.modify(|v| unsafe { sys::elg_mod_scale_effect(v, s, std::ptr::null(), anchor) }))
+    }
+    /// Scales each axis separately (rendered offscreen first).
+    fn scale_effect_xy(self, x: impl IntoProp<f32>, y: impl IntoProp<f32>) -> View {
+        self.scale_effect_xy_with(x, y, |o| o)
+    }
+    fn scale_effect_xy_with(
+        self,
+        x: impl IntoProp<f32>,
+        y: impl IntoProp<f32>,
+        options: impl FnOnce(AnchorOptions) -> AnchorOptions,
+    ) -> View {
+        let (view, anchor) = (self.into_view(), options(AnchorOptions::default()).anchor.c());
+        with_prop(x.into_prop(), |x| {
+            with_prop(y.into_prop(), |y| view.modify(|v| unsafe { sys::elg_mod_scale_effect(v, x, &y, anchor) }))
+        })
+    }
+    /// Shows the content only where `style` is opaque, filling the bounds; its colors don't
+    /// matter, only its alpha. A gradient fades the content out:
+    /// `.mask(LinearGradient::colors([Color::BLACK, Color::CLEAR]))`.
+    fn mask(self, style: impl IntoProp<ShapeStyle>) -> View {
+        let view = self.into_view();
+        with_prop(style.into_prop(), |p| view.modify(|v| unsafe { sys::elg_mod_mask_style(v, p) }))
+    }
+    /// Shows the content only where `mask` (sized and aligned like an overlay) is opaque.
+    fn mask_view(self, mask: impl IntoView) -> View {
+        self.mask_view_with(mask, |o| o)
+    }
+    fn mask_view_with(self, mask: impl IntoView, options: impl FnOnce(DecorationOptions) -> DecorationOptions) -> View {
+        let (m, a) = (mask.into_view(), options(DecorationOptions::default()).alignment.c());
+        self.into_view().modify(|v| unsafe { sys::elg_mod_mask(v, m.into_raw(), a) })
     }
     /// Hit tests against this shape (filling the bounds) instead of the drawn content.
     fn content_shape(self, shape: impl Into<Shape>) -> View {
