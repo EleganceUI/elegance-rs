@@ -382,7 +382,7 @@ impl Bridge {
         let size = self.extent();
         // No destination resource is exposed to the caller.
         unsafe {
-            self.render(|_, encoder, target| {
+            self.render_raw(|_, encoder, target| {
                 encoder.copy_texture_to_texture(
                     source.as_image_copy(),
                     target.as_image_copy(),
@@ -396,7 +396,7 @@ impl Bridge {
     /// RGB values are stored as supplied in the UNORM texture (sRGB-encoded).
     pub fn clear_color(&mut self, color: wgpu::Color) -> Result<(), Error> {
         unsafe {
-            self.render(|_, encoder, texture| {
+            self.render_raw(|_, encoder, texture| {
                 let view = texture.create_view(&Default::default());
                 let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -422,7 +422,7 @@ impl Bridge {
     /// Do not submit writes through another queue. Do not destroy the device or
     /// destination. Fully initialize the image; use straight alpha and sRGB RGB
     /// values. Any escaped handle or later write can race native consumer reads.
-    pub unsafe fn render(
+    pub unsafe fn render_raw(
         &mut self,
         encode: impl FnOnce(&wgpu::Device, &mut wgpu::CommandEncoder, &wgpu::Texture),
     ) -> Result<(), Error> {
@@ -748,8 +748,8 @@ mod tests {
             "invalid copies must not leave staged signals behind"
         );
 
-        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-            bridge.render(|_, _, _| panic!("deliberate producer panic"))
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            bridge.render(|_| panic!("deliberate producer panic"))
         }));
         assert!(panic.is_err());
         assert_eq!(bridge.in_flight(), 1);
@@ -940,9 +940,22 @@ mod tests {
             },
         ))
         .unwrap();
+        let buffer = bridge.device().create_buffer(&wgpu::BufferDescriptor {
+            label: Some("safe frame buffer update"),
+            size: 4,
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         assert!(matches!(
-            bridge.clear_color(wgpu::Color::RED),
-            Err(Error::Publish(_))
+            bridge.render(|frame| {
+                assert_eq!(frame.size().width, 16);
+                frame.write_buffer(&buffer, 0, &[1, 2, 3, 4]);
+                frame.render_pass(crate::RenderPassOptions {
+                    clear: wgpu::Color::RED,
+                    ..Default::default()
+                }, |_| {});
+            }),
+            Err(Error::Publish(raw::STATUS_DEVICE_UNAVAILABLE))
         ));
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while bridge.in_flight() != 0 && std::time::Instant::now() < deadline {

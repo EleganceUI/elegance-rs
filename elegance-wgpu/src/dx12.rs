@@ -473,7 +473,7 @@ impl Bridge {
         }
         let size = self.extent();
         unsafe {
-            self.render(|_, encoder, target| {
+            self.render_raw(|_, encoder, target| {
                 encoder.copy_texture_to_texture(
                     source.as_image_copy(),
                     target.as_image_copy(),
@@ -487,7 +487,7 @@ impl Bridge {
     /// (sRGB-encoded); alpha is straight, not premultiplied.
     pub fn clear_color(&mut self, color: wgpu::Color) -> Result<(), Error> {
         unsafe {
-            self.render(|_, encoder, target| {
+            self.render_raw(|_, encoder, target| {
                 let view = target.create_view(&Default::default());
                 let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -513,7 +513,7 @@ impl Bridge {
     /// destination, submit through another queue, or alter native resource
     /// states outside the encoder's tracking. Initialize the entire image with
     /// straight alpha and sRGB-encoded RGB. No writes may follow publication.
-    pub unsafe fn render(
+    pub unsafe fn render_raw(
         &mut self,
         encode: impl FnOnce(&wgpu::Device, &mut wgpu::CommandEncoder, &wgpu::Texture),
     ) -> Result<(), Error> {

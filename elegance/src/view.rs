@@ -11,7 +11,7 @@ use crate::animation::{Animation, Transition};
 use crate::color::{Color, ColorScheme, ShapeStyle, Theme};
 use crate::environment::EnvironmentKey;
 use crate::error::ffi;
-use crate::events::{HoverDelay, Key, KeyEvent};
+use crate::events::{HoverDelay, Key, KeyEvent, PointerEvent, ScrollEvent};
 use crate::ffi as cffi;
 use crate::font::{Font, Weight};
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size, UnitPoint};
@@ -790,6 +790,19 @@ pub trait ViewExt: IntoView + Sized {
     }
 
     // Events.
+
+    /// Receives pointer events over the view's frame. Return true to consume the
+    /// event; consuming a press captures its drag and release/cancel events.
+    /// Coordinates are in window points, as with a custom EventHandler.
+    fn on_pointer_event(self, action: impl Fn(&PointerEvent) -> bool + 'static) -> View {
+        crate::modifier::on_pointer_event(self.into_view(), action)
+    }
+
+    /// Receives scrolling over the view's frame. Return true to consume the event,
+    /// or false to let an enclosing scroll view handle it.
+    fn on_scroll(self, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
+        crate::modifier::on_scroll(self.into_view(), action)
+    }
 
     /// Runs `action` on a tap. The innermost tap gesture wins.
     fn on_tap_gesture(self, action: impl FnMut() + 'static) -> View {

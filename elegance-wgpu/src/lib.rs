@@ -13,6 +13,9 @@ pub use elegance::{ExternalGpuImage, ExternalGpuImageView, GpuImageOrigin};
 use std::fmt;
 pub use wgpu;
 
+mod render;
+pub use render::{RenderFrame, RenderPassOptions};
+
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
     pub width: u32,
@@ -90,7 +93,7 @@ impl Bridge {
     }
     /// # Safety
     /// No destination handles or unsubmitted commands may escape the closure.
-    pub unsafe fn render(
+    pub unsafe fn render_raw(
         &mut self,
         _: impl FnOnce(&wgpu::Device, &mut wgpu::CommandEncoder, &wgpu::Texture),
     ) -> Result<(), Error> {

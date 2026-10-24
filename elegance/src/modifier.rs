@@ -230,6 +230,63 @@ pub trait EventModifier: 'static {
     fn make_handler(&self) -> Box<dyn EventHandler>;
 }
 
+#[derive(Clone, Default)]
+struct EventCallbacks {
+    pointer: Option<std::rc::Rc<dyn Fn(&PointerEvent) -> bool>>,
+    scroll: Option<std::rc::Rc<dyn Fn(&ScrollEvent) -> bool>>,
+}
+
+impl EventHandler for EventCallbacks {
+    fn pointer(&mut self, event: &PointerEvent, _: Rect) -> EventResult {
+        if self.pointer.as_ref().is_some_and(|action| action(event)) {
+            EventResult::CONSUMED
+        } else {
+            EventResult::IGNORED
+        }
+    }
+
+    fn scroll(&mut self, event: &ScrollEvent) -> EventResult {
+        if self.scroll.as_ref().is_some_and(|action| action(event)) {
+            EventResult::CONSUMED
+        } else {
+            EventResult::IGNORED
+        }
+    }
+
+    fn covers_frame(&self) -> bool {
+        true
+    }
+}
+
+impl EventModifier for EventCallbacks {
+    fn make_handler(&self) -> Box<dyn EventHandler> {
+        Box::new(self.clone())
+    }
+}
+
+pub(crate) fn on_pointer_event(
+    content: View,
+    action: impl Fn(&PointerEvent) -> bool + 'static,
+) -> View {
+    event_modifier(
+        content,
+        EventCallbacks {
+            pointer: Some(std::rc::Rc::new(action)),
+            ..Default::default()
+        },
+    )
+}
+
+pub(crate) fn on_scroll(content: View, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
+    event_modifier(
+        content,
+        EventCallbacks {
+            scroll: Some(std::rc::Rc::new(action)),
+            ..Default::default()
+        },
+    )
+}
+
 // --- Applying Rust modifiers ---
 
 impl<M: ViewModifier> Modifier for M {
