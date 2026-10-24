@@ -812,201 +812,12 @@ impl IntoView for VideoFeedView {
     }
 }
 
-/// Where the app's first row goes when displaying a [`GpuImage`].
+/// Where the producer's first row goes when displaying an [`GpuImage`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum GpuImageOrigin {
     #[default]
     TopLeft,
     BottomLeft,
-}
-
-/// An exclusive write reservation from a [`GpuImage`]. Copying it does not reserve again.
-///
-/// Return every field unchanged to end/cancel. The opaque pointers are borrowed Dawn C
-/// `WGPUDevice`, `WGPUQueue`, and `WGPUTexture` handles, not Rust `wgpu` crate objects or
-/// cross-device sharing handles. Never release/destroy them. Keep the image alive while
-/// using them, and stop and join producers before renderer/application shutdown.
-/// Raw GPU operations require the caller's unsafe Dawn interop; this type does not perform
-/// them or enforce their synchronization. Never write outside the reservation.
-#[derive(Clone, Copy, Debug)]
-pub struct GpuFrame {
-    /// 0 ... [`GpuImage::BUFFERS`] - 1; each buffer has a stable texture.
-    pub buffer: u32,
-    pub width: u32,
-    pub height: u32,
-    /// Borrowed renderer Dawn `WGPUDevice`; use this exact device for encoding.
-    pub device: *mut std::ffi::c_void,
-    /// Borrowed renderer Dawn `WGPUQueue`; submit all writes here before end/cancel.
-    pub queue: *mut std::ffi::c_void,
-    /// Borrowed Dawn `WGPUTexture` belonging to `device`.
-    pub texture: *mut std::ffi::c_void,
-    /// Opaque reservation token; return unchanged, including when cancelling.
-    pub sequence: u64,
-}
-
-impl GpuFrame {
-    fn from_c(f: sys::ElgGpuFrame) -> Self {
-        Self {
-            buffer: f.buffer,
-            width: f.width,
-            height: f.height,
-            device: f.device,
-            queue: f.queue,
-            texture: f.texture,
-            sequence: f.sequence,
-        }
-    }
-    fn c(&self) -> sys::ElgGpuFrame {
-        sys::ElgGpuFrame {
-            buffer: self.buffer,
-            width: self.width,
-            height: self.height,
-            device: self.device,
-            queue: self.queue,
-            texture: self.texture,
-            sequence: self.sequence,
-        }
-    }
-}
-
-/// An image produced on the renderer's Dawn/WebGPU device, sampled without native handle
-/// imports or CPU readback on every supported Dawn backend.
-///
-/// Use the same Dawn runtime/ABI and matching `webgpu/webgpu.h` C API as Elegance; do not
-/// install another Dawn proc table. These handles cannot be used with another WebGPU device,
-/// Rust's `wgpu` crate, wgpu-native, or imported OpenGL/Vulkan/Direct3D resources.
-///
-/// ```ignore
-/// let image = GpuImage::new(512, 512, GpuImageOrigin::TopLeft)?;
-/// // in the UI:  GpuImageView(&image)
-/// // on the app's render thread, every frame:
-/// if let Some(frame) = image.begin_frame() {
-///     // Encode writes to frame.texture using frame.device through Dawn's C API.
-///     // Submit ALL commands and queue writes to frame.queue before publishing.
-///     image.end_frame(&frame);
-///     // Or image.cancel_frame(&frame) if encoding failed; never submit afterwards.
-/// }
-/// ```
-///
-/// Queue submission order synchronizes producer and renderer; no fence or GPU wait is needed.
-/// Calls on clones may be concurrent, but only one write reservation is granted at a time.
-/// The reservation owner must synchronize all external writes before end/cancel; do not
-/// end/cancel a frame another thread is writing. Safe Rust methods only forward tokens and
-/// never dereference or operate on the raw GPU handles.
-///
-/// Textures are 2D RGBA8Unorm, one mip/layer/sample, with RenderAttachment | TextureBinding |
-/// CopySrc | CopyDst | StorageBinding usage. Stored RGB is sRGB-encoded, alpha is straight.
-/// RGBA8UnormSrgb views are allowed; rendering through one encodes linear shader RGB. Set
-/// that view's usage to RenderAttachment (sRGB cannot inherit StorageBinding). Origin only
-/// flips display. Keep the image alive during handle use; stop and join producers before
-/// renderer/application shutdown. Frames do not keep the renderer running; device-loss
-/// recovery is unsupported.
-pub struct GpuImageView {
-    ptr: NonNull<sys::GpuImage>,
-}
-handle!(
-    GpuImageView,
-    GpuImage,
-    elg_gpu_image_clone,
-    elg_gpu_image_free
-);
-// SAFETY: native calls on image copies are synchronized and validate reservation tokens.
-// These methods never dereference or perform GPU operations on caller-provided handles.
-unsafe impl Send for GpuImageView {}
-unsafe impl Sync for GpuImageView {}
-
-impl PartialEq for GpuImageView {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { sys::elg_gpu_image_same(self.as_ptr(), other.as_ptr()) }
-    }
-}
-
-impl GpuImageView {
-    /// How many buffers an image has.
-    pub const BUFFERS: u32 = 3;
-
-    /// An image of `width` x `height` pixels.
-    pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<GpuImageView, Error> {
-        Self::from_raw(unsafe { sys::elg_gpu_image_new(width, height, origin as i32) })
-    }
-    /// Nonblocking reservation. Returns `None` before a renderer device exists, after shutdown,
-    /// for invalid dimensions, while a reservation is outstanding, or when all buffers are
-    /// reserved for display/recording. Copying a frame does not create a new reservation.
-    pub fn begin_frame(&self) -> Option<GpuFrame> {
-        let mut frame = sys::ElgGpuFrame::default();
-        let ready = unsafe { sys::elg_gpu_image_begin_frame(self.as_ptr(), &mut frame) };
-        crate::error::check();
-        ready.then(|| GpuFrame::from_c(frame))
-    }
-    /// Publish after submitting all writes to `frame.queue`; never submit further writes to
-    /// this reservation. No GPU completion wait is needed. Newer frames may replace older
-    /// frames before display. Foreign, stale, and already-ended tokens are ignored.
-    pub fn end_frame(&self, frame: &GpuFrame) {
-        let c = frame.c();
-        ffi!(sys::elg_gpu_image_end_frame(self.as_ptr(), &c));
-    }
-    /// Abandon a reservation. Any submitted writes must be on `frame.queue`; synchronize
-    /// writers first and never submit commands referencing this reservation afterwards.
-    pub fn cancel_frame(&self, frame: &GpuFrame) {
-        let c = frame.c();
-        ffi!(sys::elg_gpu_image_cancel_frame(self.as_ptr(), &c));
-    }
-    /// In pixels.
-    pub fn size(&self) -> Size {
-        Size::from_c(unsafe { sys::elg_gpu_image_size(self.as_ptr()) })
-    }
-    pub fn origin(&self) -> GpuImageOrigin {
-        match unsafe { sys::elg_gpu_image_origin(self.as_ptr()) } {
-            1 => GpuImageOrigin::BottomLeft,
-            _ => GpuImageOrigin::TopLeft,
-        }
-    }
-}
-
-/// A [`GpuImage`], fitted into (or filling, clipped to) the space offered, on black. Its ideal
-/// size is the image's own.
-pub struct GpuImageView {
-    image: GpuImageView,
-    mode: ContentMode,
-}
-
-impl GpuImageView {
-    pub fn new(image: &GpuImageView) -> Self {
-        Self {
-            image: image.clone(),
-            mode: ContentMode::Fit,
-        }
-    }
-    pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
-        self.mode = mode.into();
-        self
-    }
-}
-
-impl ElgNew<(&GpuImageView,)> for GpuImageView {
-    type Out = GpuImageView;
-    fn elg_new((image,): (&GpuImageView,)) -> Self {
-        GpuImageView::new(image)
-    }
-}
-
-impl ElgNew<(GpuImageView,)> for GpuImageView {
-    type Out = GpuImageView;
-    fn elg_new((image,): (GpuImageView,)) -> Self {
-        GpuImageView {
-            image,
-            mode: ContentMode::Fit,
-        }
-    }
-}
-
-impl IntoView for GpuImageView {
-    fn into_view(self) -> View {
-        View::from_raw(ffi!(sys::elg_gpu_image_view(
-            self.image.as_ptr(),
-            self.mode as i32
-        )))
-    }
 }
 
 /// An externally produced GPU image with variable frame dimensions and a fixed origin.
@@ -1015,48 +826,47 @@ impl IntoView for GpuImageView {
 /// identity and updates its reactive natural size asynchronously on the UI thread.
 ///
 /// Clones share one synchronized native handle. Publication is available only through the
-/// unsafe native API in `elegance_sys::external_gpu_image`; there is no safe generic publish.
+/// unsafe native API in `elegance_sys::gpu_image`; there is no safe generic publish.
 /// Views retain their source independently. Stop/join producers and remove views before
 /// renderer shutdown, retaining callback state until all accepted frames are released.
 #[derive(Clone)]
-pub struct ExternalGpuImage {
-    inner: Arc<ExternalGpuImageInner>,
+pub struct GpuImage {
+    inner: Arc<GpuImageInner>,
 }
 
-struct ExternalGpuImageInner {
-    ptr: NonNull<sys::external_gpu_image::ExternalGpuImage>,
+struct GpuImageInner {
+    ptr: NonNull<sys::gpu_image::GpuImage>,
 }
 
 // SAFETY: native publish/clear calls on a live handle are synchronized. Arc keeps the
 // handle alive across safe calls and destroys it only after the last owner is dropped.
-unsafe impl Send for ExternalGpuImageInner {}
-unsafe impl Sync for ExternalGpuImageInner {}
+unsafe impl Send for GpuImageInner {}
+unsafe impl Sync for GpuImageInner {}
 
-impl Drop for ExternalGpuImageInner {
+impl Drop for GpuImageInner {
     fn drop(&mut self) {
-        unsafe { sys::external_gpu_image::elg_external_gpu_image_destroy(self.ptr.as_ptr()) }
+        unsafe { sys::gpu_image::elg_gpu_image_destroy(self.ptr.as_ptr()) }
     }
 }
 
-impl ExternalGpuImage {
+impl GpuImage {
     /// Creates an image with an initial natural size of `width` × `height` pixels (both nonzero).
     /// Does not publish or import a frame; accepted frames may have different dimensions.
     pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<Self, Error> {
-        use sys::external_gpu_image as raw;
+        use sys::gpu_image as raw;
         let origin = match origin {
             GpuImageOrigin::TopLeft => raw::ORIGIN_TOP_LEFT,
             GpuImageOrigin::BottomLeft => raw::ORIGIN_BOTTOM_LEFT,
         };
-        let ptr =
-            NonNull::new(unsafe { raw::elg_external_gpu_image_create(width, height, origin) })
-                .ok_or_else(|| {
-                    Error::new(
-                        crate::ErrorKind::Other,
-                        "could not create external GPU image",
-                    )
-                })?;
+        let ptr = NonNull::new(unsafe { raw::elg_gpu_image_create(width, height, origin) })
+            .ok_or_else(|| {
+                Error::new(
+                    crate::ErrorKind::Other,
+                    "could not create external GPU image",
+                )
+            })?;
         Ok(Self {
-            inner: Arc::new(ExternalGpuImageInner { ptr }),
+            inner: Arc::new(GpuImageInner { ptr }),
         })
     }
 
@@ -1066,25 +876,25 @@ impl ExternalGpuImage {
     /// not extend its lifetime. Raw use is unsafe and must honor the native publication,
     /// resource lifetime, callback, and GPU synchronization contract. Callbacks must not
     /// reenter this API, including `clear`. Destroying the handle is not a callback drain.
-    pub fn as_raw(&self) -> *mut sys::external_gpu_image::ExternalGpuImage {
+    pub fn as_raw(&self) -> *mut sys::gpu_image::GpuImage {
         self.inner.ptr.as_ptr()
     }
 
     /// Removes the current frame. Release callbacks do not imply GPU completion;
     /// views/snapshots may retain frames, so this is not a drain.
     pub fn clear(&self) {
-        unsafe { sys::external_gpu_image::elg_external_gpu_image_clear(self.as_raw()) }
+        unsafe { sys::gpu_image::elg_gpu_image_clear(self.as_raw()) }
     }
 }
 
-/// An [`ExternalGpuImage`], fitted into (or filling, clipped to) the offered space, on black.
-pub struct GpuImage {
-    image: ExternalGpuImage,
+/// An [`GpuImage`], fitted into (or filling, clipped to) the offered space, on black.
+pub struct GpuImageView {
+    image: GpuImage,
     mode: ContentMode,
 }
 
 impl GpuImageView {
-    pub fn new(image: &ExternalGpuImage) -> Self {
+    pub fn new(image: &GpuImage) -> Self {
         Self {
             image: image.clone(),
             mode: ContentMode::Fit,
@@ -1096,16 +906,16 @@ impl GpuImageView {
     }
 }
 
-impl ElgNew<(&ExternalGpuImage,)> for GpuImageView {
+impl ElgNew<(&GpuImage,)> for GpuImageView {
     type Out = GpuImageView;
-    fn elg_new((image,): (&ExternalGpuImage,)) -> Self {
+    fn elg_new((image,): (&GpuImage,)) -> Self {
         Self::new(image)
     }
 }
 
-impl ElgNew<(ExternalGpuImage,)> for GpuImageView {
+impl ElgNew<(GpuImage,)> for GpuImageView {
     type Out = GpuImageView;
-    fn elg_new((image,): (ExternalGpuImage,)) -> Self {
+    fn elg_new((image,): (GpuImage,)) -> Self {
         Self {
             image,
             mode: ContentMode::Fit,
@@ -1115,7 +925,7 @@ impl ElgNew<(ExternalGpuImage,)> for GpuImageView {
 
 impl IntoView for GpuImageView {
     fn into_view(self) -> View {
-        View::from_raw(ffi!(sys::external_gpu_image::elg_external_gpu_image_view(
+        View::from_raw(ffi!(sys::gpu_image::elg_gpu_image_view(
             self.image.as_raw(),
             self.mode as i32
         )))
@@ -1123,18 +933,18 @@ impl IntoView for GpuImageView {
 }
 
 #[cfg(test)]
-mod external_gpu_image_tests {
+mod gpu_image_tests {
     use super::*;
 
     #[test]
     fn image_is_send_sync_and_clone() {
         fn assert_traits<T: Send + Sync + Clone>() {}
-        assert_traits::<ExternalGpuImage>();
+        assert_traits::<GpuImage>();
     }
 
     #[test]
     fn create_clone_and_clear() {
-        let image = ExternalGpuImage::new(16, 16, GpuImageOrigin::BottomLeft).unwrap();
+        let image = GpuImage::new(16, 16, GpuImageOrigin::BottomLeft).unwrap();
         let clone = image.clone();
         assert_eq!(image.as_raw(), clone.as_raw());
         drop(image);
@@ -1143,64 +953,18 @@ mod external_gpu_image_tests {
 
     #[test]
     fn rejects_invalid_dimensions() {
-        assert!(ExternalGpuImage::new(0, 16, GpuImageOrigin::TopLeft).is_err());
-        assert!(ExternalGpuImage::new(16, 0, GpuImageOrigin::TopLeft).is_err());
+        assert!(GpuImage::new(0, 16, GpuImageOrigin::TopLeft).is_err());
+        assert!(GpuImage::new(16, 0, GpuImageOrigin::TopLeft).is_err());
     }
 
     // Compile both owned and borrowed DSL overloads without requiring a live UI renderer.
     #[allow(dead_code)]
-    fn dsl_views(image: ExternalGpuImage) -> impl IntoView {
+    fn dsl_views(image: GpuImage) -> impl IntoView {
         crate::elg! {
             crate::VStack {
                 GpuImageView(&image, mode: .fit)
                 GpuImageView(image, mode: .fill)
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod gpu_frame_tests {
-    use super::*;
-
-    #[test]
-    fn ffi_roundtrip_preserves_every_field() {
-        let mut handles = [0u8; 3];
-        let original = sys::ElgGpuFrame {
-            buffer: 2,
-            width: 1920,
-            height: 1080,
-            device: std::ptr::from_mut(&mut handles[0]).cast(),
-            queue: std::ptr::from_mut(&mut handles[1]).cast(),
-            texture: std::ptr::from_mut(&mut handles[2]).cast(),
-            sequence: 0xfedc_ba98_7654_3210,
-        };
-        let copied = GpuFrame::from_c(original);
-        let returned = copied.c();
-        assert_eq!(returned.buffer, original.buffer);
-        assert_eq!(returned.width, original.width);
-        assert_eq!(returned.height, original.height);
-        assert_eq!(returned.device, original.device);
-        assert_eq!(returned.queue, original.queue);
-        assert_eq!(returned.texture, original.texture);
-        assert_eq!(returned.sequence, original.sequence);
-    }
-
-    #[test]
-    fn null_ffi_roundtrip() {
-        let frame = GpuFrame::from_c(sys::ElgGpuFrame::default()).c();
-        assert_eq!(
-            (frame.buffer, frame.width, frame.height, frame.sequence),
-            (0, 0, 0, 0)
-        );
-        assert!(frame.device.is_null());
-        assert!(frame.queue.is_null());
-        assert!(frame.texture.is_null());
-    }
-
-    #[test]
-    fn image_is_send_and_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<GpuImageView>();
     }
 }

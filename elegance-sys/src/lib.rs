@@ -21,7 +21,7 @@ macro_rules! opaque {
     )*};
 }
 
-pub mod external_gpu_image;
+pub mod gpu_image;
 
 opaque!(
     /// `elg::View`
@@ -82,8 +82,6 @@ opaque!(
     Camera,
     /// `elg::VideoPlayer`
     VideoPlayer,
-    /// `elg::GpuImage`
-    GpuImage,
     /// `elg::VideoFeed`
     VideoFeed,
     /// `elg::http::Task`
@@ -344,70 +342,6 @@ pub struct ElgShadow {
     pub x: f32,
     pub y: f32,
     pub spread: f32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-/// Borrowed same-device Dawn C handles, not Rust `wgpu` objects or cross-device handles.
-/// Return all fields unchanged to end/cancel; never release/destroy the handles.
-pub struct ElgGpuFrame {
-    pub buffer: u32,
-    pub width: u32,
-    pub height: u32,
-    pub device: *mut c_void,
-    pub queue: *mut c_void,
-    pub texture: *mut c_void,
-    pub sequence: u64,
-}
-
-#[cfg(test)]
-mod gpu_frame_tests {
-    use super::ElgGpuFrame;
-    use std::ffi::c_void;
-    use std::mem::{align_of, offset_of, size_of};
-
-    #[test]
-    fn c_layout() {
-        fn aligned(size: usize, alignment: usize) -> usize {
-            size.next_multiple_of(alignment)
-        }
-        let pointer = size_of::<*mut c_void>();
-        let device = aligned(3 * size_of::<u32>(), align_of::<*mut c_void>());
-        let sequence = aligned(device + 3 * pointer, align_of::<u64>());
-        assert_eq!(offset_of!(ElgGpuFrame, buffer), 0);
-        assert_eq!(offset_of!(ElgGpuFrame, width), 4);
-        assert_eq!(offset_of!(ElgGpuFrame, height), 8);
-        assert_eq!(offset_of!(ElgGpuFrame, device), device);
-        assert_eq!(offset_of!(ElgGpuFrame, queue), device + pointer);
-        assert_eq!(offset_of!(ElgGpuFrame, texture), device + 2 * pointer);
-        assert_eq!(offset_of!(ElgGpuFrame, sequence), sequence);
-        let alignment = align_of::<u32>().max(align_of::<*mut c_void>()).max(align_of::<u64>());
-        assert_eq!(align_of::<ElgGpuFrame>(), alignment);
-        assert_eq!(size_of::<ElgGpuFrame>(), aligned(sequence + size_of::<u64>(), alignment));
-    }
-
-    #[test]
-    fn default_has_no_handles_or_token() {
-        let frame = ElgGpuFrame::default();
-        assert_eq!((frame.buffer, frame.width, frame.height, frame.sequence), (0, 0, 0, 0));
-        assert!(frame.device.is_null());
-        assert!(frame.queue.is_null());
-        assert!(frame.texture.is_null());
-    }
-}
-
-impl Default for ElgGpuFrame {
-    fn default() -> Self {
-        Self {
-            buffer: 0,
-            width: 0,
-            height: 0,
-            device: std::ptr::null_mut(),
-            queue: std::ptr::null_mut(),
-            texture: std::ptr::null_mut(),
-            sequence: 0,
-        }
-    }
 }
 
 #[repr(C)]
@@ -1324,16 +1258,6 @@ extern "C" {
     pub fn elg_video_player_binding(player: *const VideoPlayer, which: i32) -> *mut BindingF32;
     pub fn elg_video_view(player: *const VideoPlayer, mode: i32) -> *mut View;
     pub fn elg_video_controls(player: *const VideoPlayer) -> *mut View;
-    pub fn elg_gpu_image_new(width: u32, height: u32, origin: i32) -> *mut GpuImage;
-    pub fn elg_gpu_image_clone(image: *const GpuImage) -> *mut GpuImage;
-    pub fn elg_gpu_image_free(image: *mut GpuImage);
-    pub fn elg_gpu_image_same(a: *const GpuImage, b: *const GpuImage) -> bool;
-    pub fn elg_gpu_image_begin_frame(image: *const GpuImage, frame: *mut ElgGpuFrame) -> bool;
-    pub fn elg_gpu_image_end_frame(image: *const GpuImage, frame: *const ElgGpuFrame);
-    pub fn elg_gpu_image_cancel_frame(image: *const GpuImage, frame: *const ElgGpuFrame);
-    pub fn elg_gpu_image_size(image: *const GpuImage) -> ElgSize;
-    pub fn elg_gpu_image_origin(image: *const GpuImage) -> i32;
-    pub fn elg_gpu_image_view(image: *const GpuImage, mode: i32) -> *mut View;
     pub fn elg_video_feed_new() -> *mut VideoFeed;
     pub fn elg_video_feed_clone(feed: *const VideoFeed) -> *mut VideoFeed;
     pub fn elg_video_feed_free(feed: *mut VideoFeed);

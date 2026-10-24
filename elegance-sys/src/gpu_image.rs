@@ -1,4 +1,4 @@
-//! Native external GPU image sharing (`elg/external_gpu_image.h`).
+//! Native external GPU image sharing (`elg/gpu_image.h`).
 //!
 //! Tags are fixed-width integers, not Rust enums. Handles and FDs are borrowed.
 //! Publication and retirement require the caller to uphold the native GPU synchronization
@@ -8,8 +8,8 @@ use std::ffi::{c_int, c_void};
 use std::marker::{PhantomData, PhantomPinned};
 
 opaque!(
-    /// Opaque native `ElgExternalGpuImage` handle.
-    ExternalGpuImage,
+    /// Opaque native `ElgGpuImage` handle.
+    GpuImage,
 );
 
 pub const STATUS_OK: u32 = 0;
@@ -79,9 +79,9 @@ pub struct Frame {
 }
 
 unsafe extern "C" {
-    pub fn elg_external_gpu_image_create(width: u32, height: u32, origin: u32) -> *mut ExternalGpuImage;
+    pub fn elg_gpu_image_create(width: u32, height: u32, origin: u32) -> *mut GpuImage;
     /// Must not race any calls on the handle. Not a drain: views may still retain frames.
-    pub fn elg_external_gpu_image_destroy(image: *mut ExternalGpuImage);
+    pub fn elg_gpu_image_destroy(image: *mut GpuImage);
     /// Synchronous import; requires a live renderer. Failure retains caller ownership and
     /// invokes no callback. Success invokes exactly one callback, possibly before returning.
     ///
@@ -93,10 +93,10 @@ unsafe extern "C" {
     /// release, quarantine until GPU completion is independently established. Vulkan callers
     /// must also honor external queue-family ownership and the returned layout transitions.
     /// See the native header for the complete transport-specific contract.
-    pub fn elg_external_gpu_image_publish(image: *mut ExternalGpuImage, frame: *const Frame) -> u32;
-    pub fn elg_external_gpu_image_clear(image: *mut ExternalGpuImage);
+    pub fn elg_gpu_image_publish(image: *mut GpuImage, frame: *const Frame) -> u32;
+    pub fn elg_gpu_image_clear(image: *mut GpuImage);
     /// C++ view shim; the returned owned view independently retains its source.
-    pub fn elg_external_gpu_image_view(image: *const ExternalGpuImage, mode: i32) -> *mut crate::View;
+    pub fn elg_gpu_image_view(image: *const GpuImage, mode: i32) -> *mut crate::View;
 }
 
 #[cfg(test)]

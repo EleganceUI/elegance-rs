@@ -5,7 +5,7 @@
 // Audio, capture, video, networking, and the desktop (dialogs, notifications, tray icons).
 
 #include "shim.h"
-#include <elg/external_gpu_image.h>
+#include <elg/gpu_image.h>
 
 #include <cstddef>
 
@@ -450,86 +450,11 @@ ELG_EXPORT View* elg_video_controls(const VideoPlayer* player) {
     ELG_CATCH(nullptr)
 }
 
-// --- GPU images (the app's own rendering) ---
+// --- External GPU images ---
 
-struct ElgGpuFrame {
-    uint32_t buffer;
-    uint32_t width;
-    uint32_t height;
-    void* device;
-    void* queue;
-    void* texture;
-    uint64_t sequence;
-};
-
-static_assert(sizeof(ElgGpuFrame) == sizeof(GpuImage::Frame));
-static_assert(alignof(ElgGpuFrame) == alignof(GpuImage::Frame));
-static_assert(offsetof(ElgGpuFrame, buffer) == offsetof(GpuImage::Frame, buffer));
-static_assert(offsetof(ElgGpuFrame, width) == offsetof(GpuImage::Frame, width));
-static_assert(offsetof(ElgGpuFrame, height) == offsetof(GpuImage::Frame, height));
-static_assert(offsetof(ElgGpuFrame, device) == offsetof(GpuImage::Frame, device));
-static_assert(offsetof(ElgGpuFrame, queue) == offsetof(GpuImage::Frame, queue));
-static_assert(offsetof(ElgGpuFrame, texture) == offsetof(GpuImage::Frame, texture));
-static_assert(offsetof(ElgGpuFrame, sequence) == offsetof(GpuImage::Frame, sequence));
-
-// origin: GpuImage::Origin.
-ELG_EXPORT GpuImage* elg_gpu_image_new(uint32_t width, uint32_t height, int32_t origin) {
+ELG_EXPORT elg::View* elg_gpu_image_view(const ElgGpuImage* image, int32_t mode) {
     ELG_TRY
-    return new GpuImage({.width = width, .height = height, .origin = static_cast<GpuImage::Origin>(origin)});
-    ELG_CATCH(nullptr)
-}
-ELG_EXPORT GpuImage* elg_gpu_image_clone(const GpuImage* image) {
-    return new GpuImage(*image);
-}
-ELG_EXPORT void elg_gpu_image_free(GpuImage* image) {
-    delete image;
-}
-ELG_EXPORT bool elg_gpu_image_same(const GpuImage* a, const GpuImage* b) {
-    return *a == *b;
-}
-// False: no device, shutdown, invalid size, outstanding reservation, or no free buffer.
-ELG_EXPORT bool elg_gpu_image_begin_frame(const GpuImage* image, ElgGpuFrame* frame) {
-    ELG_TRY
-    const std::optional<GpuImage::Frame> f = image->begin_frame();
-    if (!f) {
-        return false;
-    }
-    *frame = {f->buffer, f->width, f->height, f->device, f->queue, f->texture, f->sequence};
-    return true;
-    ELG_CATCH(false)
-}
-// Convert tokens only: never retain, release, or operate on these borrowed Dawn handles.
-static GpuImage::Frame gpu_frame(const ElgGpuFrame& frame) {
-    return {frame.buffer, frame.width, frame.height,
-            static_cast<WGPUDevice>(frame.device), static_cast<WGPUQueue>(frame.queue),
-            static_cast<WGPUTexture>(frame.texture), frame.sequence};
-}
-ELG_EXPORT void elg_gpu_image_end_frame(const GpuImage* image, const ElgGpuFrame* frame) {
-    ELG_TRY
-    image->end_frame(gpu_frame(*frame));
-    ELG_CATCH_VOID
-}
-ELG_EXPORT void elg_gpu_image_cancel_frame(const GpuImage* image, const ElgGpuFrame* frame) {
-    ELG_TRY
-    image->cancel_frame(gpu_frame(*frame));
-    ELG_CATCH_VOID
-}
-ELG_EXPORT ElgSize elg_gpu_image_size(const GpuImage* image) {
-    const Size s = image->size();
-    return {s.width, s.height};
-}
-ELG_EXPORT int32_t elg_gpu_image_origin(const GpuImage* image) {
-    return static_cast<int32_t>(image->origin());
-}
-ELG_EXPORT View* elg_gpu_image_view(const GpuImage* image, int32_t mode) {
-    ELG_TRY
-    return out(GpuImageView(*image, static_cast<ContentMode>(mode)));
-    ELG_CATCH(nullptr)
-}
-
-ELG_EXPORT elg::View* elg_external_gpu_image_view(const ElgExternalGpuImage* image, int32_t mode) {
-    ELG_TRY
-    return new elg::View(elg::ExternalGpuImageView(image, static_cast<elg::ContentMode>(mode)));
+    return new elg::View(elg::GpuImageView(image, static_cast<elg::ContentMode>(mode)));
     ELG_CATCH(nullptr)
 }
 

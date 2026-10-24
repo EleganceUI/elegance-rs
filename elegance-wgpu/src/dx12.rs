@@ -1,7 +1,7 @@
 //! DXGI shared textures with GPU-only production and asynchronous retirement.
 
-use crate::{Config, Error, ExternalGpuImage};
-use elegance_sys::external_gpu_image::{self as raw, Fence, Frame, Release};
+use crate::{Config, Error, GpuImage};
+use elegance_sys::gpu_image::{self as raw, Fence, Frame, Release};
 use std::{
     ffi::c_void,
     mem::ManuallyDrop,
@@ -334,7 +334,7 @@ fn retire(rx: mpsc::Receiver<RetirementGuard>) {
 pub struct Bridge {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    image: ExternalGpuImage,
+    image: GpuImage,
     config: Config,
     counts: Arc<Counts>,
     tx: mpsc::Sender<RetirementGuard>,
@@ -426,7 +426,7 @@ impl Bridge {
         {
             return Err(Error::InvalidConfig);
         }
-        let image = ExternalGpuImage::new(config.width, config.height, config.origin)
+        let image = GpuImage::new(config.width, config.height, config.origin)
             .map_err(|error| Error::Device(error.to_string()))?;
         let (tx, rx) = mpsc::channel();
         std::thread::Builder::new()
@@ -446,7 +446,7 @@ impl Bridge {
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
-    pub fn image(&self) -> &ExternalGpuImage {
+    pub fn image(&self) -> &GpuImage {
         &self.image
     }
     /// Set the physical pixel dimensions for subsequent frames.
@@ -604,7 +604,7 @@ impl Bridge {
             .cast(),
             release: Some(released),
         };
-        let status = unsafe { raw::elg_external_gpu_image_publish(self.image.as_raw(), &frame) };
+        let status = unsafe { raw::elg_gpu_image_publish(self.image.as_raw(), &frame) };
         if status != raw::STATUS_OK {
             // Rejected import promises no callback/consumer reads. The producer
             // submission still needs its allocation until its fence completes.

@@ -1,6 +1,6 @@
 # elegance-wgpu
 
-A bounded, zero-CPU-pixel-copy bridge from native Rust **wgpu 30.0.1** to Elegance's new `ExternalGpuImage` input.
+A bounded, zero-CPU-pixel-copy bridge from native Rust **wgpu 30.0.1** to Elegance's new `GpuImage` input.
 
 ## Implementation and validation status
 
@@ -49,7 +49,7 @@ async fn make_bridge() -> Result<Bridge, Box<dyn std::error::Error>> {
 fn produce(bridge: &mut Bridge) -> Result<(), elegance_wgpu::Error> {
     // After Elegance's render device is initialized:
     bridge.clear_color(wgpu::Color::RED)?;
-    // In the UI: ExternalGpuImageView::new(bridge.image())
+    // In the UI: GpuImageView::new(bridge.image())
     Ok(())
 }
 ```

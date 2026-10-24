@@ -1,4 +1,4 @@
-use crate::{Config, Error, ExternalGpuImage};
+use crate::{Config, Error, GpuImage};
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained};
 use objc2_io_surface::{
@@ -20,7 +20,7 @@ use std::{
 };
 use wgpu::hal::{self, api::Metal};
 
-use elegance_sys::external_gpu_image::{self as raw, Fence, Frame, Release};
+use elegance_sys::gpu_image::{self as raw, Fence, Frame, Release};
 
 // wgpu-core on this pinned native backend returns ready error-scope futures.
 // Do not block or silently treat Pending as success if that implementation changes.
@@ -221,7 +221,7 @@ unsafe fn released_inner(userdata: *mut c_void, release: *const Release) {
 pub struct Bridge {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    image: ExternalGpuImage,
+    image: GpuImage,
     config: Config,
     counts: Arc<Counts>,
     tx: mpsc::Sender<Retirement>,
@@ -303,7 +303,7 @@ impl Bridge {
         {
             return Err(Error::InvalidConfig);
         }
-        let image = ExternalGpuImage::new(config.width, config.height, config.origin)
+        let image = GpuImage::new(config.width, config.height, config.origin)
             .map_err(|e| Error::Device(e.to_string()))?;
         let (tx, rx) = mpsc::channel::<Retirement>();
         std::thread::Builder::new()
@@ -354,7 +354,7 @@ impl Bridge {
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
-    pub fn image(&self) -> &ExternalGpuImage {
+    pub fn image(&self) -> &GpuImage {
         &self.image
     }
     /// Set the physical pixel dimensions for subsequent frames.
@@ -498,7 +498,7 @@ impl Bridge {
             .cast(),
             release: Some(released),
         };
-        let status = unsafe { raw::elg_external_gpu_image_publish(self.image.as_raw(), &frame) };
+        let status = unsafe { raw::elg_gpu_image_publish(self.image.as_raw(), &frame) };
         if status != raw::STATUS_OK {
             // Rejection promises no callback/no consumer reads, but producer
             // work is still in flight and must keep its backing alive.

@@ -9,7 +9,7 @@
 //! explicitly created/reserved retirement queue. See the README and
 //! `src/bin/wgpu-image.rs` for a runnable platform-neutral Rust UI smoke example.
 
-pub use elegance::{ExternalGpuImage, GpuImageOrigin, GpuImageView};
+pub use elegance::{GpuImage, GpuImageOrigin, GpuImageView};
 use std::fmt;
 pub use wgpu;
 
@@ -135,7 +135,7 @@ impl Bridge {
     pub fn device(&self) -> &wgpu::Device {
         unreachable!()
     }
-    pub fn image(&self) -> &ExternalGpuImage {
+    pub fn image(&self) -> &GpuImage {
         unreachable!()
     }
     pub fn resize(&mut self, _: u32, _: u32) -> Result<(), Error> {

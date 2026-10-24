@@ -133,9 +133,8 @@ pub use layout::{
 pub use media::{
     audio_input_devices, audio_output_devices, camera_devices, AudioDevice, AudioPlayer,
     AudioRecorder, AudioRecorderOptions, AudioStream, AudioStreamOptions, Camera, CameraDevice,
-    CameraOptions, CameraView, ExternalGpuImage, GpuFrame, GpuImageOrigin, GpuImageView,
-    PlayOptions, Sound, VideoControls, VideoFeed, VideoFeedView, VideoFormat, VideoPlayer,
-    VideoView,
+    CameraOptions, CameraView, GpuImage, GpuImageOrigin, GpuImageView, PlayOptions, Sound,
+    VideoControls, VideoFeed, VideoFeedView, VideoFormat, VideoPlayer, VideoView,
 };
 pub use modifier::{
     AsDecoration, AsEffect, AsEnvironment, AsEvent, AsLayout, DecorationModifier, EffectModifier,

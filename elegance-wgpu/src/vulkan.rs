@@ -5,9 +5,9 @@
 //! Before HAL import, allocation performs a native GPU zero-clear and waits up
 //! to five seconds for its fence on the calling thread. No CPU pixels are copied;
 //! an uncertain submission/wait quarantines the allocation rather than freeing it.
-use crate::{Config, Error, ExternalGpuImage};
+use crate::{Config, Error, GpuImage};
 use ash::vk;
-use elegance_sys::external_gpu_image::{self as raw, Fence, Frame, Release};
+use elegance_sys::gpu_image::{self as raw, Fence, Frame, Release};
 use std::{
     ffi::{c_void, CStr},
     mem::ManuallyDrop,
@@ -560,7 +560,7 @@ fn retire_worker(rx: mpsc::Receiver<Retirement>, context: Arc<Context>) {
 pub struct Bridge {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    image: ExternalGpuImage,
+    image: GpuImage,
     context: Arc<Context>,
     config: Config,
     counts: Arc<Counts>,
@@ -798,7 +798,7 @@ impl Bridge {
         {
             return Err(Error::InvalidConfig);
         }
-        let image = ExternalGpuImage::new(config.width, config.height, config.origin)
+        let image = GpuImage::new(config.width, config.height, config.origin)
             .map_err(device_error)?;
         let context = Arc::new(Context {
             raw: raw_device,
@@ -831,7 +831,7 @@ impl Bridge {
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
-    pub fn image(&self) -> &ExternalGpuImage {
+    pub fn image(&self) -> &GpuImage {
         &self.image
     }
     /// Set the physical pixel dimensions for subsequent frames.
@@ -1001,7 +1001,7 @@ impl Bridge {
             .cast(),
             release: Some(released),
         };
-        let status = unsafe { raw::elg_external_gpu_image_publish(self.image.as_raw(), &frame) };
+        let status = unsafe { raw::elg_gpu_image_publish(self.image.as_raw(), &frame) };
         if status != raw::STATUS_OK {
             // No callback/no consumer on rejection, but still wait producer GPU completion.
             let state = unsafe { Box::from_raw(frame.userdata.cast::<Callback>()) };

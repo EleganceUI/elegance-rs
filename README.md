@@ -33,9 +33,9 @@ fn main() -> Result<std::process::ExitCode, Error> {
   modifiers, effects, animation, media, GPU images, HTTP/WebSocket, desktop, previews.
 - `elegance-macros`: `elg!`, `#[component]`, and `#[preview]`.
 - `cargo-elegance`: `cargo elegance preview`, the preview host runner.
-- [`elegance-wgpu`](elegance-wgpu/README.md): optional native Rust wgpu → Dawn GPU-image
-  sharing, with a local pinned wgpu checkout. Separate from the existing `GpuImage` API;
-  Metal is hardware-tested here, while DX12/Vulkan still require platform validation.
+- `elegance-wgpu`: native Rust wgpu → Elegance GPU-image sharing, with a local pinned
+  wgpu checkout. Metal is hardware-tested here, while DX12/Vulkan still require platform
+  validation.
 
 ## Using it
 
@@ -177,51 +177,18 @@ tile().grayscale(1).blend_mode(.multiply).rotation_effect(15.0)
 backdrop().mask(LinearGradient::colors([Color::BLACK, Color::CLEAR]))
 ```
 
-### GPU images (Dawn/WebGPU)
+### Shared GPU images
 
-`GpuImage` (`elegance::media`) provides triple-buffered textures from **Elegance's own Dawn
-WebGPU device**, sampled without native handle imports or CPU readback on all supported Dawn
-backends. `GpuImageView(&image)` displays the image.
+`GpuImage` represents externally produced GPU frames; `GpuImageView(&image)` displays
+it. For Rust wgpu rendering, `elegance-wgpu::Bridge` creates a compatible producer device,
+records frames through its safe render API, and publishes shared GPU memory without CPU pixel
+readback. GPU synchronization and frame retirement stay inside the bridge and native framework.
 
-```rust,ignore
-let image = GpuImage::new(512, 512, GpuImageOrigin::TopLeft)?;
-// On a producer thread, keeping the image alive:
-if let Some(frame) = image.begin_frame() {
-    // Use Dawn's C API to encode writes to frame.texture with frame.device.
-    // Submit ALL commands and queue writes to frame.queue before publishing.
-    image.end_frame(&frame);
-    // On failure instead: image.cancel_frame(&frame);
-}
-```
-
-`GpuFrame` contains `buffer`, `width`, `height`, `device`, `queue`, `texture`, and `sequence`.
-Return **every field unchanged** to end/cancel. `device`, `queue`, and `texture` are opaque
-`*mut c_void` values representing borrowed Dawn C `WGPUDevice`, `WGPUQueue`, and `WGPUTexture`
-handles. Use Elegance's matching Dawn runtime/ABI and `webgpu/webgpu.h`; never install another
-Dawn proc table. They are **not Rust `wgpu` crate objects**, wgpu-native handles, cross-device
-sharing handles, or importable OpenGL/Vulkan/Direct3D resources. Never release/destroy the
-handles or device.
-
-`begin_frame` is nonblocking: it returns `None` before a device exists, after shutdown, for
-invalid dimensions, while another reservation is outstanding, or when no buffer is free.
-Calls on image clones may be concurrent, but only one write reservation is granted at a time;
-copying a frame does not create another. Safe Rust methods only forward tokens, not raw GPU
-operations. The caller's unsafe Dawn interop must synchronize all writers before end/cancel;
-never end/cancel another thread's in-progress writes. Keep the image alive while using handles,
-and stop and join producers before renderer/application shutdown. Frames do not keep the
-renderer running; device-loss recovery is unsupported.
-
-Submission order on `frame.queue` synchronizes rendering: no fences or GPU completion waits
-are needed. Never submit commands referencing the reservation after end/cancel, including when
-cancelling after partial submission. Foreign, stale, and already-ended tokens are ignored;
-newer published frames may replace older ones before display. Migration: `GpuImageSync` and
-the `end_frame` sync argument have been removed; use `end_frame(&frame)` or `cancel_frame(&frame)`.
-
-Textures are 2D RGBA8Unorm with one mip/layer/sample and RenderAttachment | TextureBinding |
-CopySrc | CopyDst | StorageBinding usage. RGB must be sRGB-encoded and alpha straight, not
-premultiplied. RGBA8UnormSrgb views are allowed: an sRGB attachment view automatically encodes
-linear shader RGB; set its usage to RenderAttachment (sRGB cannot inherit StorageBinding).
-Origin only flips display.
+`Bridge::resize` changes subsequent frame dimensions without replacing the image handle.
+Use `.on_sized(...)` to send physical-pixel layout dimensions to the producer thread.
+Metal/IOSurface, DX12/DXGI, and Vulkan/opaque-FD transports are implemented; unsupported
+sharing returns an error rather than falling back to CPU copies. GL/GLES and D3D11 sharing
+are not implemented. The old same-device Dawn handle/reservation API has been removed.
 
 ## State
 
