@@ -99,6 +99,7 @@ impl Default for WindowControls {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl WindowControls {
     pub fn new() -> Self {
         Self::default()

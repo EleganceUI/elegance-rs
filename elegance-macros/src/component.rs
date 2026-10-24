@@ -17,7 +17,8 @@ struct Prop {
 fn option_inner(ty: &Type) -> bool {
     if let Type::Path(path) = ty {
         if let Some(last) = path.path.segments.last() {
-            return last.ident == "Option" && matches!(last.arguments, syn::PathArguments::AngleBracketed(_));
+            return last.ident == "Option"
+                && matches!(last.arguments, syn::PathArguments::AngleBracketed(_));
         }
     }
     false
@@ -65,34 +66,58 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
 fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     if !attr.is_empty() {
         let _ = Punctuated::<syn::Meta, Token![,]>::parse_terminated.parse2(attr.clone())?;
-        return Err(syn::Error::new_spanned(attr, "#[component] takes no arguments"));
+        return Err(syn::Error::new_spanned(
+            attr,
+            "#[component] takes no arguments",
+        ));
     }
     let mut function: ItemFn = syn::parse2(item)?;
     if !function.sig.generics.params.is_empty() {
-        return Err(syn::Error::new_spanned(&function.sig.generics, "components can't be generic"));
+        return Err(syn::Error::new_spanned(
+            &function.sig.generics,
+            "components can't be generic",
+        ));
     }
     if matches!(function.sig.output, syn::ReturnType::Default) {
-        return Err(syn::Error::new_spanned(&function.sig, "a component returns its view: `-> impl IntoView`"));
+        return Err(syn::Error::new_spanned(
+            &function.sig,
+            "a component returns its view: `-> impl IntoView`",
+        ));
     }
 
     let mut props = Vec::new();
     for input in function.sig.inputs.iter_mut() {
         let FnArg::Typed(typed) = input else {
-            return Err(syn::Error::new_spanned(input, "components are functions, not methods"));
+            return Err(syn::Error::new_spanned(
+                input,
+                "components are functions, not methods",
+            ));
         };
         let default = prop_default(&mut typed.attrs)?;
         let Pat::Ident(pat) = typed.pat.as_ref() else {
-            return Err(syn::Error::new_spanned(&typed.pat, "a prop is a plain name: `title: String`"));
+            return Err(syn::Error::new_spanned(
+                &typed.pat,
+                "a prop is a plain name: `title: String`",
+            ));
         };
         let ty = (*typed.ty).clone();
-        let default = default.or_else(|| option_inner(&ty).then(|| quote!(::std::option::Option::None)));
-        props.push(Prop { name: pat.ident.clone(), ty, default });
+        let default =
+            default.or_else(|| option_inner(&ty).then(|| quote!(::std::option::Option::None)));
+        props.push(Prop {
+            name: pat.ident.clone(),
+            ty,
+            default,
+        });
     }
 
     let vis = function.vis.clone();
     let name = function.sig.ident.clone();
     let body_fn = format_ident!("__elg_{}_body", name);
-    let docs: Vec<&syn::Attribute> = function.attrs.iter().filter(|a| a.path().is_ident("doc")).collect();
+    let docs: Vec<&syn::Attribute> = function
+        .attrs
+        .iter()
+        .filter(|a| a.path().is_ident("doc"))
+        .collect();
     let docs: Vec<syn::Attribute> = docs.into_iter().cloned().collect();
     function.attrs.retain(|a| !a.path().is_ident("doc"));
     function.sig.ident = body_fn.clone();
@@ -131,7 +156,12 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
         .filter(|(_, p)| p.default.is_none())
         .map(|(i, _)| format_ident!("__P{}", i))
         .collect();
-    let param_of = |i: usize| -> Option<syn::Ident> { props[i].default.is_none().then(|| format_ident!("__P{}", i)) };
+    let param_of = |i: usize| -> Option<syn::Ident> {
+        props[i]
+            .default
+            .is_none()
+            .then(|| format_ident!("__P{}", i))
+    };
 
     let fields = props.iter().enumerate().map(|(i, p)| {
         let field = &p.name;
@@ -181,7 +211,15 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
         }
     });
 
-    let complete = props.iter().enumerate().filter_map(|(i, p)| param_of(i).map(|_| &p.ty));
+    let dot_helpers = props.iter().filter_map(|p| {
+        crate::methods::target(&p.ty, &[])
+            .map(|target| crate::methods::helper(&p.name, 0, &target, &vis, &[]))
+    });
+
+    let complete = props
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| param_of(i).map(|_| &p.ty));
     let args = props.iter().map(|p| {
         let field = &p.name;
         quote!(::std::clone::Clone::clone(&self.#field))
@@ -212,6 +250,7 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
 
         impl<#(#params),*> #name<#(#params),*> {
             #(#setters)*
+            #(#dot_helpers)*
         }
 
         impl #private::Component for #name<#(#complete),*> {

@@ -158,6 +158,7 @@ pub struct Pose {
     pub y: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl Transition {
     fn from_raw(ptr: *mut sys::Transition) -> Self {
         Self { ptr: NonNull::new(ptr).expect("elegance: no transition") }

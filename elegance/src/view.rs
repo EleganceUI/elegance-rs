@@ -207,6 +207,7 @@ impl Default for PopoverOptions {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl PopoverOptions {
     pub fn opens(mut self, edge: impl Into<PopoverEdge>) -> Self {
         self.opens = edge.into();
@@ -364,6 +365,7 @@ pub struct AnchorOptions {
     pub anchor: UnitPoint,
 }
 
+#[elegance_macros::elg_builder]
 impl AnchorOptions {
     pub fn anchor(mut self, anchor: impl Into<UnitPoint>) -> Self {
         self.anchor = anchor.into();
@@ -371,6 +373,7 @@ impl AnchorOptions {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Shadow {
     pub fn color(mut self, color: impl Into<Color>) -> Self {
         self.color = color.into();
@@ -420,24 +423,29 @@ pub struct FrameOptions {
 
 macro_rules! len_setters {
     ($($field:ident),*) => {$(
-        pub fn $field(mut self, length: impl Into<Len>) -> Self {
-            self.$field = length.into();
-            self
+        #[elegance_macros::elg_builder]
+        impl FrameOptions {
+            pub fn $field(mut self, length: impl Into<Len>) -> Self {
+                self.$field = length.into();
+                self
+            }
         }
     )*};
 }
 
+len_setters!(
+    width,
+    height,
+    min_width,
+    ideal_width,
+    max_width,
+    min_height,
+    ideal_height,
+    max_height
+);
+
+#[elegance_macros::elg_builder]
 impl FrameOptions {
-    len_setters!(
-        width,
-        height,
-        min_width,
-        ideal_width,
-        max_width,
-        min_height,
-        ideal_height,
-        max_height
-    );
     pub fn alignment(mut self, alignment: impl Into<Alignment>) -> Self {
         self.alignment = alignment.into();
         self
@@ -463,6 +471,7 @@ pub struct DecorationOptions {
     pub alignment: Alignment,
 }
 
+#[elegance_macros::elg_builder]
 impl DecorationOptions {
     pub fn alignment(mut self, alignment: impl Into<Alignment>) -> Self {
         self.alignment = alignment.into();
@@ -505,6 +514,7 @@ impl Default for AspectRatioOptions {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl AspectRatioOptions {
     pub fn ratio(mut self, ratio: impl Number) -> Self {
         self.ratio = Some(ratio.to_f32());
@@ -545,6 +555,7 @@ impl DropOptions {
 
 /// The modifiers every view has. In `elg!` a modifier with named arguments,
 /// `.frame(max_width: .infinity)`, calls the `_with` form with a closure that sets them.
+#[elegance_macros::elg_builder]
 pub trait ViewExt: IntoView + Sized {
     // Layout.
 

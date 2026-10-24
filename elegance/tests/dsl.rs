@@ -115,7 +115,11 @@ impl EffectModifier for Dim {
 struct Clicks;
 impl EventHandler for Clicks {
     fn pointer(&mut self, event: &PointerEvent, _: Rect) -> EventResult {
-        if event.kind == PointerEventKind::Down { EventResult::CONSUMED } else { EventResult::IGNORED }
+        if event.kind == PointerEventKind::Down {
+            EventResult::CONSUMED
+        } else {
+            EventResult::IGNORED
+        }
     }
 }
 struct ClickModifier;
@@ -232,12 +236,28 @@ struct CachedGrid;
 impl CachedLayout for CachedGrid {
     type Cache = Vec<elegance::Size>;
     fn make_cache(&self, children: &[LayoutChild]) -> Self::Cache {
-        children.iter().map(|c| c.size_that_fits(ProposedSize::unspecified())).collect()
+        children
+            .iter()
+            .map(|c| c.size_that_fits(ProposedSize::unspecified()))
+            .collect()
     }
-    fn size_that_fits(&self, _: ProposedSize, _: &[LayoutChild], cache: &mut Self::Cache) -> elegance::Size {
-        cache.iter().fold(elegance::Size::default(), |a, s| elegance::Size::new(a.width + s.width, a.height.max(s.height)))
+    fn size_that_fits(
+        &self,
+        _: ProposedSize,
+        _: &[LayoutChild],
+        cache: &mut Self::Cache,
+    ) -> elegance::Size {
+        cache.iter().fold(elegance::Size::default(), |a, s| {
+            elegance::Size::new(a.width + s.width, a.height.max(s.height))
+        })
     }
-    fn place_children(&self, bounds: Rect, _: ProposedSize, children: &[LayoutChild], cache: &mut Self::Cache) {
+    fn place_children(
+        &self,
+        bounds: Rect,
+        _: ProposedSize,
+        children: &[LayoutChild],
+        cache: &mut Self::Cache,
+    ) {
         let mut x = bounds.x;
         for (child, size) in children.iter().zip(cache.iter()) {
             child.place(Point::new(x, bounds.y), ProposedSize::from(*size));
@@ -248,7 +268,11 @@ impl CachedLayout for CachedGrid {
 
 #[test]
 fn grid_tracks() {
-    let tracks = resolve_grid_tracks(&[GridItem::fixed(100), GridItem::adaptive(50)], Some(400.0), 10);
+    let tracks = resolve_grid_tracks(
+        &[GridItem::fixed(100), GridItem::adaptive(50)],
+        Some(400.0),
+        10,
+    );
     // 100 fixed + 10 gap leaves 290: five 50s with gaps fit exactly (5 * 50 + 4 * 10), six don't.
     assert_eq!(tracks.len(), 6);
     assert_eq!(tracks[0].size, 100.0);
@@ -258,4 +282,82 @@ fn grid_tracks() {
 #[test]
 fn dsl_compiles() {
     let _ = gallery as fn() -> _;
+}
+
+fn nested_shorthand_keeps_its_own_context() -> impl IntoView {
+    elg! {
+        VStack().background(LinearGradient::new(vec![], .top.into(), .bottom.into()))
+            .on_tap_gesture(|| { let _: Alignment = .center.into(); })
+    }
+}
+
+struct CompletionCall {
+    calls: usize,
+}
+
+#[elg_builder]
+impl CompletionCall {
+    pub fn borrowed(&self, _: impl Into<Alignment>) -> usize {
+        self.calls
+    }
+    pub fn mutable(&mut self, _: impl Into<Alignment>) {
+        self.calls += 1;
+    }
+    pub fn text(&self, text: &str, _: impl Into<Alignment>) -> usize {
+        text.len()
+    }
+    pub fn callback(&self, f: impl FnOnce(&Self) -> usize, _: impl Into<Alignment>) -> usize {
+        f(self)
+    }
+    pub fn guard(&self, _: (), _: impl Into<Alignment>, dropped: &std::cell::Cell<bool>) {
+        assert!(
+            !dropped.get(),
+            "argument temporary dropped before method call"
+        );
+    }
+}
+
+#[test]
+fn shorthand_preserves_method_call_semantics() {
+    let mut builder = CompletionCall { calls: 1 };
+    assert_eq!(elg! { builder.borrowed(.center) }, 1);
+    elg! { builder.mutable(.center) };
+    assert_eq!(builder.calls, 2);
+    assert_eq!(
+        elg! { builder.text(String::from("abc").as_str(), .center) },
+        3
+    );
+    assert_eq!(elg! { builder.callback(|b| b.calls, .center) }, 2);
+    assert_eq!(elg! { {CompletionCall { calls: 4 }}.borrowed(.center) }, 4);
+
+    struct Guard<'a>(&'a std::cell::Cell<bool>);
+    impl Guard<'_> {
+        fn value(&self) {}
+    }
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.set(true);
+        }
+    }
+    let dropped = std::cell::Cell::new(false);
+    elg! { builder.guard(Guard(&dropped).value(), .center, &dropped) };
+    assert!(dropped.get());
+}
+
+#[test]
+fn completion_carriers_preserve_positional_evaluation_and_moves() {
+    struct Identity;
+    impl<T> elegance::dsl::ElgNew<(T,)> for Identity {
+        type Out = T;
+        fn elg_new((value,): (T,)) -> T {
+            value
+        }
+    }
+    let value = String::from("owned");
+    let value = elg! { Identity(value) };
+    assert_eq!(value, "owned");
+    let borrowed = &value;
+    assert_eq!(elg! { Identity(borrowed) }, "owned");
+    let value = elg! { Identity(value) };
+    assert_eq!(value, "owned");
 }

@@ -62,6 +62,7 @@ impl Default for WindowDesc {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl WindowDesc {
     pub fn new(title: impl Into<String>) -> Self {
         Self { title: title.into(), ..Default::default() }

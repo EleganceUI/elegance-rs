@@ -30,6 +30,7 @@ pub struct LayoutChild {
     raw: sys::LayoutChild,
 }
 
+#[elegance_macros::elg_builder]
 impl LayoutChild {
     pub(crate) unsafe fn slice<'a>(ptr: *const sys::LayoutChild, count: usize) -> &'a [LayoutChild] {
         if ptr.is_null() {
@@ -287,6 +288,7 @@ stack_layout!(VStackLayout, 0, |s| sys::ElgAlignment { horizontal: s.alignment a
 stack_layout!(HStackLayout, 1, |s| sys::ElgAlignment { horizontal: 1, vertical: s.alignment as i32 }, s.spacing.c());
 stack_layout!(ZStackLayout, 2, |s| s.alignment.c(), Len(None).c());
 
+#[elegance_macros::elg_builder]
 impl VStackLayout {
     pub fn new(alignment: impl Into<HorizontalAlignment>, spacing: impl Into<Len>) -> Self {
         Self { alignment: alignment.into(), spacing: spacing.into() }
@@ -296,6 +298,7 @@ impl VStackLayout {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl HStackLayout {
     pub fn new(alignment: impl Into<VerticalAlignment>, spacing: impl Into<Len>) -> Self {
         Self { alignment: alignment.into(), spacing: spacing.into() }
@@ -305,6 +308,7 @@ impl HStackLayout {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl ZStackLayout {
     pub fn new(alignment: impl Into<Alignment>) -> Self {
         Self { alignment: alignment.into() }

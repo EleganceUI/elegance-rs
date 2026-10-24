@@ -1,6 +1,8 @@
-//! Markers behind the DSL's leading-dot shorthand: in `elg!`, `.leading` becomes
-//! `elegance::dot::leading`, which converts into whichever type the parameter wants
-//! (`HorizontalAlignment::Leading`, `Alignment::LEADING`, `Edges::LEADING`, ...).
+//! Markers behind the DSL's leading-dot shorthand. Direct builder arguments use a
+//! target-specific namespace so rust-analyzer offers only compatible marker fields.
+//! The fields contain the same markers as the global fallback (`elegance::dot::leading`,
+//! etc.), converting into the parameter's type (`HorizontalAlignment::Leading`,
+//! `Alignment::LEADING`, `Edges::LEADING`, ...).
 //!
 //! Each marker is its own type, so the shorthand works where the parameter's type is known. In a
 //! closure that returns one of several values (`if on { .accent } else { .secondary }`) write the
@@ -10,10 +12,13 @@
 
 use crate::animation::{Animation, Transition};
 use crate::app::TitleBar;
-use crate::color::{Color, ColorScheme, Material, ThemeColor};
+use crate::color::{Color, ColorScheme, Material, ShapeStyle, ThemeColor};
 use crate::events::{Cursor, Key};
 use crate::font::{Font, Weight};
-use crate::geometry::{Alignment, Axis, ContentMode, Edges, HorizontalAlignment, UnitPoint, VerticalAlignment};
+use crate::geometry::{
+    Alignment, Axis, ContentMode, CornerRadii, EdgeInsets, Edges, HorizontalAlignment, Len,
+    UnitPoint, VerticalAlignment,
+};
 use crate::hot_reload::HotReloadShow;
 use crate::media::VideoFormat;
 use crate::path::{FillRule, LineCap, LineJoin};
@@ -22,18 +27,72 @@ use crate::view::{AccessibilityRole, BlendMode, PopoverEdge};
 use crate::views::{MenuEdge, PickerStyle, ScrollAxes};
 use crate::window::WindowControlsStyle;
 
-macro_rules! dots {
-    ($( $name:ident { $($target:ty => $value:expr),* $(,)? } )*) => {$(
-        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-        pub struct $name;
-        $(
-            impl From<$name> for $target {
-                fn from(_: $name) -> $target {
-                    $value
-                }
-            }
-        )*
-    )*};
+use crate::prop::Prop;
+use elegance_macros::dots;
+
+/// The marker namespace accepted by a leading-dot argument target.
+///
+/// Namespace fields are marker values, not converted target values, so existing
+/// `Into`, `Number`, and `IntoProp` conversions keep their original semantics.
+pub trait DotValues {
+    type Values: Default;
+
+    fn dot_values() -> Self::Values {
+        Self::Values::default()
+    }
+}
+
+/// A zero-sized argument-type witness used to resolve leading-dot namespaces.
+///
+/// Creating a witness does not require `T: DotValues`: types without a namespace
+/// retain global marker lookup instead of acquiring a new bound.
+pub struct DotTarget<T: ?Sized>(std::marker::PhantomData<fn() -> *const T>);
+
+impl<T: ?Sized> DotTarget<T> {
+    pub const fn new() -> Self {
+        Self(std::marker::PhantomData)
+    }
+
+    #[doc(hidden)]
+    pub fn constrain(&self, _: &T) {}
+}
+
+impl<T: ?Sized> Default for DotTarget<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Sentinel for builder arguments without a generated type witness.
+#[doc(hidden)]
+pub enum NoDotValues {}
+
+/// Resolves a type witness to its typed namespace, or to the global fallback.
+///
+/// Import this trait and call `(&target).resolve_dot_values()`: Rust selects the
+/// `&DotTarget<T>` implementation when `T: DotValues`, otherwise it autoref-borrows
+/// the witness for the `&&DotTarget<T>` fallback. Type aliases and imported names
+/// therefore work without the macro having to resolve their paths.
+pub trait ResolveDotValues {
+    type Values;
+
+    fn resolve_dot_values(self) -> Self::Values;
+}
+
+impl<T: DotValues + ?Sized> ResolveDotValues for &DotTarget<T> {
+    type Values = T::Values;
+
+    fn resolve_dot_values(self) -> Self::Values {
+        T::dot_values()
+    }
+}
+
+impl<T: ?Sized> ResolveDotValues for &&DotTarget<T> {
+    type Values = Values;
+
+    fn resolve_dot_values(self) -> Self::Values {
+        Values::default()
+    }
 }
 
 dots! {
@@ -241,4 +300,15 @@ dots! {
     f1 { Key => Key::F1 } f2 { Key => Key::F2 } f3 { Key => Key::F3 } f4 { Key => Key::F4 }
     f5 { Key => Key::F5 } f6 { Key => Key::F6 } f7 { Key => Key::F7 } f8 { Key => Key::F8 }
     f9 { Key => Key::F9 } f10 { Key => Key::F10 } f11 { Key => Key::F11 } f12 { Key => Key::F12 }
+
+    // Existing blanket and reactive conversions, without new From implementations.
+    namespaces {
+        Len => [f32],
+        EdgeInsets => [f32],
+        CornerRadii => [f32],
+        Prop<Color> => [Color, ThemeColor],
+        Prop<ShapeStyle> => [Color, ThemeColor, Material],
+        Prop<Font> => [Font],
+        Prop<ColorScheme> => [ColorScheme],
+    }
 }

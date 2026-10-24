@@ -19,14 +19,17 @@ const EXPRESSION_KEYWORDS: &[&str] = &[
     "return", "break", "in", "match", "if", "while", "else", "yield", "move",
 ];
 
-fn dot_path(name: &Ident) -> TokenStream {
+fn dot_path(name: &Ident, dot: &proc_macro2::Punct, namespace: Option<&Ident>) -> TokenStream {
     let text = name.to_string();
     let ident = if KEYWORDS.contains(&text.as_str()) {
         Ident::new_raw(&text, name.span())
     } else {
         name.clone()
     };
-    quote!(::elegance::dot::#ident)
+    match namespace {
+        Some(namespace) => quote!(#namespace #dot #ident),
+        None => quote!(::elegance::dot::#ident),
+    }
 }
 
 /// Whether a `.` after `prev` starts an expression (the shorthand) rather than a method call.
@@ -40,7 +43,29 @@ fn starts_expression(prev: Option<&TokenTree>) -> bool {
     }
 }
 
+pub fn has_shorthand(tokens: TokenStream) -> bool {
+    let tokens: Vec<_> = tokens.into_iter().collect();
+    tokens.iter().enumerate().any(|(i, token)| match token {
+        // Nested calls and callbacks have their own argument types; do not use
+        // the enclosing builder parameter's namespace for their shorthand.
+        TokenTree::Group(_) => false,
+        // A bare dot immediately followed by an argument comma has Joint
+        // spacing even after split_commas removes the comma.
+        TokenTree::Punct(p) if p.as_char() == '.' => {
+            let prev = i.checked_sub(1).map(|i| &tokens[i]);
+            !matches!(prev, Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                && starts_expression(prev)
+                && matches!(tokens.get(i + 1), Some(TokenTree::Ident(_)) | None)
+        }
+        _ => false,
+    })
+}
+
 pub fn rewrite(tokens: TokenStream) -> TokenStream {
+    rewrite_in(tokens, None)
+}
+
+fn rewrite_in(tokens: TokenStream, namespace: Option<&Ident>) -> TokenStream {
     let tokens: Vec<TokenTree> = tokens.into_iter().collect();
     let mut out = TokenStream::new();
     let mut i = 0;
@@ -48,18 +73,22 @@ pub fn rewrite(tokens: TokenStream) -> TokenStream {
         let token = &tokens[i];
         match token {
             TokenTree::Group(group) => {
-                let mut rewritten = Group::new(group.delimiter(), rewrite(group.stream()));
+                let mut rewritten = Group::new(group.delimiter(), rewrite_in(group.stream(), None));
                 rewritten.set_span(group.span());
                 out.extend([TokenTree::Group(rewritten)]);
             }
-            TokenTree::Punct(p) if p.as_char() == '.' && p.spacing() == Spacing::Alone => {
+            TokenTree::Punct(p) if p.as_char() == '.' => {
                 let prev = if i > 0 { Some(&tokens[i - 1]) } else { None };
                 let after_dot = matches!(prev, Some(TokenTree::Punct(q)) if q.as_char() == '.');
                 match tokens.get(i + 1) {
                     Some(TokenTree::Ident(name)) if !after_dot && starts_expression(prev) => {
-                        out.extend(dot_path(name));
+                        out.extend(dot_path(name, p, namespace));
                         i += 2;
                         continue;
+                    }
+                    None if !after_dot && starts_expression(prev) && namespace.is_some() => {
+                        let namespace = namespace.unwrap();
+                        out.extend(quote!(#namespace #p));
                     }
                     _ => out.extend([token.clone()]),
                 }
@@ -81,6 +110,10 @@ pub fn rewrite(tokens: TokenStream) -> TokenStream {
 
 /// A whole argument: rewritten, and a lone string literal with `{placeholders}` made reactive.
 pub fn argument(tokens: TokenStream) -> TokenStream {
+    argument_in(tokens, None)
+}
+
+pub fn argument_in(tokens: TokenStream, namespace: Option<&Ident>) -> TokenStream {
     let items: Vec<TokenTree> = tokens.clone().into_iter().collect();
     if let [TokenTree::Literal(literal)] = items.as_slice() {
         if let Ok(text) =
@@ -93,7 +126,7 @@ pub fn argument(tokens: TokenStream) -> TokenStream {
             }
         }
     }
-    rewrite(tokens)
+    rewrite_in(tokens, namespace)
 }
 
 fn has_placeholder(text: &str) -> bool {
@@ -145,7 +178,7 @@ pub fn named(tokens: &TokenStream) -> Option<(Ident, TokenStream)> {
     let items: Vec<TokenTree> = tokens.clone().into_iter().collect();
     match items.as_slice() {
         [TokenTree::Ident(name), TokenTree::Punct(colon), rest @ ..]
-            if colon.as_char() == ':' && colon.spacing() == Spacing::Alone && !rest.is_empty() =>
+            if colon.as_char() == ':' && colon.spacing() == Spacing::Alone =>
         {
             let not_path = !matches!(rest.first(), Some(TokenTree::Punct(p)) if p.as_char() == ':');
             not_path.then(|| (name.clone(), rest.iter().cloned().collect()))
@@ -156,4 +189,39 @@ pub fn named(tokens: &TokenStream) -> Option<(Ident, TokenStream)> {
 
 pub fn is_group(token: Option<&TokenTree>, delimiter: Delimiter) -> bool {
     matches!(token, Some(TokenTree::Group(g)) if g.delimiter() == delimiter)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_dot_before_comma_keeps_its_completion_receiver() {
+        let parts = split_commas("alignment: ., title: \"Hello\"".parse().unwrap());
+        let (_, value) = named(&parts[0]).unwrap();
+        let Some(TokenTree::Punct(dot)) = value.clone().into_iter().next() else {
+            panic!("expected dot");
+        };
+        assert_eq!(dot.spacing(), Spacing::Joint);
+        assert!(has_shorthand(value.clone()));
+        let namespace = Ident::new("dots", proc_macro2::Span::call_site());
+        assert_eq!(argument_in(value, Some(&namespace)).to_string(), "dots .");
+    }
+
+    #[test]
+    fn ranges_and_member_access_are_not_dot_shorthand() {
+        for source in [
+            "a..b",
+            "..end",
+            "start..",
+            "0..=5",
+            "value.leading",
+            "value?.leading",
+            "1.0",
+        ] {
+            let tokens: TokenStream = source.parse().unwrap();
+            assert!(!has_shorthand(tokens.clone()), "{source}");
+            assert_eq!(rewrite(tokens.clone()).to_string(), tokens.to_string());
+        }
+    }
 }

@@ -93,7 +93,7 @@ pub mod view;
 pub mod views;
 pub mod window;
 
-pub use elegance_macros::{component, elg, preview};
+pub use elegance_macros::{component, elg, elg_builder, preview};
 
 pub use animation::{with_animation, Animation, AnimationValue, Pose, Transition};
 pub use app::{post_to_ui_thread, set_cursor, version, App, AppHandle, TitleBar, WindowDesc};

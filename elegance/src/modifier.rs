@@ -82,6 +82,7 @@ pub struct Effects {
     ptr: *mut sys::Effects,
 }
 
+#[elegance_macros::elg_builder]
 impl Effects {
     pub fn clip_to_bounds(&self) -> bool {
         unsafe { sys::elg_effects_clip_to_bounds(self.ptr) }

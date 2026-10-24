@@ -95,7 +95,8 @@ macro_rules! children_methods {
                 self
             }
             pub fn children<V: IntoView>(mut self, children: impl IntoIterator<Item = V>) -> Self {
-                self.children.extend(children.into_iter().map(IntoView::into_view));
+                self.children
+                    .extend(children.into_iter().map(IntoView::into_view));
                 self
             }
         }
@@ -118,6 +119,7 @@ children_methods!(VStack);
 children_methods!(HStack);
 children_methods!(ZStack);
 
+#[elegance_macros::elg_builder]
 impl VStack {
     pub fn new() -> Self {
         Self::default()
@@ -136,10 +138,16 @@ impl VStack {
 impl IntoView for VStack {
     fn into_view(self) -> View {
         let mut children = raw_views(self.children);
-        View::from_raw(ffi!(sys::elg_vstack(self.alignment as i32, self.spacing.c(), children.as_mut_ptr(), children.len())))
+        View::from_raw(ffi!(sys::elg_vstack(
+            self.alignment as i32,
+            self.spacing.c(),
+            children.as_mut_ptr(),
+            children.len()
+        )))
     }
 }
 
+#[elegance_macros::elg_builder]
 impl HStack {
     pub fn new() -> Self {
         Self::default()
@@ -157,10 +165,16 @@ impl HStack {
 impl IntoView for HStack {
     fn into_view(self) -> View {
         let mut children = raw_views(self.children);
-        View::from_raw(ffi!(sys::elg_hstack(self.alignment as i32, self.spacing.c(), children.as_mut_ptr(), children.len())))
+        View::from_raw(ffi!(sys::elg_hstack(
+            self.alignment as i32,
+            self.spacing.c(),
+            children.as_mut_ptr(),
+            children.len()
+        )))
     }
 }
 
+#[elegance_macros::elg_builder]
 impl ZStack {
     pub fn new() -> Self {
         Self::default()
@@ -174,7 +188,11 @@ impl ZStack {
 impl IntoView for ZStack {
     fn into_view(self) -> View {
         let mut children = raw_views(self.children);
-        View::from_raw(ffi!(sys::elg_zstack(self.alignment.c(), children.as_mut_ptr(), children.len())))
+        View::from_raw(ffi!(sys::elg_zstack(
+            self.alignment.c(),
+            children.as_mut_ptr(),
+            children.len()
+        )))
     }
 }
 
@@ -184,6 +202,7 @@ pub struct Spacer {
     min_length: Len,
 }
 
+#[elegance_macros::elg_builder]
 impl Spacer {
     pub fn new() -> Self {
         Self::default()
@@ -249,7 +268,10 @@ pub struct Button {
 
 impl Button {
     pub fn new(label: impl IntoLabel, action: impl FnMut() + 'static) -> Self {
-        Self { label: Some(label.into_label()), action: Some(Box::new(action)) }
+        Self {
+            label: Some(label.into_label()),
+            action: Some(Box::new(action)),
+        }
     }
     pub fn action(mut self, action: impl FnMut() + 'static) -> Self {
         self.action = Some(Box::new(action));
@@ -287,8 +309,12 @@ impl IntoView for Button {
     fn into_view(self) -> View {
         let action = cffi::optional_action(self.action);
         match self.label {
-            Some(LabelArg::Title(title)) => View::from_raw(ffi!(sys::elg_button_title(cffi::s(&title), action))),
-            Some(LabelArg::View(label)) => View::from_raw(ffi!(sys::elg_button(label.into_raw(), action))),
+            Some(LabelArg::Title(title)) => {
+                View::from_raw(ffi!(sys::elg_button_title(cffi::s(&title), action)))
+            }
+            Some(LabelArg::View(label)) => {
+                View::from_raw(ffi!(sys::elg_button(label.into_raw(), action)))
+            }
             None => View::from_raw(ffi!(sys::elg_button(View::empty().into_raw(), action))),
         }
     }
@@ -312,7 +338,14 @@ pub type SecureField = TextFieldBuilder<true>;
 
 impl<const SECURE: bool> TextFieldBuilder<SECURE> {
     pub fn new(placeholder: impl Into<String>, text: impl Into<Binding<String>>) -> Self {
-        Self { placeholder: placeholder.into(), text: text.into(), on_submit: None, max_lines: 1, styler: None, on_key: None }
+        Self {
+            placeholder: placeholder.into(),
+            text: text.into(),
+            on_submit: None,
+            max_lines: 1,
+            styler: None,
+            on_key: None,
+        }
     }
     /// Enter.
     pub fn on_submit(mut self, action: impl FnMut() + 'static) -> Self {
@@ -337,7 +370,9 @@ impl<const SECURE: bool> TextFieldBuilder<SECURE> {
     }
 }
 
-impl<const SECURE: bool, P: Into<String>, B: Into<Binding<String>>> ElgNew<(P, B)> for TextFieldBuilder<SECURE> {
+impl<const SECURE: bool, P: Into<String>, B: Into<Binding<String>>> ElgNew<(P, B)>
+    for TextFieldBuilder<SECURE>
+{
     type Out = Self;
     fn elg_new((placeholder, text): (P, B)) -> Self {
         Self::new(placeholder, text)
@@ -352,15 +387,24 @@ impl<const SECURE: bool> IntoView for TextFieldBuilder<SECURE> {
                 for span in styler(text) {
                     let style = span.style.c();
                     let label = span.label.as_deref().map(cffi::s);
-                    let label_ptr = label.as_ref().map_or(std::ptr::null(), |l| l as *const sys::ElgStr);
-                    sys::elg_text_spans_push(ret as *mut sys::TextSpans, span.begin, span.end, &style, label_ptr);
+                    let label_ptr = label
+                        .as_ref()
+                        .map_or(std::ptr::null(), |l| l as *const sys::ElgStr);
+                    sys::elg_text_spans_push(
+                        ret as *mut sys::TextSpans,
+                        span.begin,
+                        span.end,
+                        &style,
+                        label_ptr,
+                    );
                 }
             }),
             None => sys::ElgClosure::NONE,
         };
         let on_key = match self.on_key {
             Some(on_key) => cffi::closure(move |args, ret| unsafe {
-                *(ret as *mut bool) = on_key(&KeyEvent::from_c(&*(args as *const sys::ElgKeyEvent)));
+                *(ret as *mut bool) =
+                    on_key(&KeyEvent::from_c(&*(args as *const sys::ElgKeyEvent)));
             }),
             None => sys::ElgClosure::NONE,
         };
@@ -370,7 +414,12 @@ impl<const SECURE: bool> IntoView for TextFieldBuilder<SECURE> {
             styler,
             on_key,
         };
-        View::from_raw(ffi!(sys::elg_text_field(cffi::s(&self.placeholder), self.text.cpp(), &options, SECURE)))
+        View::from_raw(ffi!(sys::elg_text_field(
+            cffi::s(&self.placeholder),
+            self.text.cpp(),
+            &options,
+            SECURE
+        )))
     }
 }
 
@@ -383,9 +432,16 @@ pub struct Slider {
     on_editing_changed: Option<Box<dyn Fn(bool)>>,
 }
 
+#[elegance_macros::elg_builder]
 impl Slider {
     pub fn new(value: impl Into<Binding<f32>>) -> Self {
-        Self { value: value.into(), min: 0.0, max: 1.0, step: 0.0, on_editing_changed: None }
+        Self {
+            value: value.into(),
+            min: 0.0,
+            max: 1.0,
+            step: 0.0,
+            on_editing_changed: None,
+        }
     }
     pub fn min(mut self, min: impl Number) -> Self {
         self.min = min.to_f32();
@@ -416,8 +472,17 @@ impl<B: Into<Binding<f32>>> ElgNew<(B,)> for Slider {
 
 impl IntoView for Slider {
     fn into_view(self) -> View {
-        let changed = self.on_editing_changed.map(|f| cffi::consumer(move |b: bool| f(b))).unwrap_or(sys::ElgClosure::NONE);
-        View::from_raw(ffi!(sys::elg_slider(self.value.cpp(), self.min, self.max, self.step, changed)))
+        let changed = self
+            .on_editing_changed
+            .map(|f| cffi::consumer(move |b: bool| f(b)))
+            .unwrap_or(sys::ElgClosure::NONE);
+        View::from_raw(ffi!(sys::elg_slider(
+            self.value.cpp(),
+            self.min,
+            self.max,
+            self.step,
+            changed
+        )))
     }
 }
 
@@ -432,7 +497,13 @@ pub struct Stepper {
 
 impl Stepper {
     pub fn new(label: impl IntoLabel, value: impl Into<Binding<i32>>) -> Self {
-        Self { label: label.into_label(), value: value.into(), min: i32::MIN, max: i32::MAX, step: 1 }
+        Self {
+            label: label.into_label(),
+            value: value.into(),
+            min: i32::MIN,
+            max: i32::MAX,
+            step: 1,
+        }
     }
     pub fn min(mut self, min: i32) -> Self {
         self.min = min;
@@ -459,10 +530,20 @@ impl IntoView for Stepper {
     fn into_view(self) -> View {
         let value = self.value.cpp();
         match self.label {
-            LabelArg::Title(title) => {
-                View::from_raw(ffi!(sys::elg_stepper_title(cffi::s(&title), value, self.min, self.max, self.step)))
-            }
-            LabelArg::View(label) => View::from_raw(ffi!(sys::elg_stepper(label.into_raw(), value, self.min, self.max, self.step))),
+            LabelArg::Title(title) => View::from_raw(ffi!(sys::elg_stepper_title(
+                cffi::s(&title),
+                value,
+                self.min,
+                self.max,
+                self.step
+            ))),
+            LabelArg::View(label) => View::from_raw(ffi!(sys::elg_stepper(
+                label.into_raw(),
+                value,
+                self.min,
+                self.max,
+                self.step
+            ))),
         }
     }
 }
@@ -473,6 +554,7 @@ pub struct ProgressView {
     fraction: Option<Prop<f32>>,
 }
 
+#[elegance_macros::elg_builder]
 impl ProgressView {
     pub fn new() -> Self {
         Self::default()
@@ -524,11 +606,18 @@ pub struct Picker<T: 'static> {
     style: PickerStyle,
 }
 
+#[elegance_macros::elg_builder]
 impl<T: PartialEq + Clone + 'static> Picker<T> {
-    pub fn new<S: Into<String>>(selection: impl Into<Binding<T>>, options: impl IntoIterator<Item = (T, S)>) -> Self {
+    pub fn new<S: Into<String>>(
+        selection: impl Into<Binding<T>>,
+        options: impl IntoIterator<Item = (T, S)>,
+    ) -> Self {
         Self {
             selection: selection.into(),
-            options: options.into_iter().map(|(value, label)| (value, label.into())).collect(),
+            options: options
+                .into_iter()
+                .map(|(value, label)| (value, label.into()))
+                .collect(),
             style: PickerStyle::Segmented,
         }
     }
@@ -553,20 +642,37 @@ where
 
 impl<T: PartialEq + Clone + 'static> IntoView for Picker<T> {
     fn into_view(self) -> View {
-        let labels: Vec<sys::ElgStr> = self.options.iter().map(|(_, label)| cffi::s(label)).collect();
-        let values: Rc<Vec<T>> = Rc::new(self.options.iter().map(|(value, _)| value.clone()).collect());
+        let labels: Vec<sys::ElgStr> = self
+            .options
+            .iter()
+            .map(|(_, label)| cffi::s(label))
+            .collect();
+        let values: Rc<Vec<T>> = Rc::new(
+            self.options
+                .iter()
+                .map(|(value, _)| value.clone())
+                .collect(),
+        );
         let selection = self.selection;
         let read = values.clone();
         let selected = cffi::producer(move || {
             let current = selection.get();
-            read.iter().position(|v| *v == current).unwrap_or(read.len())
+            read.iter()
+                .position(|v| *v == current)
+                .unwrap_or(read.len())
         });
         let select = cffi::consumer(move |index: usize| {
             if let Some(value) = values.get(index) {
                 selection.set(value.clone());
             }
         });
-        View::from_raw(ffi!(sys::elg_picker(labels.as_ptr(), labels.len(), selected, select, self.style as i32)))
+        View::from_raw(ffi!(sys::elg_picker(
+            labels.as_ptr(),
+            labels.len(),
+            selected,
+            select,
+            self.style as i32
+        )))
     }
 }
 
@@ -578,7 +684,10 @@ pub struct Toggle {
 
 impl Toggle {
     pub fn new(label: impl IntoLabel, is_on: impl Into<Binding<bool>>) -> Self {
-        Self { label: label.into_label(), is_on: is_on.into() }
+        Self {
+            label: label.into_label(),
+            is_on: is_on.into(),
+        }
     }
 }
 
@@ -593,7 +702,9 @@ impl IntoView for Toggle {
     fn into_view(self) -> View {
         let is_on = self.is_on.cpp();
         match self.label {
-            LabelArg::Title(title) => View::from_raw(ffi!(sys::elg_toggle_title(cffi::s(&title), is_on))),
+            LabelArg::Title(title) => {
+                View::from_raw(ffi!(sys::elg_toggle_title(cffi::s(&title), is_on)))
+            }
             LabelArg::View(label) => View::from_raw(ffi!(sys::elg_toggle(label.into_raw(), is_on))),
         }
     }
@@ -602,7 +713,13 @@ impl IntoView for Toggle {
 // --- Structure ---
 
 pub(crate) fn make_if(condition: Prop<bool>, then_view: View, else_view: View) -> View {
-    with_prop(condition, |p| View::from_raw(ffi!(sys::elg_if(p, then_view.into_raw(), else_view.into_raw()))))
+    with_prop(condition, |p| {
+        View::from_raw(ffi!(sys::elg_if(
+            p,
+            then_view.into_raw(),
+            else_view.into_raw()
+        )))
+    })
 }
 
 /// Shows `then_view` while `condition` holds, otherwise `else_view` (nothing by default).
@@ -622,7 +739,11 @@ impl<C: IntoProp<bool>, T: IntoView> ElgNew<(C, T)> for If {
 impl<C: IntoProp<bool>, T: IntoView, E: IntoView> ElgNew<(C, T, E)> for If {
     type Out = View;
     fn elg_new((condition, then_view, else_view): (C, T, E)) -> View {
-        make_if(condition.into_prop(), then_view.into_view(), else_view.into_view())
+        make_if(
+            condition.into_prop(),
+            then_view.into_view(),
+            else_view.into_view(),
+        )
     }
 }
 
@@ -750,14 +871,22 @@ pub struct ForEach<T: 'static, K = NoKey> {
 
 impl<T: 'static> ForEach<T, NoKey> {
     pub fn new(items: impl ItemsSource<Item = T>) -> Self {
-        Self { items: items.into_items(), key: NoKey, content: None }
+        Self {
+            items: items.into_items(),
+            key: NoKey,
+            content: None,
+        }
     }
 }
 
 impl<T: 'static, K> ForEach<T, K> {
     /// The key of an item: an integer or string that stays the same as the item changes.
     pub fn id<R: IntoItemKey>(self, key: impl Fn(&T) -> R + 'static) -> ForEach<T, KeyFn<T>> {
-        ForEach { items: self.items, key: KeyFn(Rc::new(move |item| key(item).into_item_key())), content: self.content }
+        ForEach {
+            items: self.items,
+            key: KeyFn(Rc::new(move |item| key(item).into_item_key())),
+            content: self.content,
+        }
     }
     /// The view for an item.
     pub fn content<V: IntoView>(mut self, content: impl Fn(&T) -> V + 'static) -> Self {
@@ -780,14 +909,22 @@ impl<S: ItemsSource> ElgNew<(S,)> for ForEach<S::Item, NoKey> {
 
 impl<T: IntoItemKey + Clone + PartialEq + 'static> IntoView for ForEach<T, NoKey> {
     fn into_view(self) -> View {
-        let content = self.content.expect("elegance: ForEach needs content: ForEach(items) { item in ... }");
-        for_each_view(self.items, Rc::new(|item: &T| item.clone().into_item_key()), content)
+        let content = self
+            .content
+            .expect("elegance: ForEach needs content: ForEach(items) { item in ... }");
+        for_each_view(
+            self.items,
+            Rc::new(|item: &T| item.clone().into_item_key()),
+            content,
+        )
     }
 }
 
 impl<T: PartialEq + 'static> IntoView for ForEach<T, KeyFn<T>> {
     fn into_view(self) -> View {
-        let content = self.content.expect("elegance: ForEach needs content: ForEach(items, id: ...) { item in ... }");
+        let content = self
+            .content
+            .expect("elegance: ForEach needs content: ForEach(items, id: ...) { item in ... }");
         for_each_view(self.items, self.key.0, content)
     }
 }
@@ -825,7 +962,9 @@ pub(crate) fn push_items<T: PartialEq + 'static>(
             }
         })
         .collect();
-    unsafe { sys::elg_for_each_items_push(ret as *mut sys::ForEachItems, items.as_ptr(), items.len()) };
+    unsafe {
+        sys::elg_for_each_items_push(ret as *mut sys::ForEachItems, items.as_ptr(), items.len())
+    };
 }
 
 pub(crate) fn for_each_view<T: PartialEq + 'static>(
@@ -858,7 +997,10 @@ pub struct ScrollPosition {
 
 impl Clone for ScrollPosition {
     fn clone(&self) -> Self {
-        Self { ptr: NonNull::new(unsafe { sys::elg_scroll_position_clone(self.ptr.as_ptr()) }).unwrap() }
+        Self {
+            ptr: NonNull::new(unsafe { sys::elg_scroll_position_clone(self.ptr.as_ptr()) })
+                .unwrap(),
+        }
     }
 }
 
@@ -876,7 +1018,9 @@ impl Default for ScrollPosition {
 
 impl ScrollPosition {
     pub fn new() -> Self {
-        Self { ptr: NonNull::new(ffi!(sys::elg_scroll_position_new())).unwrap() }
+        Self {
+            ptr: NonNull::new(ffi!(sys::elg_scroll_position_new())).unwrap(),
+        }
     }
     pub fn scroll_to_top(&self, animated: bool) {
         ffi!(sys::elg_scroll_position_to_top(self.ptr.as_ptr(), animated));
@@ -888,7 +1032,10 @@ impl ScrollPosition {
     pub fn scroll_to(&self, id: impl IntoItemKey) {
         match id.into_item_key() {
             ItemKey::Int(i) => ffi!(sys::elg_scroll_position_to_int(self.ptr.as_ptr(), i)),
-            ItemKey::Str(s) => ffi!(sys::elg_scroll_position_to_string(self.ptr.as_ptr(), cffi::s(&s))),
+            ItemKey::Str(s) => ffi!(sys::elg_scroll_position_to_string(
+                self.ptr.as_ptr(),
+                cffi::s(&s)
+            )),
         }
     }
     fn as_ptr(&self) -> *const sys::ScrollPosition {
@@ -897,7 +1044,9 @@ impl ScrollPosition {
 }
 
 fn position_ptr(position: &Option<ScrollPosition>) -> *const sys::ScrollPosition {
-    position.as_ref().map_or(std::ptr::null(), ScrollPosition::as_ptr)
+    position
+        .as_ref()
+        .map_or(std::ptr::null(), ScrollPosition::as_ptr)
 }
 
 /// Shows its content at its ideal size along the scroll axes, clipped to the space it takes.
@@ -910,9 +1059,16 @@ pub struct ScrollView {
     sticks_to_end: bool,
 }
 
+#[elegance_macros::elg_builder]
 impl ScrollView {
     pub fn new(content: impl IntoView) -> Self {
-        Self { content: content.into_view(), axes: ScrollAxes::Vertical, shows_indicators: true, position: None, sticks_to_end: false }
+        Self {
+            content: content.into_view(),
+            axes: ScrollAxes::Vertical,
+            shows_indicators: true,
+            position: None,
+            sticks_to_end: false,
+        }
     }
     pub fn axes(mut self, axes: impl Into<ScrollAxes>) -> Self {
         self.axes = axes.into();
@@ -959,7 +1115,13 @@ impl ElgChildren for ScrollView {
 impl IntoView for ScrollView {
     fn into_view(self) -> View {
         let position = position_ptr(&self.position);
-        View::from_raw(ffi!(sys::elg_scroll_view(self.content.into_raw(), self.axes as i32, self.shows_indicators, position, self.sticks_to_end)))
+        View::from_raw(ffi!(sys::elg_scroll_view(
+            self.content.into_raw(),
+            self.axes as i32,
+            self.shows_indicators,
+            position,
+            self.sticks_to_end
+        )))
     }
 }
 
@@ -982,9 +1144,13 @@ pub struct LazyHStack {
 
 macro_rules! lazy_stack {
     ($t:ident, $align:ty, $vertical:expr) => {
+        #[elegance_macros::elg_builder]
         impl $t {
             pub fn new(for_each: impl IntoView) -> Self {
-                Self { for_each: Some(for_each.into_view()), ..Default::default() }
+                Self {
+                    for_each: Some(for_each.into_view()),
+                    ..Default::default()
+                }
             }
             pub fn alignment(mut self, alignment: impl Into<$align>) -> Self {
                 self.alignment = alignment.into();
@@ -1010,8 +1176,15 @@ macro_rules! lazy_stack {
         }
         impl IntoView for $t {
             fn into_view(self) -> View {
-                let for_each = self.for_each.expect(concat!("elegance: ", stringify!($t), " needs a ForEach"));
-                View::from_raw(ffi!(sys::elg_lazy_stack($vertical, self.alignment as i32, self.spacing.c(), for_each.into_raw())))
+                let for_each =
+                    self.for_each
+                        .expect(concat!("elegance: ", stringify!($t), " needs a ForEach"));
+                View::from_raw(ffi!(sys::elg_lazy_stack(
+                    $vertical,
+                    self.alignment as i32,
+                    self.spacing.c(),
+                    for_each.into_raw()
+                )))
             }
         }
     };
@@ -1030,7 +1203,10 @@ pub struct List {
 
 impl List {
     pub fn new(for_each: impl IntoView) -> Self {
-        Self { for_each: Some(for_each.into_view()), position: None }
+        Self {
+            for_each: Some(for_each.into_view()),
+            position: None,
+        }
     }
     pub fn position(mut self, position: ScrollPosition) -> Self {
         self.position = Some(position);
@@ -1092,7 +1268,14 @@ pub struct MenuItem {
 
 impl MenuItem {
     pub fn new(title: impl Into<String>, action: impl FnMut() + 'static) -> Self {
-        Self { title: title.into(), action: Box::new(action), shortcut: String::new(), destructive: false, checked: None, image: None }
+        Self {
+            title: title.into(),
+            action: Box::new(action),
+            shortcut: String::new(),
+            destructive: false,
+            checked: None,
+            image: None,
+        }
     }
     /// A hint shown on the right, e.g. "Ctrl+R".
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
@@ -1127,9 +1310,18 @@ impl IntoView for MenuItem {
     fn into_view(self) -> View {
         let action = cffi::action(self.action);
         let image = self.image.as_ref().map(ImageSource::c);
-        let image_ptr = image.as_ref().map_or(std::ptr::null(), |i| i as *const sys::ElgImageSource);
+        let image_ptr = image
+            .as_ref()
+            .map_or(std::ptr::null(), |i| i as *const sys::ElgImageSource);
         let make = |checked: *const sys::ElgProp| {
-            View::from_raw(ffi!(sys::elg_menu_item(cffi::s(&self.title), action, cffi::s(&self.shortcut), self.destructive, checked, image_ptr)))
+            View::from_raw(ffi!(sys::elg_menu_item(
+                cffi::s(&self.title),
+                action,
+                cffi::s(&self.shortcut),
+                self.destructive,
+                checked,
+                image_ptr
+            )))
         };
         match self.checked {
             Some(checked) => with_prop(checked, |p| make(&p)),
@@ -1207,9 +1399,15 @@ pub struct MenuButton {
     shows_indicator: bool,
 }
 
+#[elegance_macros::elg_builder]
 impl MenuButton {
     pub fn new<V: IntoView>(label: impl IntoLabel, menu: impl Fn() -> V + 'static) -> Self {
-        Self { label: label.into_label(), menu: Rc::new(move || menu().into_view()), opens: MenuEdge::Below, shows_indicator: true }
+        Self {
+            label: label.into_label(),
+            menu: Rc::new(move || menu().into_view()),
+            opens: MenuEdge::Below,
+            shows_indicator: true,
+        }
     }
     pub fn opens(mut self, edge: impl Into<MenuEdge>) -> Self {
         self.opens = edge.into();
@@ -1234,7 +1432,12 @@ impl IntoView for MenuButton {
         let build = self.menu;
         let menu = cffi::closure(move |_, ret| unsafe { build().write_into(ret) });
         let label = self.label.into_view();
-        View::from_raw(ffi!(sys::elg_menu_button(label.into_raw(), menu, self.opens as i32, self.shows_indicator)))
+        View::from_raw(ffi!(sys::elg_menu_button(
+            label.into_raw(),
+            menu,
+            self.opens as i32,
+            self.shows_indicator
+        )))
     }
 }
 

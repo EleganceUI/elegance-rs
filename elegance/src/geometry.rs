@@ -98,6 +98,7 @@ pub struct Rect {
     pub height: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl Rect {
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self { x, y, width, height }
@@ -167,6 +168,7 @@ pub struct EdgeInsets {
     pub trailing: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl EdgeInsets {
     pub const fn all(length: f32) -> Self {
         Self { top: length, leading: length, bottom: length, trailing: length }
@@ -211,6 +213,7 @@ impl<N: Number> From<N> for EdgeInsets {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Edges(pub u32);
 
+#[elegance_macros::elg_builder]
 impl Edges {
     pub const TOP: Edges = Edges(1);
     pub const LEADING: Edges = Edges(2);

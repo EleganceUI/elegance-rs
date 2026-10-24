@@ -38,6 +38,7 @@ impl Drop for Text {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Text {
     pub fn new(content: impl IntoProp<String>) -> Self {
         with_prop(content.into_prop(), |p| Self::from_raw(ffi!(sys::elg_text(p))))
@@ -102,6 +103,7 @@ pub struct RunStyle {
     pub keep_together: bool,
 }
 
+#[elegance_macros::elg_builder]
 impl RunStyle {
     pub fn weight(mut self, weight: impl Into<Weight>) -> Self {
         self.weight = Some(weight.into());
@@ -164,6 +166,7 @@ pub struct TextRun {
     pub attachment_size: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl TextRun {
     pub fn new(text: impl Into<String>) -> Self {
         Self { text: text.into(), style: RunStyle::default(), on_tap: None, attachment: None, attachment_size: 1.25 }

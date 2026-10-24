@@ -263,7 +263,9 @@ impl Parser {
             _ => None,
         };
         let block_follows = matches!(self.peek(), Some(TokenTree::Group(g))
-            if g.delimiter() == Delimiter::Brace && same_line(head_end, g.span_open()));
+            if g.delimiter() == Delimiter::Brace
+                            && same_line(head_end, g.span_open())
+                            && !is_embedded_struct(g.stream()));
         let block = if block_follows {
             Some(self.block()?)
         } else {
@@ -508,6 +510,13 @@ impl Parser {
 }
 
 // Whether `b` starts on the line where `a` ends.
+// rust-analyzer may flatten source locations, making an embedded Rust block on
+// the next line look like children of the preceding element. A struct expression
+// with fields cannot be a DSL child list, regardless of the reported locations.
+fn is_embedded_struct(tokens: TokenStream) -> bool {
+    matches!(syn::parse2::<syn::Expr>(tokens), Ok(syn::Expr::Struct(expr)) if !expr.fields.is_empty() || expr.rest.is_some())
+}
+
 fn same_line(a: Span, b: Span) -> bool {
     a.unwrap().end().line() == b.unwrap().start().line()
 }
@@ -519,8 +528,8 @@ fn parse_args(stream: TokenStream) -> Args {
     };
     for part in split_commas(stream) {
         match named(&part) {
-            Some((name, value)) => args.named.push((name, argument(value))),
-            None => args.positional.push(argument(part)),
+            Some((name, value)) => args.named.push((name, value)),
+            None => args.positional.push(part),
         }
     }
     args
@@ -534,14 +543,34 @@ fn expand_node(node: &Node) -> TokenStream {
             block,
             modifiers,
         } => {
-            let positional = args
-                .as_ref()
-                .map(|a| a.positional.as_slice())
-                .unwrap_or(&[]);
+            let completion_type = format_ident!("__elg_completion_type", span = Span::mixed_site());
+            let result = format_ident!("__elg_completion_result", span = Span::mixed_site());
+            let mut has_carrier = false;
+            let positional: Vec<_> = args
+                .iter()
+                .flat_map(|a| &a.positional)
+                .map(|value| {
+                    let mut tokens = value.clone().into_iter();
+                    has_carrier |= matches!(
+                        (tokens.next(), tokens.next()),
+                        (Some(TokenTree::Ident(_)), None)
+                    );
+                    completion_argument(value, &quote!(_), Some(&completion_type))
+                })
+                .map(argument)
+                .collect();
             let mut expr = quote!(#path::elg_new((#(#positional,)*)));
+            if has_carrier {
+                expr = quote!({
+                    let #completion_type = |_| {};
+                    let #result = #expr;
+                    let _ = || #completion_type(&#result);
+                    #result
+                });
+            }
             if let Some(args) = args {
                 for (name, value) in &args.named {
-                    expr = quote!(#expr.#name(#value));
+                    expr = expand_call(expr, name, &TokenStream::new(), &[value.clone()]);
                 }
             }
             if let Some(block) = block {
@@ -601,6 +630,121 @@ fn expand_block(expr: TokenStream, block: &Block) -> TokenStream {
     }
 }
 
+// rust-analyzer inserts this identifier when speculatively expanding a macro for
+// completion. Keep its span on a method access instead of treating a prop prefix
+// as a positional constructor argument. Ordinary identifiers remain expressions.
+fn completion_prop(tokens: &TokenStream) -> Option<proc_macro2::Ident> {
+    let mut tokens = tokens.clone().into_iter();
+    match (tokens.next(), tokens.next()) {
+        (Some(TokenTree::Ident(name)), None)
+            if name.to_string().contains("intellijRulezz")
+                || name.to_string().contains("raCompletionMarker") =>
+        {
+            Some(name)
+        }
+        _ => None,
+    }
+}
+
+// The comma and dot occupy the same position in RA's printed token trees.
+// Its speculative receiver therefore maps to the typed closure parameter in
+// the base expansion. The closure is never called or captured by the result:
+// ordinary positional identifiers still evaluate exactly once, with their
+// original type, through the tuple's second field.
+fn completion_argument(
+    value: &TokenStream,
+    target: &TokenStream,
+    type_anchor: Option<&proc_macro2::Ident>,
+) -> TokenStream {
+    let mut tokens = value.clone().into_iter();
+    if let (Some(TokenTree::Ident(ident)), None) = (tokens.next(), tokens.next()) {
+        let builder = format_ident!("__elg_builder", span = Span::mixed_site());
+        let receiver = match type_anchor {
+            Some(anchor) => quote!({ #anchor(#builder); #builder }),
+            None => quote!(#builder),
+        };
+        if completion_prop(value).is_some() {
+            return quote!((|#builder: #target| #receiver.#ident).1);
+        }
+        return quote!((|#builder: #target| #receiver, #ident).1);
+    }
+    value.clone()
+}
+
+// Borrow places directly so completion metadata never moves the receiver.
+fn is_place(expr: &syn::Expr) -> bool {
+    match expr {
+        syn::Expr::Path(_) => true,
+        syn::Expr::Paren(expr) => is_place(&expr.expr),
+        syn::Expr::Group(expr) => is_place(&expr.expr),
+        syn::Expr::Field(expr) => is_place(&expr.base),
+        _ => false,
+    }
+}
+
+fn expand_call(
+    receiver: TokenStream,
+    name: &proc_macro2::Ident,
+    generics: &TokenStream,
+    args: &[TokenStream],
+) -> TokenStream {
+    use crate::rewrite::{argument_in, has_shorthand};
+    if !args.iter().any(|arg| has_shorthand(arg.clone())) {
+        let args = args.iter().cloned().map(argument);
+        return quote_spanned!(name.span()=> #receiver.#name #generics(#(#args),*));
+    }
+    // Paths can be borrowed directly, preserving the method's autoref/reborrow
+    // behavior. Evaluate other receiver expressions once, before the arguments.
+
+    let receiver_name = format_ident!("__elg_receiver", span = Span::mixed_site());
+    let mut bindings = TokenStream::new();
+    let receiver = if syn::parse2::<syn::Expr>(receiver.clone())
+        .as_ref()
+        .is_ok_and(is_place)
+    {
+        receiver
+    } else {
+        bindings.extend(quote!(#[allow(unused_mut)] let mut #receiver_name = #receiver;));
+        quote!(#receiver_name)
+    };
+    let mut values = Vec::new();
+    for (index, arg) in args.iter().enumerate() {
+        if has_shorthand(arg.clone()) {
+            let helper = format_ident!(
+                "__elg_dot_{}_{}",
+                name.to_string().trim_start_matches("r#"),
+                index
+            );
+            let target = format_ident!("__elg_dot_target_{index}", span = Span::mixed_site());
+            let namespace = format_ident!("__elg_dots_{index}", span = Span::mixed_site());
+            let fallback = format_ident!("__ElgDotFallback{index}");
+            let arg = argument_in(arg.clone(), Some(&namespace));
+            bindings.extend(quote! {
+                // An extra reference makes this a lower-priority fallback than
+                // inherent helpers and typed extension-trait helpers.
+                trait #fallback {
+                    fn #helper(&self) -> ::elegance::dot::DotTarget<::elegance::dot::NoDotValues> {
+                        ::elegance::dot::DotTarget::new()
+                    }
+                }
+                impl<T: ?Sized> #fallback for &T {}
+                use ::elegance::dot::ResolveDotValues as _;
+                let #target = (&#receiver).#helper();
+                let #namespace = (&#target).resolve_dot_values();
+            });
+            values.push(arg);
+        } else {
+            values.push(argument(arg.clone()));
+        }
+    }
+    // Keep argument expressions in the call: separate let bindings would change
+    // temporary drop scopes and remove expected types from callback parameters.
+    quote!({
+        #bindings
+        #receiver.#name #generics(#(#values),*)
+    })
+}
+
 fn expand_modifiers(mut expr: TokenStream, modifiers: &[Modifier]) -> TokenStream {
     for Modifier {
         name,
@@ -612,14 +756,60 @@ fn expand_modifiers(mut expr: TokenStream, modifiers: &[Modifier]) -> TokenStrea
             expr = quote!(#expr.#name #generics);
             continue;
         };
-        let positional = &args.positional;
+        let anchor = format_ident!("__elg_options_anchor", span = Span::mixed_site());
+        let target = format_ident!("__elg_options_target", span = Span::mixed_site());
+        let receiver = format_ident!("__elg_options_receiver", span = Span::mixed_site());
+        let mut has_carrier = false;
+        let positional: Vec<_> = args
+            .positional
+            .iter()
+            .map(|value| {
+                let mut tokens = value.clone().into_iter();
+                has_carrier |= matches!(
+                    (tokens.next(), tokens.next()),
+                    (Some(TokenTree::Ident(_)), None)
+                );
+                completion_argument(value, &quote!(_), Some(&anchor))
+            })
+            .collect();
+        let mut bindings = TokenStream::new();
+        if has_carrier {
+            if !syn::parse2::<syn::Expr>(expr.clone())
+                .as_ref()
+                .is_ok_and(is_place)
+            {
+                bindings.extend(quote!(#[allow(unused_mut)] let mut #receiver = #expr;));
+                expr = quote!(#receiver);
+            }
+            let helper = format_ident!(
+                "__elg_options_{}",
+                name.to_string().trim_start_matches("r#")
+            );
+            bindings.extend(quote! {
+                trait __ElgOptionsFallback {
+                    fn #helper(&self) -> ::elegance::dot::DotTarget<::elegance::dot::NoDotValues> {
+                        ::elegance::dot::DotTarget::new()
+                    }
+                }
+                impl<T: ?Sized> __ElgOptionsFallback for &T {}
+                let #target = (&#expr).#helper();
+                let #anchor = |builder| #target.constrain(builder);
+            });
+        }
         if args.named.is_empty() {
-            expr = quote_spanned!(name.span()=> #expr.#name #generics(#(#positional),*));
+            expr = expand_call(expr, name, generics, &positional);
         } else {
             let with = format_ident!("{}_with", name, span = name.span());
             let options = format_ident!("__elg_options");
-            let setters = args.named.iter().map(|(n, v)| quote!(.#n(#v)));
-            expr = quote_spanned!(name.span()=> #expr.#with #generics(#(#positional,)* |#options| #options #(#setters)*));
+            let mut setters = quote!(#options);
+            for (n, v) in &args.named {
+                setters = expand_call(setters, n, &TokenStream::new(), &[v.clone()]);
+            }
+            let positional = positional.into_iter().map(argument);
+            expr = quote_spanned!(name.span()=> #expr.#with #generics(#(#positional,)* |#options| #setters));
+        }
+        if has_carrier {
+            expr = quote!({ #bindings #expr });
         }
     }
     expr
@@ -647,4 +837,24 @@ pub fn expand(input: TokenStream) -> TokenStream {
         use ::elegance::__private::{ElgChildren as _, ElgNew as _, ViewExt as _};
         #body
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_embedded_struct;
+    use quote::quote;
+
+    #[test]
+    fn distinguishes_embedded_struct_expressions_from_dsl_children() {
+        assert!(is_embedded_struct(quote!(Card {
+            title: "Card".into()
+        })));
+        assert!(is_embedded_struct(quote!(Card { title })));
+        assert!(is_embedded_struct(quote!(Card { ..existing })));
+        assert!(!is_embedded_struct(quote!(Text("child"))));
+        assert!(!is_embedded_struct(quote!(Text("a") Text("b"))));
+        assert!(!is_embedded_struct(quote!(VStack { Text("child") })));
+        assert!(!is_embedded_struct(quote!(VStack {})));
+        assert!(!is_embedded_struct(quote!(item in Text(item))));
+    }
 }

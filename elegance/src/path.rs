@@ -52,6 +52,7 @@ impl Default for StrokeStyle {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl StrokeStyle {
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
@@ -133,6 +134,7 @@ impl std::fmt::Debug for Path {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Path {
     pub fn new() -> Self {
         Self::from_raw(unsafe { sys::elg_path_new() })
