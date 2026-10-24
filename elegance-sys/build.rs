@@ -5,14 +5,19 @@
 // links elegance.dll from a shared build (dev-release) instead, which the preview host and hot
 // reload need: a views module and the host it loads into must share one Elegance.
 //
-// ELEGANCE_ROOT               the Elegance source tree (default: ../../EleganceMain, beside this workspace)
+// ELEGANCE_ROOT               the Elegance source tree (default: ../../elegance, a checkout beside this
+//                             workspace; without one, a clone of github.com/EleganceUI/elegance, see below)
+// ELEGANCE_GIT_REF            the branch or tag that clone checks out (default: main)
+// ELEGANCE_CACHE_DIR          where clones go (default: the user cache folder's elegance/)
 // ELEGANCE_BUILD_DIR          a static build (default: $ELEGANCE_ROOT/build/dev-release-static if built)
 // ELEGANCE_SHARED_BUILD_DIR   a shared build, for `dynamic` (default: $ELEGANCE_ROOT/build/dev-release if built)
 // ELEGANCE_AUTO_BUILD=0       fail instead of building Elegance
 //
 // Without a build tree, this script builds Elegance itself with CMake and vcpkg, into
 // $ELEGANCE_ROOT/build/cargo-release-static (or cargo-release); see build_cmake.rs for how it
-// finds (or bootstraps) vcpkg, CMake, Ninja, and the compiler.
+// finds (or bootstraps) vcpkg, CMake, Ninja, and the compiler. Without a source tree, it clones
+// Elegance once into the user cache folder (%LOCALAPPDATA%\elegance\src or ~/.cache/elegance/src),
+// where every project that uses these bindings shares it and its build.
 //
 // The shim passes std::string and std::function across to Elegance, so it must use the same
 // compiler and C runtime. Rust links the release CRT (/MD), so use release-CRT builds of
@@ -29,16 +34,13 @@ const SHIM_FILES: &[&str] = &["shim/core.cpp", "shim/views.cpp", "shim/ext.cpp",
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let root = env::var_os("ELEGANCE_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| manifest.join("..").join("..").join("EleganceMain"));
+    let root = elegance_root(&manifest);
     let dynamic = env::var_os("CARGO_FEATURE_DYNAMIC").is_some();
     let (build_var, preset) = if dynamic {
         ("ELEGANCE_SHARED_BUILD_DIR", "dev-release")
     } else {
         ("ELEGANCE_BUILD_DIR", "dev-release-static")
     };
-    println!("cargo:rerun-if-env-changed=ELEGANCE_ROOT");
     println!("cargo:rerun-if-env-changed={build_var}");
     println!("cargo:rerun-if-env-changed=ELEGANCE_AUTO_BUILD");
     println!("cargo:rerun-if-changed=shim/shim.h");
@@ -99,6 +101,21 @@ fn main() {
 }
 
 // A shared build also needs the preview host, which cargo-elegance runs.
+// ELEGANCE_ROOT, else a checkout beside this workspace, else a clone in the user cache folder.
+fn elegance_root(manifest: &Path) -> PathBuf {
+    println!("cargo:rerun-if-env-changed=ELEGANCE_ROOT");
+    println!("cargo:rerun-if-env-changed=ELEGANCE_GIT_REF");
+    if let Some(root) = env::var_os("ELEGANCE_ROOT").filter(|r| !r.is_empty()) {
+        return PathBuf::from(root);
+    }
+    let sibling = manifest.join("..").join("..").join("elegance");
+    if sibling.join("CMakeLists.txt").is_file() {
+        return sibling;
+    }
+    let reference = env::var("ELEGANCE_GIT_REF").ok().filter(|r| !r.is_empty()).unwrap_or_else(|| "main".to_owned());
+    cmake::clone_elegance(&reference)
+}
+
 fn is_built(build: &Path, dynamic: bool) -> bool {
     let library = if dynamic {
         ["lib/elegance.lib", "lib/libelegance.so", "lib/libelegance.dylib"].iter().any(|f| build.join(f).exists())

@@ -4,6 +4,7 @@ description = "Rust bindings to Elegance, with a SwiftUI-style DSL (elg!)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
@@ -17,9 +18,3 @@ dynamic = ["elegance-sys/dynamic"]
 # Build as a views module for the preview host (`cargo elegance preview` turns this on): exports
 # the module entry and registers #[preview] functions, which ordinary builds leave out.
 preview = ["dynamic"]
-
-[[example]]
-name = "counter"
-
-[[example]]
-name = "todos"

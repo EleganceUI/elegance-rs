@@ -1,6 +1,8 @@
-# elegance-rust
+# elegance-rs
 
-Rust bindings to Elegance (`../EleganceMain`), with `elg!`, a SwiftUI-style DSL.
+Rust bindings to [Elegance](https://github.com/EleganceUI/elegance), with `elg!`, a SwiftUI-style
+DSL. Examples are in [elegance-examples](https://github.com/EleganceUI/elegance-examples)
+(the `*-rs` folders).
 
 ```rust
 use elegance::prelude::*;
@@ -32,43 +34,61 @@ fn main() -> Result<std::process::ExitCode, Error> {
 - `elegance-macros`: `elg!`, `#[component]`, and `#[preview]`.
 - `cargo-elegance`: `cargo elegance preview`, the preview host runner.
 
-## Building
+## Using it
 
-```sh
-cargo run --example counter
-cargo run --example effects
+```toml
+[dependencies]
+elegance = { git = "https://github.com/EleganceUI/elegance-rs" }
 ```
+
+The first build compiles Elegance itself (C++, with CMake and vcpkg), which takes a while: about
+half an hour when vcpkg has to build Dawn. `cargo build -vv` shows its progress. Later builds reuse
+it. You need Visual Studio's C++ workload (or Apple Clang on macOS) and git; the rest is found or
+downloaded.
 
 Elegance is linked statically by default: an app is one executable plus the DLLs Elegance's
-dependencies come in (copied next to the binaries). `elegance-sys`'s build script picks the
-Elegance build to link, in this order:
+dependencies come in, which are copied next to it. The `dynamic` feature links `elegance.dll`
+instead, which previews need.
 
-1. `ELEGANCE_BUILD_DIR` (static) / `ELEGANCE_SHARED_BUILD_DIR` (the `dynamic` feature), if set;
-2. the `dev-release-static` / `dev-release` preset's tree in `$ELEGANCE_ROOT/build`, if it's built;
-3. otherwise it builds Elegance itself with CMake into `$ELEGANCE_ROOT/build/cargo-release-static`
-   (or `cargo-release`). The first build installs Elegance's vcpkg dependencies and takes a while
-   (`cargo build -vv` shows its progress); later builds only rebuild what changed in Elegance.
+### Where Elegance comes from
 
-For that build it finds vcpkg with the baseline `vcpkg.json` pins: `VCPKG_ROOT`, the `VCPKG_ROOT`
-Elegance's `CMakeUserPresets.json` sets, `vcpkg` on PATH, or else it clones and bootstraps its own
-into `ELEGANCE_VCPKG_DIR` (default `%LOCALAPPDATA%\elegance\vcpkg`, `~/.cache/elegance/vcpkg`).
-CMake (Elegance needs 4.3+) and Ninja come from `CMAKE`/`NINJA`, PATH, Visual Studio's bundled
-copies, or `vcpkg fetch`; MSVC's environment is found without a developer prompt. Set
-`ELEGANCE_AUTO_BUILD=0` to get an error instead. `ELEGANCE_ROOT` defaults to `../EleganceMain`.
-The choice is made when the build script runs: if you build a preset tree after cargo has fallen
-back to its own, `cargo clean -p elegance-sys` to switch to it.
+`elegance-sys`'s build script needs Elegance's source:
 
-To build the trees yourself (in a VS developer prompt, in EleganceMain):
+1. `ELEGANCE_ROOT`, if set;
+2. a checkout beside this repository (`../elegance`), for working on both;
+3. otherwise a clone of `EleganceUI/elegance` in the user cache folder
+   (`%LOCALAPPDATA%\elegance\src\main`, `~/.cache/elegance/src/main`), made once and shared by
+   every project. `ELEGANCE_GIT_REF` picks another branch or tag; delete the folder to update it.
 
-```bat
-cmake --preset dev-release-static && cmake --build build/dev-release-static --target elegance
-cmake --preset dev-release && cmake --build build/dev-release --target elegance elegance-preview
+Then a build of it to link, in this order:
+
+1. `ELEGANCE_BUILD_DIR` (static) / `ELEGANCE_SHARED_BUILD_DIR` (`dynamic`), if set;
+2. `build/dev-release-static` / `build/dev-release` in the source tree, if built;
+3. otherwise it builds one itself, into `build/cargo-release-static` (or `cargo-release`), and
+   rebuilds it when Elegance's sources change. Set `ELEGANCE_AUTO_BUILD=0` to get an error instead.
+
+For that build it uses the first vcpkg that has the baseline Elegance's `vcpkg.json` pins:
+`VCPKG_ROOT`, the `VCPKG_ROOT` Elegance's `CMakeUserPresets.json` sets, `vcpkg` on PATH, or a clone
+it bootstraps in `ELEGANCE_VCPKG_DIR` (default: the cache folder's `elegance/vcpkg`). CMake 4.3+
+and Ninja come from `CMAKE`/`NINJA`, PATH, Visual Studio's bundled copies, or `vcpkg fetch`; MSVC's
+environment is found without a developer prompt. The choice of build is made when the build script
+runs: after building a tree of your own, `cargo clean -p elegance-sys` to switch to it.
+
+A build of your own must use the release C runtime (`/MD`) like Rust, not a Debug build's `/MDd`
+(the shim passes `std::string` and `std::function` to Elegance), and a static one needs
+`-DELG_ACCESSKIT_SHARED=ON` (AccessKit's static library is a Rust staticlib, whose own Rust standard
+library clashes with the app's).
+
+### Working on the bindings
+
+Check out [elegance](https://github.com/EleganceUI/elegance) beside this repository, and
+[elegance-examples](https://github.com/EleganceUI/elegance-examples) to try changes; to build the
+examples against this checkout instead of GitHub, add to `elegance-examples/.cargo/config.toml`:
+
+```toml
+[patch."https://github.com/EleganceUI/elegance-rs"]
+elegance = { path = "../elegance-rs/elegance" }
 ```
-
-Two requirements, which the automatic build and the presets handle: the shim passes `std::string`
-and `std::function` to Elegance, so Elegance must use the release C runtime (`/MD`) like Rust, not
-`dev-debug`'s `/MDd`; and a static Elegance needs `-DELG_ACCESSKIT_SHARED=ON`, since AccessKit's
-static library is a Rust staticlib whose own Rust standard library clashes with the app's.
 
 ## The `elg!` DSL
 
@@ -90,7 +110,7 @@ static library is a Rust staticlib whose own Rust standard library clashes with 
 ## Grids
 
 `VGrid`/`HGrid` flow children into fixed, flexible, or adaptive tracks; `Grid` is a table of
-`GridRow`s (see `examples/grid.rs` and Elegance's Grids guide):
+`GridRow`s (see `grids-rs` in elegance-examples, and Elegance's Grids guide):
 
 ```rust
 VGrid([GridItem::adaptive(150)], spacing: 12) {
@@ -130,7 +150,7 @@ fn app() -> impl IntoView {
 Then run the preview host, which rebuilds and reloads the views as you edit:
 
 ```sh
-cargo install --path cargo-elegance
+cargo install --git https://github.com/EleganceUI/elegance-rs cargo-elegance
 cargo elegance preview            # the previews
 cargo elegance preview --root     # the root view
 cargo elegance preview -p my-app --bin my-app --release
@@ -140,13 +160,13 @@ cargo elegance preview -p my-app --bin my-app --release
 as a views module: a cdylib, with `elegance/preview` enabled, in `target/elegance-preview`. That
 build links the shared Elegance (`dynamic`), which the module and the host share. Without the
 `preview` feature, `#[preview]` functions register nothing, so the app itself carries no preview
-code. A reload rebuilds the views, so state in them starts over. `../mod-launcher` is set up this
-way.
+code. A reload rebuilds the views, so state in them starts over. `preview-rs` in elegance-examples
+is set up this way.
 
 ## Effects
 
 Materials, blur, color adjustments, blend modes, inner shadows and spread, elliptical and angular
-gradients, rotation/scale effects, and masks (see `examples/effects.rs`):
+gradients, rotation/scale effects, and masks (see `effects-rs` in elegance-examples):
 
 ```rust
 Text("Hi").padding(12).background_in(Material::THIN, RoundedRectangle(12))

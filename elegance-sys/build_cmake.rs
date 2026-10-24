@@ -21,13 +21,41 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const VCPKG_REPO: &str = "https://github.com/microsoft/vcpkg";
+const ELEGANCE_REPO: &str = "https://github.com/EleganceUI/elegance";
+
+/// Elegance's source, cloned once into the user cache folder (one folder per branch or tag), for
+/// builds with no checkout of their own. Delete the folder to get a newer one.
+pub fn clone_elegance(reference: &str) -> PathBuf {
+    let name: String =
+        reference.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
+    let dir = env::var_os("ELEGANCE_CACHE_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| cache_dir().map(|cache| cache.join("elegance")))
+        .unwrap_or_else(|| panic!("\n\nelegance-sys: no Elegance source found; set ELEGANCE_ROOT.\n"))
+        .join("src")
+        .join(name);
+    if !dir.join("CMakeLists.txt").is_file() {
+        println!("cargo:warning=cloning Elegance ({reference}) into {}", dir.display());
+        let partial = dir.with_extension("partial");
+        let _ = fs::remove_dir_all(&partial);
+        fs::create_dir_all(dir.parent().unwrap()).unwrap();
+        let args = ["clone", "--depth", "1", "--branch", reference, ELEGANCE_REPO];
+        let mut args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        args.push(partial.clone().into());
+        git(None, &args);
+        fs::rename(&partial, &dir)
+            .unwrap_or_else(|e| panic!("elegance-sys: couldn't move Elegance to {}: {e}", dir.display()));
+    }
+    dir
+}
 
 /// Configures (once) and builds Elegance in `build`: static, or shared plus the preview host.
 pub fn build_elegance(root: &Path, build: &Path, shared: bool) {
     for watched in ["src", "include", "cmake", "apps/preview", "CMakeLists.txt", "vcpkg.json"] {
         println!("cargo:rerun-if-changed={}", root.join(watched).display());
     }
-    for var in ["VCPKG_ROOT", "ELEGANCE_VCPKG_DIR", "CMAKE", "NINJA"] {
+    for var in ["VCPKG_ROOT", "ELEGANCE_VCPKG_DIR", "ELEGANCE_CACHE_DIR", "CMAKE", "NINJA"] {
         println!("cargo:rerun-if-env-changed={var}");
     }
 

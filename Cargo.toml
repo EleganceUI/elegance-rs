@@ -6,4 +6,5 @@ members = ["elegance-sys", "elegance-macros", "elegance", "cargo-elegance"]
 version = "0.1.0"
 edition = "2021"
 license = "MPL-2.0"
+repository = "https://github.com/EleganceUI/elegance-rs"
 rust-version = "1.88"

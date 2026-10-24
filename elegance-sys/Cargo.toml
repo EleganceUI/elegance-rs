@@ -4,6 +4,7 @@ description = "Raw bindings to Elegance through a small C++ shim (for the `elega
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 links = "elegance"
 build = "build.rs"
