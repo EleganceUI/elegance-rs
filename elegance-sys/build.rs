@@ -203,11 +203,20 @@ fn is_rust_staticlib(file: &str) -> bool {
 
 // A library file becomes a search folder and a name; a bare name is a system library.
 fn link_lib(kind: &str, lib: &str) {
-    if let Some(framework) = lib.strip_prefix("-framework ") {
-        println!("cargo:rustc-link-lib=framework={}", framework.trim());
+    let path = Path::new(lib);
+    let framework = lib.strip_prefix("-framework ")
+        .or_else(|| lib.strip_prefix("-Wl,-framework,"))
+        .or_else(|| lib.strip_prefix("LINKER:-framework,"))
+        .map(str::trim)
+        .or_else(|| (path.extension().is_some_and(|ext| ext == "framework"))
+            .then(|| path.file_stem().and_then(|name| name.to_str())).flatten());
+    if let Some(framework) = framework {
+        println!("cargo:rustc-link-lib=framework={framework}");
+        if path.is_absolute() {
+            println!("cargo:rustc-link-search=framework={}", path.parent().unwrap().display());
+        }
         return;
     }
-    let path = Path::new(lib);
     let name = if path.is_absolute() {
         println!("cargo:rerun-if-changed={lib}");
         println!("cargo:rustc-link-search=native={}", path.parent().unwrap().display());

@@ -6,6 +6,8 @@
 
 #include "shim.h"
 
+#include <cstddef>
+
 using namespace elg;
 using namespace elg_shim;
 
@@ -453,11 +455,21 @@ struct ElgGpuFrame {
     uint32_t buffer;
     uint32_t width;
     uint32_t height;
+    void* device;
+    void* queue;
     void* texture;
-    void* fence;
-    uint64_t fence_value;
-    uint8_t adapter_luid[8];
+    uint64_t sequence;
 };
+
+static_assert(sizeof(ElgGpuFrame) == sizeof(GpuImage::Frame));
+static_assert(alignof(ElgGpuFrame) == alignof(GpuImage::Frame));
+static_assert(offsetof(ElgGpuFrame, buffer) == offsetof(GpuImage::Frame, buffer));
+static_assert(offsetof(ElgGpuFrame, width) == offsetof(GpuImage::Frame, width));
+static_assert(offsetof(ElgGpuFrame, height) == offsetof(GpuImage::Frame, height));
+static_assert(offsetof(ElgGpuFrame, device) == offsetof(GpuImage::Frame, device));
+static_assert(offsetof(ElgGpuFrame, queue) == offsetof(GpuImage::Frame, queue));
+static_assert(offsetof(ElgGpuFrame, texture) == offsetof(GpuImage::Frame, texture));
+static_assert(offsetof(ElgGpuFrame, sequence) == offsetof(GpuImage::Frame, sequence));
 
 // origin: GpuImage::Origin.
 ELG_EXPORT GpuImage* elg_gpu_image_new(uint32_t width, uint32_t height, int32_t origin) {
@@ -474,30 +486,31 @@ ELG_EXPORT void elg_gpu_image_free(GpuImage* image) {
 ELG_EXPORT bool elg_gpu_image_same(const GpuImage* a, const GpuImage* b) {
     return *a == *b;
 }
-// False: no buffer (not yet, or not supported here).
+// False: no device, shutdown, invalid size, outstanding reservation, or no free buffer.
 ELG_EXPORT bool elg_gpu_image_begin_frame(const GpuImage* image, ElgGpuFrame* frame) {
     ELG_TRY
     const std::optional<GpuImage::Frame> f = image->begin_frame();
     if (!f) {
         return false;
     }
-    *frame = {f->buffer, f->width, f->height, f->texture, f->fence, f->fence_value, {}};
-    std::copy(f->adapter_luid.begin(), f->adapter_luid.end(), frame->adapter_luid);
+    *frame = {f->buffer, f->width, f->height, f->device, f->queue, f->texture, f->sequence};
     return true;
     ELG_CATCH(false)
 }
-// sync: GpuImage::Sync.
-ELG_EXPORT void elg_gpu_image_end_frame(const GpuImage* image, const ElgGpuFrame* frame, int32_t sync) {
+// Convert tokens only: never retain, release, or operate on these borrowed Dawn handles.
+static GpuImage::Frame gpu_frame(const ElgGpuFrame& frame) {
+    return {frame.buffer, frame.width, frame.height,
+            static_cast<WGPUDevice>(frame.device), static_cast<WGPUQueue>(frame.queue),
+            static_cast<WGPUTexture>(frame.texture), frame.sequence};
+}
+ELG_EXPORT void elg_gpu_image_end_frame(const GpuImage* image, const ElgGpuFrame* frame) {
     ELG_TRY
-    GpuImage::Frame f;
-    f.buffer = frame->buffer;
-    f.width = frame->width;
-    f.height = frame->height;
-    f.texture = frame->texture;
-    f.fence = frame->fence;
-    f.fence_value = frame->fence_value;
-    std::copy(std::begin(frame->adapter_luid), std::end(frame->adapter_luid), f.adapter_luid.begin());
-    image->end_frame(f, static_cast<GpuImage::Sync>(sync));
+    image->end_frame(gpu_frame(*frame));
+    ELG_CATCH_VOID
+}
+ELG_EXPORT void elg_gpu_image_cancel_frame(const GpuImage* image, const ElgGpuFrame* frame) {
+    ELG_TRY
+    image->cancel_frame(gpu_frame(*frame));
     ELG_CATCH_VOID
 }
 ELG_EXPORT ElgSize elg_gpu_image_size(const GpuImage* image) {

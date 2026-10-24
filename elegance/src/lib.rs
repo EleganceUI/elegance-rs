@@ -124,7 +124,7 @@ pub use layout::{Cached, CachedLayout, HStackLayout, Layout, LayoutChild, Layout
 pub use media::{
     audio_input_devices, audio_output_devices, camera_devices, AudioDevice, AudioPlayer, AudioRecorder,
     AudioRecorderOptions, AudioStream, AudioStreamOptions, Camera, CameraDevice, CameraOptions, CameraView, GpuFrame,
-    GpuImage, GpuImageOrigin, GpuImageSync, GpuImageView, PlayOptions, Sound, VideoControls, VideoFeed, VideoFeedView,
+    GpuImage, GpuImageOrigin, GpuImageView, PlayOptions, Sound, VideoControls, VideoFeed, VideoFeedView,
     VideoFormat, VideoPlayer, VideoView,
 };
 pub use modifier::{

@@ -666,7 +666,7 @@ impl IntoView for VideoFeedView {
     }
 }
 
-/// Where the app's first row goes in a [`GpuImage`]. OpenGL draws the bottom row first.
+/// Where the app's first row goes when displaying a [`GpuImage`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum GpuImageOrigin {
     #[default]
@@ -674,33 +674,28 @@ pub enum GpuImageOrigin {
     BottomLeft,
 }
 
-/// How [`GpuImage::end_frame`] learns the drawing is done.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum GpuImageSync {
-    /// The app signals the frame's fence to `fence_value` (GPU to GPU, no waiting).
-    #[default]
-    Fence,
-    /// The app's GPU work on it has completed (e.g. after `glFinish`).
-    Finished,
-}
-
-/// A buffer of a [`GpuImage`] to draw the next frame into.
+/// An exclusive write reservation from a [`GpuImage`]. Copying it does not reserve again.
+///
+/// Return every field unchanged to end/cancel. The opaque pointers are borrowed Dawn C
+/// `WGPUDevice`, `WGPUQueue`, and `WGPUTexture` handles, not Rust `wgpu` crate objects or
+/// cross-device sharing handles. Never release/destroy them. Keep the image alive while
+/// using them, and stop and join producers before renderer/application shutdown.
+/// Raw GPU operations require the caller's unsafe Dawn interop; this type does not perform
+/// them or enforce their synchronization. Never write outside the reservation.
 #[derive(Clone, Copy, Debug)]
 pub struct GpuFrame {
-    /// 0 ... [`GpuImage::BUFFERS`] - 1. Its handles never change: import each once.
+    /// 0 ... [`GpuImage::BUFFERS`] - 1; each buffer has a stable texture.
     pub buffer: u32,
     pub width: u32,
     pub height: u32,
-    /// Windows: an NT handle to an `ID3D11Texture2D` the image owns (don't close it):
-    /// `GL_HANDLE_TYPE_D3D11_IMAGE_EXT`, `VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT`.
+    /// Borrowed renderer Dawn `WGPUDevice`; use this exact device for encoding.
+    pub device: *mut std::ffi::c_void,
+    /// Borrowed renderer Dawn `WGPUQueue`; submit all writes here before end/cancel.
+    pub queue: *mut std::ffi::c_void,
+    /// Borrowed Dawn `WGPUTexture` belonging to `device`.
     pub texture: *mut std::ffi::c_void,
-    /// The image's fence (the same for every frame): `GL_HANDLE_TYPE_D3D12_FENCE_EXT`,
-    /// `VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT`.
-    pub fence: *mut std::ffi::c_void,
-    /// [`GpuImageSync::Fence`]: signal the fence to this when drawn.
-    pub fence_value: u64,
-    /// The GPU the renderer uses: draw on the same one.
-    pub adapter_luid: [u8; 8],
+    /// Opaque reservation token; return unchanged, including when cancelling.
+    pub sequence: u64,
 }
 
 impl GpuFrame {
@@ -709,10 +704,10 @@ impl GpuFrame {
             buffer: f.buffer,
             width: f.width,
             height: f.height,
+            device: f.device,
+            queue: f.queue,
             texture: f.texture,
-            fence: f.fence,
-            fence_value: f.fence_value,
-            adapter_luid: f.adapter_luid,
+            sequence: f.sequence,
         }
     }
     fn c(&self) -> sys::ElgGpuFrame {
@@ -720,36 +715,52 @@ impl GpuFrame {
             buffer: self.buffer,
             width: self.width,
             height: self.height,
+            device: self.device,
+            queue: self.queue,
             texture: self.texture,
-            fence: self.fence,
-            fence_value: self.fence_value,
-            adapter_luid: self.adapter_luid,
+            sequence: self.sequence,
         }
     }
 }
 
-/// An image the app renders with its own GPU code (OpenGL, Vulkan, Direct3D), shown by
-/// `GpuImageView` without copies:
+/// An image produced on the renderer's Dawn/WebGPU device, sampled without native handle
+/// imports or CPU readback on every supported Dawn backend.
+///
+/// Use the same Dawn runtime/ABI and matching `webgpu/webgpu.h` C API as Elegance; do not
+/// install another Dawn proc table. These handles cannot be used with another WebGPU device,
+/// Rust's `wgpu` crate, wgpu-native, or imported OpenGL/Vulkan/Direct3D resources.
 ///
 /// ```ignore
-/// let image = GpuImage::new(512, 512, GpuImageOrigin::BottomLeft)?;
+/// let image = GpuImage::new(512, 512, GpuImageOrigin::TopLeft)?;
 /// // in the UI:  GpuImageView(&image)
 /// // on the app's render thread, every frame:
 /// if let Some(frame) = image.begin_frame() {
-///     // import frame.texture once per frame.buffer, draw into it, then signal frame.fence to
-///     // frame.fence_value from the same GPU queue
-///     image.end_frame(&frame, GpuImageSync::Fence);
+///     // Encode writes to frame.texture using frame.device through Dawn's C API.
+///     // Submit ALL commands and queue writes to frame.queue before publishing.
+///     image.end_frame(&frame);
+///     // Or image.cancel_frame(&frame) if encoding failed; never submit afterwards.
 /// }
 /// ```
 ///
-/// The image has a few buffers, so the app draws the next frame while the renderer shows the
-/// last. Windows shares them as Direct3D 11 textures (`DXGI_FORMAT_R8G8B8A8_UNORM`, gamma-encoded
-/// like sRGB) and a shared D3D fence, which OpenGL, Vulkan, and Direct3D 11/12 can all import.
-/// Other platforms don't support it yet: `begin_frame` gives nothing.
+/// Queue submission order synchronizes producer and renderer; no fence or GPU wait is needed.
+/// Calls on clones may be concurrent, but only one write reservation is granted at a time.
+/// The reservation owner must synchronize all external writes before end/cancel; do not
+/// end/cancel a frame another thread is writing. Safe Rust methods only forward tokens and
+/// never dereference or operate on the raw GPU handles.
+///
+/// Textures are 2D RGBA8Unorm, one mip/layer/sample, with RenderAttachment | TextureBinding |
+/// CopySrc | CopyDst | StorageBinding usage. Stored RGB is sRGB-encoded, alpha is straight.
+/// RGBA8UnormSrgb views are allowed; rendering through one encodes linear shader RGB. Set
+/// that view's usage to RenderAttachment (sRGB cannot inherit StorageBinding). Origin only
+/// flips display. Keep the image alive during handle use; stop and join producers before
+/// renderer/application shutdown. Frames do not keep the renderer running; device-loss
+/// recovery is unsupported.
 pub struct GpuImage {
     ptr: NonNull<sys::GpuImage>,
 }
 handle!(GpuImage, GpuImage, elg_gpu_image_clone, elg_gpu_image_free);
+// SAFETY: native calls on image copies are synchronized and validate reservation tokens.
+// These methods never dereference or perform GPU operations on caller-provided handles.
 unsafe impl Send for GpuImage {}
 unsafe impl Sync for GpuImage {}
 
@@ -767,19 +778,27 @@ impl GpuImage {
     pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<GpuImage, Error> {
         Self::from_raw(unsafe { sys::elg_gpu_image_new(width, height, origin as i32) })
     }
-    /// A buffer the renderer isn't reading, once the renderer's GPU is known (from the first frame
-    /// of a window), or `None`: not yet, or not supported here. May wait for the GPU to finish
-    /// reading the buffer. One thread draws: call `begin_frame` and `end_frame` from it.
+    /// Nonblocking reservation. Returns `None` before a renderer device exists, after shutdown,
+    /// for invalid dimensions, while a reservation is outstanding, or when all buffers are
+    /// reserved for display/recording. Copying a frame does not create a new reservation.
     pub fn begin_frame(&self) -> Option<GpuFrame> {
         let mut frame = sys::ElgGpuFrame::default();
         let ready = unsafe { sys::elg_gpu_image_begin_frame(self.as_ptr(), &mut frame) };
         crate::error::check();
         ready.then(|| GpuFrame::from_c(frame))
     }
-    /// Shows the frame, next time windows showing the image draw.
-    pub fn end_frame(&self, frame: &GpuFrame, sync: GpuImageSync) {
+    /// Publish after submitting all writes to `frame.queue`; never submit further writes to
+    /// this reservation. No GPU completion wait is needed. Newer frames may replace older
+    /// frames before display. Foreign, stale, and already-ended tokens are ignored.
+    pub fn end_frame(&self, frame: &GpuFrame) {
         let c = frame.c();
-        ffi!(sys::elg_gpu_image_end_frame(self.as_ptr(), &c, sync as i32));
+        ffi!(sys::elg_gpu_image_end_frame(self.as_ptr(), &c));
+    }
+    /// Abandon a reservation. Any submitted writes must be on `frame.queue`; synchronize
+    /// writers first and never submit commands referencing this reservation afterwards.
+    pub fn cancel_frame(&self, frame: &GpuFrame) {
+        let c = frame.c();
+        ffi!(sys::elg_gpu_image_cancel_frame(self.as_ptr(), &c));
     }
     /// In pixels.
     pub fn size(&self) -> Size {
@@ -827,5 +846,48 @@ impl ElgNew<(GpuImage,)> for GpuImageView {
 impl IntoView for GpuImageView {
     fn into_view(self) -> View {
         View::from_raw(ffi!(sys::elg_gpu_image_view(self.image.as_ptr(), self.mode as i32)))
+    }
+}
+
+#[cfg(test)]
+mod gpu_frame_tests {
+    use super::*;
+
+    #[test]
+    fn ffi_roundtrip_preserves_every_field() {
+        let mut handles = [0u8; 3];
+        let original = sys::ElgGpuFrame {
+            buffer: 2,
+            width: 1920,
+            height: 1080,
+            device: std::ptr::from_mut(&mut handles[0]).cast(),
+            queue: std::ptr::from_mut(&mut handles[1]).cast(),
+            texture: std::ptr::from_mut(&mut handles[2]).cast(),
+            sequence: 0xfedc_ba98_7654_3210,
+        };
+        let copied = GpuFrame::from_c(original);
+        let returned = copied.c();
+        assert_eq!(returned.buffer, original.buffer);
+        assert_eq!(returned.width, original.width);
+        assert_eq!(returned.height, original.height);
+        assert_eq!(returned.device, original.device);
+        assert_eq!(returned.queue, original.queue);
+        assert_eq!(returned.texture, original.texture);
+        assert_eq!(returned.sequence, original.sequence);
+    }
+
+    #[test]
+    fn null_ffi_roundtrip() {
+        let frame = GpuFrame::from_c(sys::ElgGpuFrame::default()).c();
+        assert_eq!((frame.buffer, frame.width, frame.height, frame.sequence), (0, 0, 0, 0));
+        assert!(frame.device.is_null());
+        assert!(frame.queue.is_null());
+        assert!(frame.texture.is_null());
+    }
+
+    #[test]
+    fn image_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<GpuImage>();
     }
 }

@@ -174,8 +174,51 @@ tile().grayscale(1).blend_mode(.multiply).rotation_effect(15.0)
 backdrop().mask(LinearGradient::colors([Color::BLACK, Color::CLEAR]))
 ```
 
-`GpuImage` (`elegance::media`) shows frames another renderer (OpenGL, Vulkan, Direct3D) draws into
-shared, triple-buffered textures, e.g. a game or emulator embedded in a view.
+### GPU images (Dawn/WebGPU)
+
+`GpuImage` (`elegance::media`) provides triple-buffered textures from **Elegance's own Dawn
+WebGPU device**, sampled without native handle imports or CPU readback on all supported Dawn
+backends. `GpuImageView(&image)` displays the image.
+
+```rust,ignore
+let image = GpuImage::new(512, 512, GpuImageOrigin::TopLeft)?;
+// On a producer thread, keeping the image alive:
+if let Some(frame) = image.begin_frame() {
+    // Use Dawn's C API to encode writes to frame.texture with frame.device.
+    // Submit ALL commands and queue writes to frame.queue before publishing.
+    image.end_frame(&frame);
+    // On failure instead: image.cancel_frame(&frame);
+}
+```
+
+`GpuFrame` contains `buffer`, `width`, `height`, `device`, `queue`, `texture`, and `sequence`.
+Return **every field unchanged** to end/cancel. `device`, `queue`, and `texture` are opaque
+`*mut c_void` values representing borrowed Dawn C `WGPUDevice`, `WGPUQueue`, and `WGPUTexture`
+handles. Use Elegance's matching Dawn runtime/ABI and `webgpu/webgpu.h`; never install another
+Dawn proc table. They are **not Rust `wgpu` crate objects**, wgpu-native handles, cross-device
+sharing handles, or importable OpenGL/Vulkan/Direct3D resources. Never release/destroy the
+handles or device.
+
+`begin_frame` is nonblocking: it returns `None` before a device exists, after shutdown, for
+invalid dimensions, while another reservation is outstanding, or when no buffer is free.
+Calls on image clones may be concurrent, but only one write reservation is granted at a time;
+copying a frame does not create another. Safe Rust methods only forward tokens, not raw GPU
+operations. The caller's unsafe Dawn interop must synchronize all writers before end/cancel;
+never end/cancel another thread's in-progress writes. Keep the image alive while using handles,
+and stop and join producers before renderer/application shutdown. Frames do not keep the
+renderer running; device-loss recovery is unsupported.
+
+Submission order on `frame.queue` synchronizes rendering: no fences or GPU completion waits
+are needed. Never submit commands referencing the reservation after end/cancel, including when
+cancelling after partial submission. Foreign, stale, and already-ended tokens are ignored;
+newer published frames may replace older ones before display. Migration: `GpuImageSync` and
+the `end_frame` sync argument have been removed; use `end_frame(&frame)` or `cancel_frame(&frame)`.
+
+Textures are 2D RGBA8Unorm with one mip/layer/sample and RenderAttachment | TextureBinding |
+CopySrc | CopyDst | StorageBinding usage. RGB must be sRGB-encoded and alpha straight, not
+premultiplied. RGBA8UnormSrgb views are allowed: an sRGB attachment view automatically encodes
+linear shader RGB; set its usage to RenderAttachment (sRGB cannot inherit StorageBinding).
+Origin only flips display.
 
 ## State
 
