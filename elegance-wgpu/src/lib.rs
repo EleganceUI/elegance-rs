@@ -9,7 +9,7 @@
 //! explicitly created/reserved retirement queue. See the README and
 //! `src/bin/wgpu-image.rs` for a runnable platform-neutral Rust UI smoke example.
 
-pub use elegance::{ExternalGpuImage, ExternalGpuImageView, GpuImageOrigin};
+pub use elegance::{ExternalGpuImage, GpuImageOrigin, GpuImageView};
 use std::fmt;
 pub use wgpu;
 

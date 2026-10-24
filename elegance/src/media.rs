@@ -20,7 +20,9 @@ macro_rules! handle {
     ($name:ident, $raw:ident, $clone:ident, $free:ident) => {
         impl Clone for $name {
             fn clone(&self) -> Self {
-                Self { ptr: NonNull::new(unsafe { sys::$clone(self.ptr.as_ptr()) }).unwrap() }
+                Self {
+                    ptr: NonNull::new(unsafe { sys::$clone(self.ptr.as_ptr()) }).unwrap(),
+                }
             }
         }
         impl Drop for $name {
@@ -31,7 +33,10 @@ macro_rules! handle {
         impl $name {
             fn from_raw(ptr: *mut sys::$raw) -> Result<Self, Error> {
                 error::result()?;
-                Ok(Self { ptr: NonNull::new(ptr).ok_or_else(|| Error::new(crate::ErrorKind::Other, "no handle"))? })
+                Ok(Self {
+                    ptr: NonNull::new(ptr)
+                        .ok_or_else(|| Error::new(crate::ErrorKind::Other, "no handle"))?,
+                })
             }
             fn as_ptr(&self) -> *const sys::$raw {
                 self.ptr.as_ptr()
@@ -60,7 +65,11 @@ fn devices(list: unsafe extern "C" fn(sys::ElgClosure)) -> Vec<AudioDevice> {
     let mut result = Vec::new();
     let mut each = |args: *mut std::ffi::c_void, _: *mut std::ffi::c_void| unsafe {
         let d = &*(args as *const sys::ElgDevice);
-        result.push(AudioDevice { id: d.id.as_str().to_owned(), name: d.name.as_str().to_owned(), is_default: d.is_default });
+        result.push(AudioDevice {
+            id: d.id.as_str().to_owned(),
+            name: d.name.as_str().to_owned(),
+            is_default: d.is_default,
+        });
     };
     ffi!(list(cffi::borrowed(&mut each)));
     result
@@ -86,7 +95,11 @@ pub struct PlayOptions {
 
 impl Default for PlayOptions {
     fn default() -> Self {
-        Self { volume: 1.0, pitch: 1.0, pan: 0.0 }
+        Self {
+            volume: 1.0,
+            pitch: 1.0,
+            pan: 0.0,
+        }
     }
 }
 
@@ -112,7 +125,12 @@ impl Sound {
         self.play_with(PlayOptions::default())
     }
     pub fn play_with(&self, options: PlayOptions) {
-        ffi!(sys::elg_sound_play(self.as_ptr(), options.volume, options.pitch, options.pan));
+        ffi!(sys::elg_sound_play(
+            self.as_ptr(),
+            options.volume,
+            options.pitch,
+            options.pan
+        ));
     }
     pub fn duration(&self) -> f64 {
         unsafe { sys::elg_sound_duration(self.as_ptr()) }
@@ -123,7 +141,12 @@ impl Sound {
 pub struct AudioPlayer {
     ptr: NonNull<sys::AudioPlayer>,
 }
-handle!(AudioPlayer, AudioPlayer, elg_audio_player_clone, elg_audio_player_free);
+handle!(
+    AudioPlayer,
+    AudioPlayer,
+    elg_audio_player_clone,
+    elg_audio_player_free
+);
 
 impl AudioPlayer {
     pub fn new(file: impl AsRef<Path>) -> Result<AudioPlayer, Error> {
@@ -187,7 +210,11 @@ pub struct AudioStreamOptions {
 
 impl Default for AudioStreamOptions {
     fn default() -> Self {
-        Self { device_id: String::new(), sample_rate: 48000, channels: 2 }
+        Self {
+            device_id: String::new(),
+            sample_rate: 48000,
+            channels: 2,
+        }
     }
 }
 
@@ -196,7 +223,12 @@ impl Default for AudioStreamOptions {
 pub struct AudioStream {
     ptr: NonNull<sys::AudioStream>,
 }
-handle!(AudioStream, AudioStream, elg_audio_stream_clone, elg_audio_stream_free);
+handle!(
+    AudioStream,
+    AudioStream,
+    elg_audio_stream_clone,
+    elg_audio_stream_free
+);
 unsafe impl Send for AudioStream {}
 unsafe impl Sync for AudioStream {}
 
@@ -206,7 +238,10 @@ impl AudioStream {
     }
     /// `render` fills each buffer of interleaved samples. It runs on the audio thread: keep it
     /// short and lock-light.
-    pub fn with_render(options: AudioStreamOptions, render: impl Fn(&mut [f32]) + Send + 'static) -> Result<AudioStream, Error> {
+    pub fn with_render(
+        options: AudioStreamOptions,
+        render: impl Fn(&mut [f32]) + Send + 'static,
+    ) -> Result<AudioStream, Error> {
         let render = cffi::send_closure(move |args, _| unsafe {
             let buffer = &*(args as *const sys::ElgRenderBuffer);
             render(std::slice::from_raw_parts_mut(buffer.samples, buffer.count));
@@ -215,12 +250,21 @@ impl AudioStream {
     }
     fn make(options: AudioStreamOptions, render: sys::ElgClosure) -> Result<AudioStream, Error> {
         Self::from_raw(unsafe {
-            sys::elg_audio_stream_new(cffi::s(&options.device_id), options.sample_rate, options.channels, render)
+            sys::elg_audio_stream_new(
+                cffi::s(&options.device_id),
+                options.sample_rate,
+                options.channels,
+                render,
+            )
         })
     }
     /// Queues interleaved samples. Any thread.
     pub fn write(&self, samples: &[f32]) {
-        ffi!(sys::elg_audio_stream_write(self.as_ptr(), samples.as_ptr(), samples.len()));
+        ffi!(sys::elg_audio_stream_write(
+            self.as_ptr(),
+            samples.as_ptr(),
+            samples.len()
+        ));
     }
     /// Drops what's queued.
     pub fn clear(&self) {
@@ -262,7 +306,12 @@ pub struct AudioRecorderOptions {
 
 impl Default for AudioRecorderOptions {
     fn default() -> Self {
-        Self { device_id: String::new(), sample_rate: 48000, channels: 1, keeps_samples: true }
+        Self {
+            device_id: String::new(),
+            sample_rate: 48000,
+            channels: 1,
+            keeps_samples: true,
+        }
     }
 }
 
@@ -270,7 +319,12 @@ impl Default for AudioRecorderOptions {
 pub struct AudioRecorder {
     ptr: NonNull<sys::AudioRecorder>,
 }
-handle!(AudioRecorder, AudioRecorder, elg_audio_recorder_clone, elg_audio_recorder_free);
+handle!(
+    AudioRecorder,
+    AudioRecorder,
+    elg_audio_recorder_clone,
+    elg_audio_recorder_free
+);
 
 impl AudioRecorder {
     pub fn new(options: AudioRecorderOptions) -> Result<AudioRecorder, Error> {
@@ -278,16 +332,28 @@ impl AudioRecorder {
     }
     /// `on_samples` sees each block of interleaved samples on the audio thread: keep it short,
     /// and don't touch views or state from it.
-    pub fn with_samples(options: AudioRecorderOptions, on_samples: impl Fn(&[f32]) + Send + 'static) -> Result<AudioRecorder, Error> {
+    pub fn with_samples(
+        options: AudioRecorderOptions,
+        on_samples: impl Fn(&[f32]) + Send + 'static,
+    ) -> Result<AudioRecorder, Error> {
         let on_samples = cffi::send_closure(move |args, _| unsafe {
             let samples = &*(args as *const sys::ElgSamples);
             on_samples(std::slice::from_raw_parts(samples.samples, samples.count));
         });
         Self::make(options, on_samples)
     }
-    fn make(options: AudioRecorderOptions, on_samples: sys::ElgClosure) -> Result<AudioRecorder, Error> {
+    fn make(
+        options: AudioRecorderOptions,
+        on_samples: sys::ElgClosure,
+    ) -> Result<AudioRecorder, Error> {
         Self::from_raw(unsafe {
-            sys::elg_audio_recorder_new(cffi::s(&options.device_id), options.sample_rate, options.channels, on_samples, options.keeps_samples)
+            sys::elg_audio_recorder_new(
+                cffi::s(&options.device_id),
+                options.sample_rate,
+                options.channels,
+                on_samples,
+                options.keeps_samples,
+            )
         })
     }
     /// Continues the recording.
@@ -331,7 +397,10 @@ impl AudioRecorder {
             let s = &*(args as *const sys::ElgSamples);
             result.extend_from_slice(std::slice::from_raw_parts(s.samples, s.count));
         };
-        ffi!(sys::elg_audio_recorder_samples(self.as_ptr(), cffi::borrowed(&mut each)));
+        ffi!(sys::elg_audio_recorder_samples(
+            self.as_ptr(),
+            cffi::borrowed(&mut each)
+        ));
         result
     }
     pub fn save_wav(&self, file: impl AsRef<Path>) -> Result<(), Error> {
@@ -345,7 +414,10 @@ impl AudioRecorder {
         let mut each = |args: *mut std::ffi::c_void, _: *mut std::ffi::c_void| unsafe {
             result.extend_from_slice((*(args as *const sys::ElgBytes)).as_slice());
         };
-        ffi!(sys::elg_audio_recorder_wav(self.as_ptr(), cffi::borrowed(&mut each)));
+        ffi!(sys::elg_audio_recorder_wav(
+            self.as_ptr(),
+            cffi::borrowed(&mut each)
+        ));
         result
     }
     /// The recording as a Sound, to play back.
@@ -361,7 +433,13 @@ pub struct CameraDevice {
 }
 
 pub fn camera_devices() -> Vec<CameraDevice> {
-    devices(sys::elg_camera_devices).into_iter().map(|d| CameraDevice { id: d.id, name: d.name }).collect()
+    devices(sys::elg_camera_devices)
+        .into_iter()
+        .map(|d| CameraDevice {
+            id: d.id,
+            name: d.name,
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -376,7 +454,12 @@ pub struct CameraOptions {
 
 impl Default for CameraOptions {
     fn default() -> Self {
-        Self { device_id: String::new(), width: 1280, height: 720, mirrored: true }
+        Self {
+            device_id: String::new(),
+            width: 1280,
+            height: 720,
+            mirrored: true,
+        }
     }
 }
 
@@ -388,7 +471,14 @@ handle!(Camera, Camera, elg_camera_clone, elg_camera_free);
 
 impl Camera {
     pub fn new(options: CameraOptions) -> Result<Camera, Error> {
-        Self::from_raw(unsafe { sys::elg_camera_new(cffi::s(&options.device_id), options.width, options.height, options.mirrored) })
+        Self::from_raw(unsafe {
+            sys::elg_camera_new(
+                cffi::s(&options.device_id),
+                options.width,
+                options.height,
+                options.mirrored,
+            )
+        })
     }
     pub fn start(&self) {
         ffi!(sys::elg_camera_start(self.as_ptr(), true));
@@ -415,7 +505,11 @@ impl Camera {
         let mut each = |args: *mut std::ffi::c_void, _: *mut std::ffi::c_void| unsafe {
             result.extend_from_slice((*(args as *const sys::ElgBytes)).as_slice());
         };
-        ffi!(sys::elg_camera_snapshot(self.as_ptr(), cffi::borrowed(&mut each))).then_some(result)
+        ffi!(sys::elg_camera_snapshot(
+            self.as_ptr(),
+            cffi::borrowed(&mut each)
+        ))
+        .then_some(result)
     }
 }
 
@@ -427,7 +521,10 @@ pub struct CameraView {
 
 impl CameraView {
     pub fn new(camera: &Camera) -> Self {
-        Self { camera: camera.clone(), mode: ContentMode::Fill }
+        Self {
+            camera: camera.clone(),
+            mode: ContentMode::Fill,
+        }
     }
     pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
         self.mode = mode.into();
@@ -445,13 +542,19 @@ impl ElgNew<(&Camera,)> for CameraView {
 impl ElgNew<(Camera,)> for CameraView {
     type Out = CameraView;
     fn elg_new((camera,): (Camera,)) -> Self {
-        CameraView { camera, mode: ContentMode::Fill }
+        CameraView {
+            camera,
+            mode: ContentMode::Fill,
+        }
     }
 }
 
 impl IntoView for CameraView {
     fn into_view(self) -> View {
-        View::from_raw(ffi!(sys::elg_camera_view(self.camera.as_ptr(), self.mode as i32)))
+        View::from_raw(ffi!(sys::elg_camera_view(
+            self.camera.as_ptr(),
+            self.mode as i32
+        )))
     }
 }
 
@@ -459,7 +562,12 @@ impl IntoView for CameraView {
 pub struct VideoPlayer {
     ptr: NonNull<sys::VideoPlayer>,
 }
-handle!(VideoPlayer, VideoPlayer, elg_video_player_clone, elg_video_player_free);
+handle!(
+    VideoPlayer,
+    VideoPlayer,
+    elg_video_player_clone,
+    elg_video_player_free
+);
 
 impl VideoPlayer {
     /// A file path or URL.
@@ -542,7 +650,10 @@ pub struct VideoView {
 
 impl VideoView {
     pub fn new(player: &VideoPlayer) -> Self {
-        Self { player: player.clone(), mode: ContentMode::Fit }
+        Self {
+            player: player.clone(),
+            mode: ContentMode::Fit,
+        }
     }
     pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
         self.mode = mode.into();
@@ -560,13 +671,19 @@ impl ElgNew<(&VideoPlayer,)> for VideoView {
 impl ElgNew<(VideoPlayer,)> for VideoView {
     type Out = VideoView;
     fn elg_new((player,): (VideoPlayer,)) -> Self {
-        VideoView { player, mode: ContentMode::Fit }
+        VideoView {
+            player,
+            mode: ContentMode::Fit,
+        }
     }
 }
 
 impl IntoView for VideoView {
     fn into_view(self) -> View {
-        View::from_raw(ffi!(sys::elg_video_view(self.player.as_ptr(), self.mode as i32)))
+        View::from_raw(ffi!(sys::elg_video_view(
+            self.player.as_ptr(),
+            self.mode as i32
+        )))
     }
 }
 
@@ -603,7 +720,12 @@ pub enum VideoFormat {
 pub struct VideoFeed {
     ptr: NonNull<sys::VideoFeed>,
 }
-handle!(VideoFeed, VideoFeed, elg_video_feed_clone, elg_video_feed_free);
+handle!(
+    VideoFeed,
+    VideoFeed,
+    elg_video_feed_clone,
+    elg_video_feed_free
+);
 unsafe impl Send for VideoFeed {}
 unsafe impl Sync for VideoFeed {}
 
@@ -618,8 +740,23 @@ impl VideoFeed {
         Self::from_raw(unsafe { sys::elg_video_feed_new() })
     }
     /// A new frame. `full_range`: YUV in 0...255 rather than 16...235.
-    pub fn push(&self, format: impl Into<VideoFormat>, width: u32, height: u32, pixels: &[u8], full_range: bool) {
-        ffi!(sys::elg_video_feed_push(self.as_ptr(), format.into() as i32, width, height, pixels.as_ptr(), pixels.len(), full_range));
+    pub fn push(
+        &self,
+        format: impl Into<VideoFormat>,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+        full_range: bool,
+    ) {
+        ffi!(sys::elg_video_feed_push(
+            self.as_ptr(),
+            format.into() as i32,
+            width,
+            height,
+            pixels.as_ptr(),
+            pixels.len(),
+            full_range
+        ));
     }
     /// No picture (black) until the next push.
     pub fn clear(&self) {
@@ -642,7 +779,11 @@ pub struct VideoFeedView {
 
 impl VideoFeedView {
     pub fn new(feed: &VideoFeed) -> Self {
-        Self { feed: feed.clone(), mode: ContentMode::Fit, mirrored: false }
+        Self {
+            feed: feed.clone(),
+            mode: ContentMode::Fit,
+            mirrored: false,
+        }
     }
     pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
         self.mode = mode.into();
@@ -663,7 +804,11 @@ impl ElgNew<(&VideoFeed,)> for VideoFeedView {
 
 impl IntoView for VideoFeedView {
     fn into_view(self) -> View {
-        View::from_raw(ffi!(sys::elg_video_feed_view(self.feed.as_ptr(), self.mode as i32, self.mirrored)))
+        View::from_raw(ffi!(sys::elg_video_feed_view(
+            self.feed.as_ptr(),
+            self.mode as i32,
+            self.mirrored
+        )))
     }
 }
 
@@ -756,27 +901,32 @@ impl GpuFrame {
 /// flips display. Keep the image alive during handle use; stop and join producers before
 /// renderer/application shutdown. Frames do not keep the renderer running; device-loss
 /// recovery is unsupported.
-pub struct GpuImage {
+pub struct GpuImageView {
     ptr: NonNull<sys::GpuImage>,
 }
-handle!(GpuImage, GpuImage, elg_gpu_image_clone, elg_gpu_image_free);
+handle!(
+    GpuImageView,
+    GpuImage,
+    elg_gpu_image_clone,
+    elg_gpu_image_free
+);
 // SAFETY: native calls on image copies are synchronized and validate reservation tokens.
 // These methods never dereference or perform GPU operations on caller-provided handles.
-unsafe impl Send for GpuImage {}
-unsafe impl Sync for GpuImage {}
+unsafe impl Send for GpuImageView {}
+unsafe impl Sync for GpuImageView {}
 
-impl PartialEq for GpuImage {
+impl PartialEq for GpuImageView {
     fn eq(&self, other: &Self) -> bool {
         unsafe { sys::elg_gpu_image_same(self.as_ptr(), other.as_ptr()) }
     }
 }
 
-impl GpuImage {
+impl GpuImageView {
     /// How many buffers an image has.
     pub const BUFFERS: u32 = 3;
 
     /// An image of `width` x `height` pixels.
-    pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<GpuImage, Error> {
+    pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<GpuImageView, Error> {
         Self::from_raw(unsafe { sys::elg_gpu_image_new(width, height, origin as i32) })
     }
     /// Nonblocking reservation. Returns `None` before a renderer device exists, after shutdown,
@@ -816,13 +966,16 @@ impl GpuImage {
 /// A [`GpuImage`], fitted into (or filling, clipped to) the space offered, on black. Its ideal
 /// size is the image's own.
 pub struct GpuImageView {
-    image: GpuImage,
+    image: GpuImageView,
     mode: ContentMode,
 }
 
 impl GpuImageView {
-    pub fn new(image: &GpuImage) -> Self {
-        Self { image: image.clone(), mode: ContentMode::Fit }
+    pub fn new(image: &GpuImageView) -> Self {
+        Self {
+            image: image.clone(),
+            mode: ContentMode::Fit,
+        }
     }
     pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
         self.mode = mode.into();
@@ -830,23 +983,29 @@ impl GpuImageView {
     }
 }
 
-impl ElgNew<(&GpuImage,)> for GpuImageView {
+impl ElgNew<(&GpuImageView,)> for GpuImageView {
     type Out = GpuImageView;
-    fn elg_new((image,): (&GpuImage,)) -> Self {
+    fn elg_new((image,): (&GpuImageView,)) -> Self {
         GpuImageView::new(image)
     }
 }
 
-impl ElgNew<(GpuImage,)> for GpuImageView {
+impl ElgNew<(GpuImageView,)> for GpuImageView {
     type Out = GpuImageView;
-    fn elg_new((image,): (GpuImage,)) -> Self {
-        GpuImageView { image, mode: ContentMode::Fit }
+    fn elg_new((image,): (GpuImageView,)) -> Self {
+        GpuImageView {
+            image,
+            mode: ContentMode::Fit,
+        }
     }
 }
 
 impl IntoView for GpuImageView {
     fn into_view(self) -> View {
-        View::from_raw(ffi!(sys::elg_gpu_image_view(self.image.as_ptr(), self.mode as i32)))
+        View::from_raw(ffi!(sys::elg_gpu_image_view(
+            self.image.as_ptr(),
+            self.mode as i32
+        )))
     }
 }
 
@@ -888,9 +1047,17 @@ impl ExternalGpuImage {
             GpuImageOrigin::TopLeft => raw::ORIGIN_TOP_LEFT,
             GpuImageOrigin::BottomLeft => raw::ORIGIN_BOTTOM_LEFT,
         };
-        let ptr = NonNull::new(unsafe { raw::elg_external_gpu_image_create(width, height, origin) })
-            .ok_or_else(|| Error::new(crate::ErrorKind::Other, "could not create external GPU image"))?;
-        Ok(Self { inner: Arc::new(ExternalGpuImageInner { ptr }) })
+        let ptr =
+            NonNull::new(unsafe { raw::elg_external_gpu_image_create(width, height, origin) })
+                .ok_or_else(|| {
+                    Error::new(
+                        crate::ErrorKind::Other,
+                        "could not create external GPU image",
+                    )
+                })?;
+        Ok(Self {
+            inner: Arc::new(ExternalGpuImageInner { ptr }),
+        })
     }
 
     /// Returns a borrowed native handle for unsafe low-level interop.
@@ -911,14 +1078,17 @@ impl ExternalGpuImage {
 }
 
 /// An [`ExternalGpuImage`], fitted into (or filling, clipped to) the offered space, on black.
-pub struct ExternalGpuImageView {
+pub struct GpuImage {
     image: ExternalGpuImage,
     mode: ContentMode,
 }
 
-impl ExternalGpuImageView {
+impl GpuImageView {
     pub fn new(image: &ExternalGpuImage) -> Self {
-        Self { image: image.clone(), mode: ContentMode::Fit }
+        Self {
+            image: image.clone(),
+            mode: ContentMode::Fit,
+        }
     }
     pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
         self.mode = mode.into();
@@ -926,24 +1096,28 @@ impl ExternalGpuImageView {
     }
 }
 
-impl ElgNew<(&ExternalGpuImage,)> for ExternalGpuImageView {
-    type Out = ExternalGpuImageView;
+impl ElgNew<(&ExternalGpuImage,)> for GpuImageView {
+    type Out = GpuImageView;
     fn elg_new((image,): (&ExternalGpuImage,)) -> Self {
         Self::new(image)
     }
 }
 
-impl ElgNew<(ExternalGpuImage,)> for ExternalGpuImageView {
-    type Out = ExternalGpuImageView;
+impl ElgNew<(ExternalGpuImage,)> for GpuImageView {
+    type Out = GpuImageView;
     fn elg_new((image,): (ExternalGpuImage,)) -> Self {
-        Self { image, mode: ContentMode::Fit }
+        Self {
+            image,
+            mode: ContentMode::Fit,
+        }
     }
 }
 
-impl IntoView for ExternalGpuImageView {
+impl IntoView for GpuImageView {
     fn into_view(self) -> View {
         View::from_raw(ffi!(sys::external_gpu_image::elg_external_gpu_image_view(
-            self.image.as_raw(), self.mode as i32
+            self.image.as_raw(),
+            self.mode as i32
         )))
     }
 }
@@ -978,8 +1152,8 @@ mod external_gpu_image_tests {
     fn dsl_views(image: ExternalGpuImage) -> impl IntoView {
         crate::elg! {
             crate::VStack {
-                ExternalGpuImageView(&image, mode: .fit)
-                ExternalGpuImageView(image, mode: .fill)
+                GpuImageView(&image, mode: .fit)
+                GpuImageView(image, mode: .fill)
             }
         }
     }
@@ -1015,7 +1189,10 @@ mod gpu_frame_tests {
     #[test]
     fn null_ffi_roundtrip() {
         let frame = GpuFrame::from_c(sys::ElgGpuFrame::default()).c();
-        assert_eq!((frame.buffer, frame.width, frame.height, frame.sequence), (0, 0, 0, 0));
+        assert_eq!(
+            (frame.buffer, frame.width, frame.height, frame.sequence),
+            (0, 0, 0, 0)
+        );
         assert!(frame.device.is_null());
         assert!(frame.queue.is_null());
         assert!(frame.texture.is_null());
@@ -1024,6 +1201,6 @@ mod gpu_frame_tests {
     #[test]
     fn image_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<GpuImage>();
+        assert_send_sync::<GpuImageView>();
     }
 }
