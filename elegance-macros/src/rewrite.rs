@@ -7,18 +7,25 @@ use proc_macro2::{Delimiter, Group, Ident, Spacing, TokenStream, TokenTree};
 use quote::quote;
 
 const KEYWORDS: &[&str] = &[
-    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let",
-    "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait",
-    "true", "type", "unsafe", "use", "where", "while", "async", "await", "dyn", "yield", "box", "do", "final", "macro",
-    "override", "priv", "typeof", "unsized", "virtual", "abstract", "become", "try",
+    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
+    "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "async", "await", "dyn", "yield", "box", "do", "final", "macro", "override", "priv",
+    "typeof", "unsized", "virtual", "abstract", "become", "try",
 ];
 
 // Keywords after which an expression starts (so a following `.x` is shorthand).
-const EXPRESSION_KEYWORDS: &[&str] = &["return", "break", "in", "match", "if", "while", "else", "yield", "move"];
+const EXPRESSION_KEYWORDS: &[&str] = &[
+    "return", "break", "in", "match", "if", "while", "else", "yield", "move",
+];
 
 fn dot_path(name: &Ident) -> TokenStream {
     let text = name.to_string();
-    let ident = if KEYWORDS.contains(&text.as_str()) { Ident::new_raw(&text, name.span()) } else { name.clone() };
+    let ident = if KEYWORDS.contains(&text.as_str()) {
+        Ident::new_raw(&text, name.span())
+    } else {
+        name.clone()
+    };
     quote!(::elegance::dot::#ident)
 }
 
@@ -76,9 +83,13 @@ pub fn rewrite(tokens: TokenStream) -> TokenStream {
 pub fn argument(tokens: TokenStream) -> TokenStream {
     let items: Vec<TokenTree> = tokens.clone().into_iter().collect();
     if let [TokenTree::Literal(literal)] = items.as_slice() {
-        if let Ok(text) = syn::parse2::<syn::LitStr>(TokenStream::from(TokenTree::Literal(literal.clone()))) {
+        if let Ok(text) =
+            syn::parse2::<syn::LitStr>(TokenStream::from(TokenTree::Literal(literal.clone())))
+        {
             if has_placeholder(&text.value()) {
-                return quote!(::elegance::__private::Interpolated(move || ::std::format!(#text)));
+                return quote!(::elegance::__private::Interpolated(
+                    move || ::std::format!(#text)
+                ));
             }
         }
     }
@@ -114,7 +125,9 @@ pub fn split_commas(tokens: TokenStream) -> Vec<TokenStream> {
                 prev_colons = false;
                 continue;
             }
-            TokenTree::Punct(p) if p.as_char() == '<' && (prev_colons || angle_depth > 0) => angle_depth += 1,
+            TokenTree::Punct(p) if p.as_char() == '<' && (prev_colons || angle_depth > 0) => {
+                angle_depth += 1
+            }
             TokenTree::Punct(p) if p.as_char() == '>' && angle_depth > 0 => angle_depth -= 1,
             _ => {}
         }
