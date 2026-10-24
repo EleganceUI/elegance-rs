@@ -5,6 +5,7 @@
 // Audio, capture, video, networking, and the desktop (dialogs, notifications, tray icons).
 
 #include "shim.h"
+#include <elg/external_gpu_image.h>
 
 #include <cstddef>
 
@@ -523,6 +524,12 @@ ELG_EXPORT int32_t elg_gpu_image_origin(const GpuImage* image) {
 ELG_EXPORT View* elg_gpu_image_view(const GpuImage* image, int32_t mode) {
     ELG_TRY
     return out(GpuImageView(*image, static_cast<ContentMode>(mode)));
+    ELG_CATCH(nullptr)
+}
+
+ELG_EXPORT elg::View* elg_external_gpu_image_view(const ElgExternalGpuImage* image, int32_t mode) {
+    ELG_TRY
+    return new elg::View(elg::ExternalGpuImageView(image, static_cast<elg::ContentMode>(mode)));
     ELG_CATCH(nullptr)
 }
 

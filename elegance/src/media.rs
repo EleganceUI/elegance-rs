@@ -5,6 +5,7 @@
 
 use std::path::Path;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 use elegance_sys as sys;
 
@@ -846,6 +847,137 @@ impl ElgNew<(GpuImage,)> for GpuImageView {
 impl IntoView for GpuImageView {
     fn into_view(self) -> View {
         View::from_raw(ffi!(sys::elg_gpu_image_view(self.image.as_ptr(), self.mode as i32)))
+    }
+}
+
+/// An externally produced GPU image with fixed dimensions and origin.
+///
+/// Clones share one synchronized native handle. Publication is available only through the
+/// unsafe native API in `elegance_sys::external_gpu_image`; there is no safe generic publish.
+/// Views retain their source independently. Stop/join producers and remove views before
+/// renderer shutdown, retaining callback state until all accepted frames are released.
+#[derive(Clone)]
+pub struct ExternalGpuImage {
+    inner: Arc<ExternalGpuImageInner>,
+}
+
+struct ExternalGpuImageInner {
+    ptr: NonNull<sys::external_gpu_image::ExternalGpuImage>,
+}
+
+// SAFETY: native publish/clear calls on a live handle are synchronized. Arc keeps the
+// handle alive across safe calls and destroys it only after the last owner is dropped.
+unsafe impl Send for ExternalGpuImageInner {}
+unsafe impl Sync for ExternalGpuImageInner {}
+
+impl Drop for ExternalGpuImageInner {
+    fn drop(&mut self) {
+        unsafe { sys::external_gpu_image::elg_external_gpu_image_destroy(self.ptr.as_ptr()) }
+    }
+}
+
+impl ExternalGpuImage {
+    /// Creates an image of `width` × `height` pixels. Does not publish or import a frame.
+    pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<Self, Error> {
+        use sys::external_gpu_image as raw;
+        let origin = match origin {
+            GpuImageOrigin::TopLeft => raw::ORIGIN_TOP_LEFT,
+            GpuImageOrigin::BottomLeft => raw::ORIGIN_BOTTOM_LEFT,
+        };
+        let ptr = NonNull::new(unsafe { raw::elg_external_gpu_image_create(width, height, origin) })
+            .ok_or_else(|| Error::new(crate::ErrorKind::Other, "could not create external GPU image"))?;
+        Ok(Self { inner: Arc::new(ExternalGpuImageInner { ptr }) })
+    }
+
+    /// Returns a borrowed native handle for unsafe low-level interop.
+    ///
+    /// Do not destroy it. Keep an owning clone alive for every raw call; the pointer does
+    /// not extend its lifetime. Raw use is unsafe and must honor the native publication,
+    /// resource lifetime, callback, and GPU synchronization contract. Callbacks must not
+    /// reenter this API, including `clear`. Destroying the handle is not a callback drain.
+    pub fn as_raw(&self) -> *mut sys::external_gpu_image::ExternalGpuImage {
+        self.inner.ptr.as_ptr()
+    }
+
+    /// Removes the current frame. Release callbacks do not imply GPU completion;
+    /// views/snapshots may retain frames, so this is not a drain.
+    pub fn clear(&self) {
+        unsafe { sys::external_gpu_image::elg_external_gpu_image_clear(self.as_raw()) }
+    }
+}
+
+/// An [`ExternalGpuImage`], fitted into (or filling, clipped to) the offered space, on black.
+pub struct ExternalGpuImageView {
+    image: ExternalGpuImage,
+    mode: ContentMode,
+}
+
+impl ExternalGpuImageView {
+    pub fn new(image: &ExternalGpuImage) -> Self {
+        Self { image: image.clone(), mode: ContentMode::Fit }
+    }
+    pub fn mode(mut self, mode: impl Into<ContentMode>) -> Self {
+        self.mode = mode.into();
+        self
+    }
+}
+
+impl ElgNew<(&ExternalGpuImage,)> for ExternalGpuImageView {
+    type Out = ExternalGpuImageView;
+    fn elg_new((image,): (&ExternalGpuImage,)) -> Self {
+        Self::new(image)
+    }
+}
+
+impl ElgNew<(ExternalGpuImage,)> for ExternalGpuImageView {
+    type Out = ExternalGpuImageView;
+    fn elg_new((image,): (ExternalGpuImage,)) -> Self {
+        Self { image, mode: ContentMode::Fit }
+    }
+}
+
+impl IntoView for ExternalGpuImageView {
+    fn into_view(self) -> View {
+        View::from_raw(ffi!(sys::external_gpu_image::elg_external_gpu_image_view(
+            self.image.as_raw(), self.mode as i32
+        )))
+    }
+}
+
+#[cfg(test)]
+mod external_gpu_image_tests {
+    use super::*;
+
+    #[test]
+    fn image_is_send_sync_and_clone() {
+        fn assert_traits<T: Send + Sync + Clone>() {}
+        assert_traits::<ExternalGpuImage>();
+    }
+
+    #[test]
+    fn create_clone_and_clear() {
+        let image = ExternalGpuImage::new(16, 16, GpuImageOrigin::BottomLeft).unwrap();
+        let clone = image.clone();
+        assert_eq!(image.as_raw(), clone.as_raw());
+        drop(image);
+        clone.clear();
+    }
+
+    #[test]
+    fn rejects_invalid_dimensions() {
+        assert!(ExternalGpuImage::new(0, 16, GpuImageOrigin::TopLeft).is_err());
+        assert!(ExternalGpuImage::new(16, 0, GpuImageOrigin::TopLeft).is_err());
+    }
+
+    // Compile both owned and borrowed DSL overloads without requiring a live UI renderer.
+    #[allow(dead_code)]
+    fn dsl_views(image: ExternalGpuImage) -> impl IntoView {
+        crate::elg! {
+            crate::VStack {
+                ExternalGpuImageView(&image, mode: .fit)
+                ExternalGpuImageView(image, mode: .fill)
+            }
+        }
     }
 }
 

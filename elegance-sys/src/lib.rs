@@ -21,6 +21,8 @@ macro_rules! opaque {
     )*};
 }
 
+pub mod external_gpu_image;
+
 opaque!(
     /// `elg::View`
     View,

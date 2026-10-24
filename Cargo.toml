@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["elegance-sys", "elegance-macros", "elegance", "cargo-elegance"]
+# Use a glob: a literal elegance-wgpu member also includes its descendants,
+# overriding the exclusion of the nested wgpu workspace below.
+members = ["elegance-*", "elegance", "cargo-elegance"]
+exclude = ["elegance-wgpu/wgpu"]
 
 [workspace.package]
 version = "0.1.0"

@@ -33,6 +33,9 @@ fn main() -> Result<std::process::ExitCode, Error> {
   modifiers, effects, animation, media, GPU images, HTTP/WebSocket, desktop, previews.
 - `elegance-macros`: `elg!`, `#[component]`, and `#[preview]`.
 - `cargo-elegance`: `cargo elegance preview`, the preview host runner.
+- [`elegance-wgpu`](elegance-wgpu/README.md): optional native Rust wgpu → Dawn GPU-image
+  sharing, with a local pinned wgpu checkout. Separate from the existing `GpuImage` API;
+  Metal is hardware-tested here, while DX12/Vulkan still require platform validation.
 
 ## Using it
 
