@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["elegence-sys", "elegence-macros", "elegence", "cargo-elegence"]
+members = ["elegance-sys", "elegance-macros", "elegance", "cargo-elegance"]
 
 [workspace.package]
 version = "0.1.0"

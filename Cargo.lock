@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "cargo-elegence"
+name = "cargo-elegance"
 version = "0.1.0"
 dependencies = [
  "serde_json",
@@ -20,16 +20,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "elegence"
+name = "elegance"
 version = "0.1.0"
 dependencies = [
- "elegence-macros",
- "elegence-sys",
+ "elegance-macros",
+ "elegance-sys",
  "inventory",
 ]
 
 [[package]]
-name = "elegence-macros"
+name = "elegance-macros"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "elegence-sys"
+name = "elegance-sys"
 version = "0.1.0"
 dependencies = [
  "cc",

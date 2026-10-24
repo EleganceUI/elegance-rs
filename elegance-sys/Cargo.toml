@@ -1,0 +1,17 @@
+[package]
+name = "elegance-sys"
+description = "Raw bindings to Elegance through a small C++ shim (for the `elegance` crate)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+links = "elegance"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1.2"
+
+[features]
+# Link elegance.dll (a shared build of Elegance) instead of the static library: what the preview
+# host and hot reload need, since a views module must share the host's Elegance.
+dynamic = []

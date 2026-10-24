@@ -1,0 +1,25 @@
+[package]
+name = "elegance"
+description = "Rust bindings to Elegance, with a SwiftUI-style DSL (elg!)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+elegance-sys = { path = "../elegance-sys" }
+elegance-macros = { path = "../elegance-macros" }
+inventory = "0.3"
+
+[features]
+# Link Elegance dynamically (elegance.dll) instead of statically: for HotReload views.
+dynamic = ["elegance-sys/dynamic"]
+# Build as a views module for the preview host (`cargo elegance preview` turns this on): exports
+# the module entry and registers #[preview] functions, which ordinary builds leave out.
+preview = ["dynamic"]
+
+[[example]]
+name = "counter"
+
+[[example]]
+name = "todos"
