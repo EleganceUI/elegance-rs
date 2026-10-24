@@ -99,7 +99,6 @@ pub fn build_elegance(root: &Path, build: &Path, shared: bool) {
             define("ELG_BUILD_SHARED", on(shared)),
             // AccessKit's static library is a Rust staticlib, whose Rust std clashes with the app's.
             define("ELG_ACCESSKIT_SHARED", "ON"),
-            define("ELG_BUILD_EXAMPLES", "OFF"),
             define("ELG_BUILD_TESTS", "OFF"),
             // The sandbox option also brings the preview host, which a shared build is for.
             define("ELG_BUILD_SANDBOX", on(shared)),
