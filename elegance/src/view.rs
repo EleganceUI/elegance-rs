@@ -11,7 +11,7 @@ use crate::animation::{Animation, Transition};
 use crate::color::{Color, ColorScheme, ShapeStyle, Theme};
 use crate::environment::EnvironmentKey;
 use crate::error::ffi;
-use crate::events::{HoverDelay, Key, KeyEvent, PointerEvent, ScrollEvent};
+use crate::events::{DragEvent, HoverDelay, Key, KeyEvent, PointerEvent, ScrollEvent};
 use crate::ffi as cffi;
 use crate::font::{Font, Weight};
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size, UnitPoint};
@@ -796,6 +796,14 @@ pub trait ViewExt: IntoView + Sized {
     /// Coordinates are in window points, as with a custom EventHandler.
     fn on_pointer_event(self, action: impl Fn(&PointerEvent) -> bool + 'static) -> View {
         crate::modifier::on_pointer_event(self.into_view(), action)
+    }
+
+    /// Tracks a left-button drag, capturing the pointer until release or cancellation.
+    /// Movement deltas are in window points. Both release and cancellation emit
+    /// [`DragEvent::Ended`]. Each mounted view has independent drag state.
+    /// Consumes the drag's pointer events, including the initial press.
+    fn on_drag(self, action: impl Fn(DragEvent) + 'static) -> View {
+        crate::modifier::on_drag(self.into_view(), action)
     }
 
     /// Receives scrolling over the view's frame. Return true to consume the event,

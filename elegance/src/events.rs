@@ -256,6 +256,18 @@ impl PointerEvent {
     }
 }
 
+/// A left-button drag over a view. Movement is measured in window points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DragEvent {
+    Started,
+    /// Movement since the previous pointer position, not since the drag started.
+    Moved {
+        delta: Point,
+    },
+    /// The button was released or the drag was cancelled.
+    Ended,
+}
+
 /// What an event handler did with an event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EventResult {
