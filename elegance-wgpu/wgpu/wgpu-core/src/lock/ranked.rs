@@ -80,8 +80,7 @@ pub struct Mutex<T> {
 /// For details, see [the module documentation][self].
 pub struct MutexGuard<'a, T> {
     inner: parking_lot::MutexGuard<'a, T>,
-    #[cfg_attr(not(miri), expect(unused))] // but `Drop` has important side effects
-    saved: LockStateGuard,
+    _saved: LockStateGuard,
 }
 
 std::thread_local! {
@@ -226,7 +225,7 @@ impl<T> Mutex<T> {
         let saved = acquire(self.rank, Location::caller());
         MutexGuard {
             inner: self.inner.lock(),
-            saved: LockStateGuard(saved),
+            _saved: LockStateGuard(saved),
         }
     }
 

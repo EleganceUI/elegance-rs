@@ -1,6 +1,6 @@
 # elegance-wgpu
 
-A bounded, zero-CPU-pixel-copy bridge from native Rust **wgpu 30.0.1** to Elegance's new `ExternalGpuImage` input. Existing `GpuImage` is unchanged. Application and example code are pure Rust; native transports live inside the bridge and Elegance.
+A bounded, zero-CPU-pixel-copy bridge from native Rust **wgpu 30.0.1** to Elegance's new `ExternalGpuImage` input.
 
 ## Implementation and validation status
 
@@ -107,27 +107,3 @@ Window presentation remains Elegance's FIFO/VSync path. The producer is independ
 ## Shutdown
 
 Stop/join producers, clear images and remove UI views/snapshots before renderer shutdown. `Drop` is not a GPU drain. Callback state and retirement workers retain resources after the bridge drops as necessary. Device-loss recovery is not implemented.
-
-## Run the platform-neutral example
-
-From `elegance-rs` on this machine:
-
-```sh
-PATH=/Users/engin/.rustup/toolchains/stable-aarch64-apple-darwin/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
-ELEGANCE_ROOT=/Users/engin/Downloads/elegance/elegance \
-ELEGANCE_BUILD_DIR=/Users/engin/Downloads/elegance/elegance/build/local-offline-static \
-ELEGANCE_AUTO_BUILD=0 \
-cargo run --offline -p elegance-wgpu --bin wgpu-image -- --smoke --two-windows
-```
-
-The example contains no platform/backend-specific code. It opens two windows, publishes 12 changing GPU-rendered colors, clears/drains, and quits automatically. Without `--smoke` it publishes 180 frames. Its sleep is demonstration pacing, **not producer VSync**.
-
-Validation performed from the actual parent workspace:
-
-- `cargo test --workspace --offline`: 13 tests passed; hardware tests and existing doctests ignored.
-- `cargo test --offline -p elegance-wgpu --lib -- --ignored --nocapture --test-threads=1` with real Metal access: 3 additional tests passed, covering fence retention, attached-device errors, panic quarantine, and delayed retirement.
-- Pure-Rust two-window smoke with Metal validation: `accepted=12, in_flight=0, quarantined=0`.
-- Native Metal smoke: actual red/blue sampled pixels, GPU fence round-trip/reuse, retained snapshots, overlapping batches, independent window caches, and concurrent import/retirement passed. Its ad-hoc harness is in the ignored native build directory, not the shipped test suite.
-- Windows/Linux Rust cross-target checks used isolated manifests with actual bridge and raw binding sources; they are **not native build/link or hardware validation**. A full Linux cross-build is blocked on this Mac by missing `x86_64-linux-gnu-g++`.
-
-An existing upstream `wgpu-core` unfulfilled lint-expectation warning remains.
