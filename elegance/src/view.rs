@@ -11,7 +11,7 @@ use crate::animation::{Animation, Transition};
 use crate::color::{Color, ColorScheme, ShapeStyle, Theme};
 use crate::environment::EnvironmentKey;
 use crate::error::ffi;
-use crate::events::{DragEvent, HoverDelay, Key, KeyEvent, PointerEvent, ScrollEvent};
+use crate::events::{DragEvent, HoverDelay, Key, KeyEvent, PixelSize, PointerEvent, ScrollEvent};
 use crate::ffi as cffi;
 use crate::font::{Font, Weight};
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size, UnitPoint};
@@ -822,6 +822,23 @@ pub trait ViewExt: IntoView + Sized {
         let action = cffi::action(action);
         self.into_view().modify(|v| unsafe { sys::elg_mod_on_tap_gesture(v, action, count) })
     }
+    /// Observes this view's actual layout size in physical pixels, including display-scale changes.
+    ///
+    /// Called on the UI thread after initial layout and whenever the physical dimensions change.
+    /// Repeated sizes are suppressed independently for each mount of the view. Dimensions are
+    /// rounded up and exclude visual transforms; zero sizes are reported too.
+    ///
+    /// This runs after layout and before painting. Queue the size as renderer input (for example,
+    /// in a channel or a `Cell`) and render at that size; do not change layout or rebuild views
+    /// synchronously from this callback. Place the modifier inside any padding or frame whose
+    /// extra space should not be included in the observed size.
+    fn on_size_change(self, action: impl Fn(PixelSize) + 'static) -> View {
+        let action = cffi::consumer(move |size: sys::ElgPixelSize| {
+            action(PixelSize { width: size.width, height: size.height });
+        });
+        self.into_view().modify(|v| unsafe { sys::elg_mod_on_size_change(v, action) })
+    }
+
     /// Called with true when the pointer has rested on the view for the hover delay, and false
     /// when it leaves.
     fn on_hover(self, action: impl Fn(bool) + 'static) -> View {

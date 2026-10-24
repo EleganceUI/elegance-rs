@@ -14,7 +14,7 @@ use std::fmt;
 pub use wgpu;
 
 mod render;
-pub use render::{RenderFrame, RenderPassOptions};
+pub use render::{RenderAttachments, RenderFrame, RenderPassOptions};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
@@ -25,6 +25,17 @@ pub struct Config {
     pub format: wgpu::TextureFormat,
     /// Includes displayed, producer-in-flight, retiring, and quarantined frames.
     pub max_frames: usize,
+}
+
+impl Config {
+    fn resize(&mut self, width: u32, height: u32, max_dimension: u32) -> Result<(), Error> {
+        if width == 0 || height == 0 || width > max_dimension || height > max_dimension {
+            return Err(Error::InvalidConfig);
+        }
+        self.width = width;
+        self.height = height;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -58,6 +69,55 @@ mod vulkan;
 #[cfg(target_os = "linux")]
 pub use vulkan::Bridge;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> Config {
+        Config {
+            width: 16,
+            height: 32,
+            origin: GpuImageOrigin::BottomLeft,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            max_frames: 3,
+        }
+    }
+
+    #[test]
+    fn resize_changes_only_dimensions_and_accepts_limit_and_same_size() {
+        let mut config = config();
+        for (width, height) in [(1, 64), (64, 1), (64, 1), (8, 16)] {
+            config.resize(width, height, 64).unwrap();
+            assert_eq!((config.width, config.height), (width, height));
+            assert!(matches!(config.origin, GpuImageOrigin::BottomLeft));
+            assert_eq!(config.format, wgpu::TextureFormat::Rgba8Unorm);
+            assert_eq!(config.max_frames, 3);
+        }
+    }
+
+    #[test]
+    fn invalid_resize_leaves_config_unchanged() {
+        let mut config = config();
+        for (width, height) in [
+            (0, 32),
+            (16, 0),
+            (0, 0),
+            (65, 32),
+            (16, 65),
+            (u32::MAX, u32::MAX),
+        ] {
+            assert!(matches!(
+                config.resize(width, height, 64),
+                Err(Error::InvalidConfig)
+            ));
+            assert_eq!((config.width, config.height), (16, 32));
+            assert!(matches!(config.origin, GpuImageOrigin::BottomLeft));
+            assert_eq!(config.format, wgpu::TextureFormat::Rgba8Unorm);
+            assert_eq!(config.max_frames, 3);
+        }
+    }
+}
+
 /// Unsupported-platform placeholder with the same construction and submission API.
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub struct Bridge;
@@ -77,6 +137,9 @@ impl Bridge {
     }
     pub fn image(&self) -> &ExternalGpuImage {
         unreachable!()
+    }
+    pub fn resize(&mut self, _: u32, _: u32) -> Result<(), Error> {
+        Err(Error::Unsupported)
     }
     pub fn clear(&self) {}
     pub fn in_flight(&self) -> usize {

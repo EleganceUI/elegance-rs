@@ -449,6 +449,17 @@ impl Bridge {
     pub fn image(&self) -> &ExternalGpuImage {
         &self.image
     }
+    /// Set the physical pixel dimensions for subsequent frames.
+    ///
+    /// Returns `Error::InvalidConfig` for zero dimensions or dimensions exceeding
+    /// the device's 2D texture limit, leaving the previous size unchanged.
+    /// The image handle and displayed frame are preserved until a new publication.
+    /// Outstanding frames retire normally under the same budget, including
+    /// quarantined allocations. This does not allocate, wait, or recreate the device.
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), Error> {
+        self.config
+            .resize(width, height, self.device.limits().max_texture_dimension_2d)
+    }
     pub fn clear(&self) {
         self.image.clear();
     }

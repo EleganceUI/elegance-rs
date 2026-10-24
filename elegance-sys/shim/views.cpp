@@ -978,6 +978,16 @@ ELG_EXPORT View* elg_mod_allows_hit_testing(const View* v, bool enabled) {
 ELG_EXPORT View* elg_mod_on_tap_gesture(const View* v, ElgClosure on_tap, int32_t count) {
     MOD_TRY(v->on_tap_gesture(action(on_tap), count))
 }
+ELG_EXPORT View* elg_mod_on_size_change(const View* v, ElgClosure on_size_change) {
+    ELG_TRY
+    SharedFn f = share(on_size_change);
+    return out(v->on_size_change([f](PixelSize size) {
+        ElgPixelSize arg{size.width, size.height};
+        f->call(&arg, nullptr);
+    }));
+    ELG_CATCH(nullptr)
+}
+
 // `on_hover` args: bool*.
 ELG_EXPORT View* elg_mod_on_hover(const View* v, ElgClosure on_hover, const ElgHoverDelay* delay) {
     ELG_TRY

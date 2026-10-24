@@ -190,6 +190,13 @@ pub struct ElgSize {
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
+pub struct ElgPixelSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
 pub struct ElgPoint {
     pub x: f32,
     pub y: f32,
@@ -1078,6 +1085,8 @@ extern "C" {
     pub fn elg_mod_allows_hit_testing(v: *const View, enabled: bool) -> *mut View;
     pub fn elg_mod_on_tap_gesture(v: *const View, on_tap: ElgClosure, count: i32) -> *mut View;
     pub fn elg_mod_on_hover(v: *const View, on_hover: ElgClosure, delay: *const ElgHoverDelay) -> *mut View;
+    /// `on_size_change` receives `*const ElgPixelSize` as its args; ownership transfers to the view.
+    pub fn elg_mod_on_size_change(v: *const View, on_size_change: ElgClosure) -> *mut View;
     pub fn elg_mod_on_drop(v: *const View, files: ElgClosure, text: ElgClosure, targeted: ElgClosure) -> *mut View;
     pub fn elg_mod_accessibility_label(v: *const View, label: ElgProp) -> *mut View;
     pub fn elg_mod_accessibility_value(v: *const View, value: ElgProp) -> *mut View;

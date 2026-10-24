@@ -850,7 +850,10 @@ impl IntoView for GpuImageView {
     }
 }
 
-/// An externally produced GPU image with fixed dimensions and origin.
+/// An externally produced GPU image with variable frame dimensions and a fixed origin.
+///
+/// Each accepted frame may have different nonzero dimensions. The shared source keeps its
+/// identity and updates its reactive natural size asynchronously on the UI thread.
 ///
 /// Clones share one synchronized native handle. Publication is available only through the
 /// unsafe native API in `elegance_sys::external_gpu_image`; there is no safe generic publish.
@@ -877,7 +880,8 @@ impl Drop for ExternalGpuImageInner {
 }
 
 impl ExternalGpuImage {
-    /// Creates an image of `width` × `height` pixels. Does not publish or import a frame.
+    /// Creates an image with an initial natural size of `width` × `height` pixels (both nonzero).
+    /// Does not publish or import a frame; accepted frames may have different dimensions.
     pub fn new(width: u32, height: u32, origin: GpuImageOrigin) -> Result<Self, Error> {
         use sys::external_gpu_image as raw;
         let origin = match origin {

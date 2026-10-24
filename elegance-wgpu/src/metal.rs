@@ -357,6 +357,17 @@ impl Bridge {
     pub fn image(&self) -> &ExternalGpuImage {
         &self.image
     }
+    /// Set the physical pixel dimensions for subsequent frames.
+    ///
+    /// Returns `Error::InvalidConfig` for zero dimensions or dimensions exceeding
+    /// the device's 2D texture limit, leaving the previous size unchanged.
+    /// The image handle and displayed frame are preserved until a new publication.
+    /// Outstanding frames retire normally under the same budget, including
+    /// quarantined allocations. This does not allocate, wait, or recreate the device.
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), Error> {
+        self.config
+            .resize(width, height, self.device.limits().max_texture_dimension_2d)
+    }
     pub fn clear(&self) {
         self.image.clear();
     }
@@ -684,6 +695,62 @@ mod tests {
             std::thread::sleep(Duration::from_millis(2));
         }
         assert!(condition(), "timed out waiting for GPU retirement");
+    }
+
+    #[test]
+    #[ignore = "requires a Metal GPU and the native Elegance library"]
+    fn resize_preserves_image_backing_and_shared_budget() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = block_on(instance.request_adapter(&Default::default())).unwrap();
+        let mut config = test_config();
+        config.max_frames = 1;
+        let mut bridge = block_on(Bridge::new(&adapter, config)).unwrap();
+        let image = bridge.image().clone();
+        let counts = bridge.counts.clone();
+        let old = bridge.allocate().unwrap();
+        let old_size = old._texture.size();
+
+        bridge.resize(32, 48).unwrap();
+        bridge.resize(32, 48).unwrap();
+        assert_eq!(bridge.image().as_raw(), image.as_raw());
+        assert!(Arc::ptr_eq(&bridge.counts, &counts));
+        assert_eq!(old._texture.size(), old_size);
+        assert_eq!((bridge.extent().width, bridge.extent().height), (32, 48));
+        assert_eq!(bridge.in_flight(), 1);
+        assert_eq!(bridge.quarantined(), 0);
+        assert!(matches!(bridge.allocate(), Err(Error::Busy)));
+
+        let limit = bridge.device().limits().max_texture_dimension_2d;
+        for (width, height) in [(0, 48), (32, 0), (limit + 1, 48), (32, limit + 1)] {
+            assert!(matches!(
+                bridge.resize(width, height),
+                Err(Error::InvalidConfig)
+            ));
+            assert_eq!((bridge.extent().width, bridge.extent().height), (32, 48));
+            assert_eq!(bridge.in_flight(), 1);
+        }
+
+        // No commands were submitted for these allocations, so dropping is safe.
+        drop(old);
+        let resized = bridge.allocate().unwrap();
+        assert_eq!(
+            (resized._texture.width(), resized._texture.height()),
+            (32, 48)
+        );
+        assert_eq!(bridge.in_flight(), 1);
+        drop(resized);
+        assert_eq!(bridge.in_flight(), 0);
+
+        // Synthetic quarantine: its permit must continue occupying the same budget.
+        reserve(&counts, 1).unwrap();
+        let permit = Permit(counts.clone());
+        counts.quarantined.store(1, Ordering::Release);
+        bridge.resize(8, 8).unwrap();
+        assert_eq!(bridge.quarantined(), 1);
+        assert_eq!(bridge.in_flight(), 1);
+        assert!(matches!(bridge.allocate(), Err(Error::Busy)));
+        counts.quarantined.store(0, Ordering::Release);
+        drop(permit);
     }
 
     #[test]

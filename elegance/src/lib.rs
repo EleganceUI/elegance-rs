@@ -100,8 +100,8 @@ pub use color::{
 pub use environment::{Environment, EnvironmentKey, EnvironmentValues};
 pub use error::{Error, ErrorKind};
 pub use events::{
-    Cursor, DragEvent, EventResult, HoverDelay, Key, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, PointerEvent,
-    PointerEventKind, ScrollEvent, TextInputEvent, TextInputKind,
+    Cursor, DragEvent, EventResult, HoverDelay, Key, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, PixelSize,
+    PointerEvent, PointerEventKind, ScrollEvent, TextInputEvent, TextInputKind,
 };
 pub use font::{register_emoji_font, register_font, register_font_data, Font, Weight};
 pub use geometry::{
