@@ -32,7 +32,6 @@ jobs:
           - { target: x86_64-apple-darwin, runner: macos-15, triplet: x64-osx, osx_arch: x86_64 }
           - { target: x86_64-pc-windows-msvc, runner: windows-2025, triplet: x64-windows-static, msvc_arch: amd64 }
           - { target: aarch64-pc-windows-msvc, runner: windows-11-arm, triplet: arm64-windows-static, msvc_arch: arm64 }
-          - { target: i686-pc-windows-msvc, runner: windows-2025, triplet: x86-windows-static, msvc_arch: amd64_x86, experimental: true }
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.experimental == true }}
     env:
@@ -42,10 +41,10 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: elegance-rs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/elegance
           ref: main
@@ -94,7 +93,7 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics; else "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics; fi
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/vcpkg-cache
           key: vcpkg-native-${{ matrix.target }}-${{ hashFiles('elegance/vcpkg.json', 'elegance/cmake/triplets/*.cmake') }}
@@ -120,7 +119,7 @@ jobs:
             echo "elegance-rs $(git -C elegance-rs rev-parse HEAD)"
           } > dist/BUILDINFO
           tar -czf elegance-native-${{ matrix.target }}.tar.gz -C dist .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: elegance-native-${{ matrix.target }}
           path: elegance-native-${{ matrix.target }}.tar.gz
@@ -134,7 +133,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: archives
           merge-multiple: true
