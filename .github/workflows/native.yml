@@ -79,11 +79,14 @@ jobs:
         if: runner.os == 'Windows'
         with:
           arch: ${{ matrix.msvc_arch }}
+      # The developer environment points VCPKG_ROOT at Visual Studio's bundled vcpkg, overriding
+      # the job's: point it back at ours.
       - name: Install tools (Windows)
         if: runner.os == 'Windows'
         run: |
           pipx install 'cmake>=4.3' ninja
           echo "CXX=cl" >> "$GITHUB_ENV"
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> "$GITHUB_ENV"
 
       - name: Set up vcpkg
         run: |
