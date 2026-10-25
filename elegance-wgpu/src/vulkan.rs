@@ -29,8 +29,6 @@ const HANDOFF: vk::ImageLayout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
 const INITIAL_LAYOUT: vk::ImageLayout = vk::ImageLayout::TRANSFER_DST_OPTIMAL;
 const INITIAL_STATE: wgpu::TextureUses = wgpu::TextureUses::COPY_DST;
 const INITIALIZATION_TIMEOUT_NS: u64 = 5_000_000_000;
-// How long dropping a Bridge waits for the retirement worker to finish outstanding frames.
-const RETIRE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 const IMAGE_USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::from_raw(
     vk::ImageUsageFlags::TRANSFER_DST.as_raw()
         | vk::ImageUsageFlags::COLOR_ATTACHMENT.as_raw()
@@ -567,7 +565,6 @@ pub struct Bridge {
     config: Config,
     counts: Arc<Counts>,
     tx: mpsc::Sender<Retirement>,
-    worker_done: mpsc::Receiver<()>,
 }
 impl Bridge {
     pub async fn new(adapter: &wgpu::Adapter, config: Config) -> Result<Self, Error> {
@@ -801,8 +798,8 @@ impl Bridge {
         {
             return Err(Error::InvalidConfig);
         }
-        let image = GpuImage::new(config.width, config.height, config.origin)
-            .map_err(device_error)?;
+        let image =
+            GpuImage::new(config.width, config.height, config.origin).map_err(device_error)?;
         let context = Arc::new(Context {
             raw: raw_device,
             memory_fd,
@@ -816,15 +813,10 @@ impl Bridge {
             _queue: queue.clone(),
         });
         let (tx, rx) = mpsc::channel();
-        // Disconnects once the worker has dropped its context, for Bridge's drop to wait on.
-        let (worker_exit, worker_done) = mpsc::channel::<()>();
         let worker_context = context.clone();
         std::thread::Builder::new()
             .name("elegance-vulkan-retire".into())
-            .spawn(move || {
-                retire_worker(rx, worker_context);
-                drop(worker_exit);
-            })
+            .spawn(move || retire_worker(rx, worker_context))
             .map_err(device_error)?;
         Ok(Self {
             device,
@@ -834,7 +826,6 @@ impl Bridge {
             config,
             counts: Arc::default(),
             tx,
-            worker_done,
         })
     }
     pub fn device(&self) -> &wgpu::Device {
@@ -1171,11 +1162,6 @@ impl Bridge {
 impl Drop for Bridge {
     fn drop(&mut self) {
         self.image.clear();
-        // Let the worker drain and exit before returning: a worker still polling fences when
-        // the process exits races the driver's own teardown. Frames Elegance hasn't released
-        // keep their senders, and a fence may never signal, so the wait is bounded.
-        drop(std::mem::replace(&mut self.tx, mpsc::channel().0));
-        let _ = self.worker_done.recv_timeout(RETIRE_DRAIN_TIMEOUT);
     }
 }
 

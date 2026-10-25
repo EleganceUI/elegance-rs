@@ -26,36 +26,73 @@ const ELEGANCE_REPO: &str = "https://github.com/EleganceUI/elegance";
 /// Elegance's source, cloned once into the user cache folder (one folder per branch or tag), for
 /// builds with no checkout of their own. Delete the folder to get a newer one.
 pub fn clone_elegance(reference: &str) -> PathBuf {
-    let name: String =
-        reference.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
+    let name: String = reference
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     let dir = env::var_os("ELEGANCE_CACHE_DIR")
         .filter(|d| !d.is_empty())
         .map(PathBuf::from)
         .or_else(|| cache_dir().map(|cache| cache.join("elegance")))
-        .unwrap_or_else(|| panic!("\n\nelegance-sys: no Elegance source found; set ELEGANCE_ROOT.\n"))
+        .unwrap_or_else(|| {
+            panic!("\n\nelegance-sys: no Elegance source found; set ELEGANCE_ROOT.\n")
+        })
         .join("src")
         .join(name);
     if !dir.join("CMakeLists.txt").is_file() {
-        println!("cargo:warning=cloning Elegance ({reference}) into {}", dir.display());
+        println!(
+            "cargo:warning=cloning Elegance ({reference}) into {}",
+            dir.display()
+        );
         let partial = dir.with_extension("partial");
         let _ = fs::remove_dir_all(&partial);
         fs::create_dir_all(dir.parent().unwrap()).unwrap();
-        let args = ["clone", "--depth", "1", "--branch", reference, ELEGANCE_REPO];
+        let args = [
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            reference,
+            ELEGANCE_REPO,
+        ];
         let mut args: Vec<OsString> = args.iter().map(OsString::from).collect();
         args.push(partial.clone().into());
         git(None, &args);
-        fs::rename(&partial, &dir)
-            .unwrap_or_else(|e| panic!("elegance-sys: couldn't move Elegance to {}: {e}", dir.display()));
+        fs::rename(&partial, &dir).unwrap_or_else(|e| {
+            panic!(
+                "elegance-sys: couldn't move Elegance to {}: {e}",
+                dir.display()
+            )
+        });
     }
     dir
 }
 
 /// Configures (once) and builds Elegance in `build`: static, or shared plus the preview host.
 pub fn build_elegance(root: &Path, build: &Path, shared: bool) {
-    for watched in ["src", "include", "cmake", "apps/preview", "CMakeLists.txt", "vcpkg.json", "vcpkg-configuration.json"] {
+    for watched in [
+        "src",
+        "include",
+        "cmake",
+        "apps/preview",
+        "CMakeLists.txt",
+        "vcpkg.json",
+    ] {
         println!("cargo:rerun-if-changed={}", root.join(watched).display());
     }
-    for var in ["VCPKG_ROOT", "ELEGANCE_VCPKG_DIR", "ELEGANCE_CACHE_DIR", "CMAKE", "NINJA"] {
+    for var in [
+        "VCPKG_ROOT",
+        "ELEGANCE_VCPKG_DIR",
+        "ELEGANCE_CACHE_DIR",
+        "CMAKE",
+        "NINJA",
+    ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
 
@@ -72,7 +109,9 @@ pub fn build_elegance(root: &Path, build: &Path, shared: bool) {
         }
         // A build script's stdout is for cargo: send CMake's output to stderr.
         command.stdout(Stdio::from(io::stderr()));
-        let status = command.status().unwrap_or_else(|e| panic!("elegance-sys: couldn't run {}: {e}", cmake.display()));
+        let status = command
+            .status()
+            .unwrap_or_else(|e| panic!("elegance-sys: couldn't run {}: {e}", cmake.display()));
         if !status.success() {
             panic!(
                 "\n\nelegance-sys: {what} Elegance failed (in {}); CMake's output is above. Run cargo with -vv to \
@@ -92,7 +131,13 @@ pub fn build_elegance(root: &Path, build: &Path, shared: bool) {
             "-G".into(),
             "Ninja".into(),
             define("CMAKE_MAKE_PROGRAM", ninja.as_os_str()),
-            define("CMAKE_TOOLCHAIN_FILE", vcpkg.root.join("scripts/buildsystems/vcpkg.cmake").as_os_str()),
+            define(
+                "CMAKE_TOOLCHAIN_FILE",
+                vcpkg
+                    .root
+                    .join("scripts/buildsystems/vcpkg.cmake")
+                    .as_os_str(),
+            ),
             // The release C runtime (/MD), which Rust links.
             define("CMAKE_BUILD_TYPE", "RelWithDebInfo"),
             define("VCPKG_MANIFEST_FEATURES", ""),
@@ -109,11 +154,19 @@ pub fn build_elegance(root: &Path, build: &Path, shared: bool) {
         if !msvc_env.is_empty() {
             args.push(define("CMAKE_CXX_COMPILER", "cl"));
         }
-        println!("cargo:warning=building Elegance in {} (the first build takes a while)", build.display());
+        println!(
+            "cargo:warning=building Elegance in {} (the first build takes a while)",
+            build.display()
+        );
         run(&args, "configuring");
     }
 
-    let mut args: Vec<OsString> = vec!["--build".into(), build.into(), "--target".into(), "elegance".into()];
+    let mut args: Vec<OsString> = vec![
+        "--build".into(),
+        build.into(),
+        "--target".into(),
+        "elegance".into(),
+    ];
     if shared {
         args.push("elegance-preview".into());
     }
@@ -167,7 +220,9 @@ fn msvc_env() -> Vec<(OsString, OsString)> {
     let tool = cc::windows_registry::find_tool(&target, "cl.exe").unwrap_or_else(|| {
         panic!("\n\nelegance-sys: couldn't find Visual Studio's C++ compiler (cl.exe) to build Elegance with.\n")
     });
-    tool.get_envs().map(|(k, v)| (k.to_owned(), v.to_owned())).collect()
+    tool.get_envs()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
 }
 
 struct Vcpkg {
@@ -176,12 +231,17 @@ struct Vcpkg {
 
 impl Vcpkg {
     fn exe(&self) -> PathBuf {
-        self.root.join(if cfg!(windows) { "vcpkg.exe" } else { "vcpkg" })
+        self.root
+            .join(if cfg!(windows) { "vcpkg.exe" } else { "vcpkg" })
     }
 
     /// A tool vcpkg downloads (and caches) itself: `vcpkg fetch cmake` prints its path.
     fn fetch(&self, tool: &str) -> Option<PathBuf> {
-        let output = Command::new(self.exe()).args(["fetch", tool]).stderr(Stdio::inherit()).output().ok()?;
+        let output = Command::new(self.exe())
+            .args(["fetch", tool])
+            .stderr(Stdio::inherit())
+            .output()
+            .ok()?;
         if !output.status.success() {
             return None;
         }
@@ -195,16 +255,28 @@ fn find_vcpkg(root: &Path) -> Vcpkg {
     let baseline = baseline(root);
     let usable = |dir: &Path| {
         dir.join("scripts/buildsystems/vcpkg.cmake").is_file()
-            && Vcpkg { root: dir.to_owned() }.exe().is_file()
-            && baseline.as_deref().is_none_or(|commit| has_commit(dir, commit))
+            && Vcpkg {
+                root: dir.to_owned(),
+            }
+            .exe()
+            .is_file()
+            && baseline
+                .as_deref()
+                .is_none_or(|commit| has_commit(dir, commit))
     };
 
     // VCPKG_ROOT is the user's choice: use it even without the baseline (vcpkg says what's wrong).
-    if let Some(dir) = env::var_os("VCPKG_ROOT").filter(|d| !d.is_empty()).map(PathBuf::from) {
+    if let Some(dir) = env::var_os("VCPKG_ROOT")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+    {
         if dir.join("scripts/buildsystems/vcpkg.cmake").is_file() {
             return Vcpkg { root: dir };
         }
-        println!("cargo:warning=VCPKG_ROOT ({}) isn't a vcpkg checkout; looking elsewhere", dir.display());
+        println!(
+            "cargo:warning=VCPKG_ROOT ({}) isn't a vcpkg checkout; looking elsewhere",
+            dir.display()
+        );
     }
     let from_presets = ["CMakeUserPresets.json", "CMakePresets.json"]
         .iter()
@@ -219,7 +291,9 @@ fn find_vcpkg(root: &Path) -> Vcpkg {
         .filter(|d| !d.is_empty())
         .map(PathBuf::from)
         .or_else(|| cache_dir().map(|cache| cache.join("elegance").join("vcpkg")))
-        .unwrap_or_else(|| panic!("\n\nelegance-sys: no vcpkg found; set VCPKG_ROOT or ELEGANCE_VCPKG_DIR.\n"));
+        .unwrap_or_else(|| {
+            panic!("\n\nelegance-sys: no vcpkg found; set VCPKG_ROOT or ELEGANCE_VCPKG_DIR.\n")
+        });
     bootstrap_vcpkg(&dir, baseline.as_deref());
     Vcpkg { root: dir }
 }
@@ -232,15 +306,32 @@ fn bootstrap_vcpkg(dir: &Path, baseline: Option<&str>) {
         let partial = dir.with_extension("partial");
         let _ = fs::remove_dir_all(&partial);
         fs::create_dir_all(dir.parent().unwrap()).unwrap();
-        git(None, &[OsString::from("clone"), VCPKG_REPO.into(), partial.clone().into()]);
-        fs::rename(&partial, dir)
-            .unwrap_or_else(|e| panic!("elegance-sys: couldn't move vcpkg to {}: {e}", dir.display()));
+        git(
+            None,
+            &[
+                OsString::from("clone"),
+                VCPKG_REPO.into(),
+                partial.clone().into(),
+            ],
+        );
+        fs::rename(&partial, dir).unwrap_or_else(|e| {
+            panic!(
+                "elegance-sys: couldn't move vcpkg to {}: {e}",
+                dir.display()
+            )
+        });
     } else if baseline.is_some_and(|commit| !has_commit(dir, commit)) {
         git(Some(dir), &["fetch".into(), "origin".into()]);
     }
-    let vcpkg = Vcpkg { root: dir.to_owned() };
+    let vcpkg = Vcpkg {
+        root: dir.to_owned(),
+    };
     if !vcpkg.exe().is_file() {
-        let script = if cfg!(windows) { dir.join("bootstrap-vcpkg.bat") } else { dir.join("bootstrap-vcpkg.sh") };
+        let script = if cfg!(windows) {
+            dir.join("bootstrap-vcpkg.bat")
+        } else {
+            dir.join("bootstrap-vcpkg.sh")
+        };
         let status = Command::new(&script)
             .arg("-disableMetrics")
             .current_dir(dir)
@@ -248,7 +339,10 @@ fn bootstrap_vcpkg(dir: &Path, baseline: Option<&str>) {
             .status()
             .unwrap_or_else(|e| panic!("elegance-sys: couldn't run {}: {e}", script.display()));
         if !status.success() || !vcpkg.exe().is_file() {
-            panic!("\n\nelegance-sys: bootstrapping vcpkg in {} failed.\n", dir.display());
+            panic!(
+                "\n\nelegance-sys: bootstrapping vcpkg in {} failed.\n",
+                dir.display()
+            );
         }
     }
 }
@@ -262,7 +356,10 @@ fn git(dir: Option<&Path>, args: &[OsString]) {
         panic!("\n\nelegance-sys: git is needed to get vcpkg ({e}); install it or set VCPKG_ROOT.\n")
     });
     if !status.success() {
-        panic!("\n\nelegance-sys: `git {}` failed.\n", args.join(" ".as_ref()).to_string_lossy());
+        panic!(
+            "\n\nelegance-sys: `git {}` failed.\n",
+            args.join(" ".as_ref()).to_string_lossy()
+        );
     }
 }
 
@@ -279,12 +376,18 @@ fn has_commit(dir: &Path, commit: &str) -> bool {
 // vcpkg.json's "builtin-baseline".
 fn baseline(root: &Path) -> Option<String> {
     let text = fs::read_to_string(root.join("vcpkg.json")).ok()?;
-    json_string_after(&text, "\"builtin-baseline\"").into_iter().next()
+    json_string_after(&text, "\"builtin-baseline\"")
+        .into_iter()
+        .next()
 }
 
 // Every `"VCPKG_ROOT": "<path>"` in a presets file.
 fn preset_vcpkg_roots(text: &str) -> Vec<PathBuf> {
-    json_string_after(text, "\"VCPKG_ROOT\"").into_iter().filter(|v| !v.contains('$')).map(PathBuf::from).collect()
+    json_string_after(text, "\"VCPKG_ROOT\"")
+        .into_iter()
+        .filter(|v| !v.contains('$'))
+        .map(PathBuf::from)
+        .collect()
 }
 
 // The string values that follow `key:` (enough JSON for vcpkg.json and presets files).
@@ -306,7 +409,11 @@ fn json_string_after(text: &str, key: &str) -> Vec<String> {
 }
 
 pub fn cache_dir() -> Option<PathBuf> {
-    let var = |name: &str| env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let var = |name: &str| {
+        env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
     if cfg!(windows) {
         var("LOCALAPPDATA")
     } else if cfg!(target_os = "macos") {
@@ -317,8 +424,14 @@ pub fn cache_dir() -> Option<PathBuf> {
 }
 
 fn find_on_path(name: &str) -> Option<PathBuf> {
-    let file = if cfg!(windows) { format!("{name}.exe") } else { name.to_owned() };
-    env::split_paths(&env::var_os("PATH")?).map(|dir| dir.join(&file)).find(|p| p.is_file())
+    let file = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    env::split_paths(&env::var_os("PATH")?)
+        .map(|dir| dir.join(&file))
+        .find(|p| p.is_file())
 }
 
 // Visual Studio's bundled CMake and Ninja (Common7/IDE/CommonExtensions/Microsoft/CMake/...).
@@ -327,9 +440,15 @@ fn visual_studio_cmake_dir() -> Option<PathBuf> {
         .join("Microsoft Visual Studio")
         .join("Installer")
         .join("vswhere.exe");
-    let output =
-        Command::new(vswhere).args(["-latest", "-products", "*", "-property", "installationPath"]).output().ok()?;
-    let install = String::from_utf8_lossy(&output.stdout).lines().next()?.trim().to_owned();
+    let output = Command::new(vswhere)
+        .args(["-latest", "-products", "*", "-property", "installationPath"])
+        .output()
+        .ok()?;
+    let install = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_owned();
     let dir = ["Common7", "IDE", "CommonExtensions", "Microsoft", "CMake"]
         .iter()
         .fold(PathBuf::from(install), |d, c| d.join(c));
@@ -345,7 +464,9 @@ fn find_cmake(root: &Path, vcpkg: &Vcpkg) -> PathBuf {
         .into_iter()
         .chain(find_on_path("cmake"))
         .chain(visual_studio_cmake_dir().map(|dir| dir.join("CMake").join("bin").join(exe)));
-    let found = candidates.filter(|exe| exe.is_file()).find(|exe| new_enough(exe));
+    let found = candidates
+        .filter(|exe| exe.is_file())
+        .find(|exe| new_enough(exe));
     found.or_else(|| vcpkg.fetch("cmake").filter(|exe| new_enough(exe))).unwrap_or_else(|| {
         let (major, minor) = required;
         panic!("\n\nelegance-sys: Elegance needs CMake {major}.{minor} or newer; install it or set CMAKE to one.\n")
@@ -361,7 +482,9 @@ fn find_ninja(vcpkg: &Vcpkg) -> PathBuf {
         .chain(visual_studio_cmake_dir().map(|dir| dir.join("Ninja").join(exe)))
         .find(|exe| exe.is_file())
         .or_else(|| vcpkg.fetch("ninja"))
-        .unwrap_or_else(|| panic!("\n\nelegance-sys: couldn't find or fetch Ninja; install it or set NINJA.\n"))
+        .unwrap_or_else(|| {
+            panic!("\n\nelegance-sys: couldn't find or fetch Ninja; install it or set NINJA.\n")
+        })
 }
 
 // cmake_minimum_required(VERSION x.y) in Elegance's CMakeLists.txt.
