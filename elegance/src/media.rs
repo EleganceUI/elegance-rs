@@ -148,6 +148,7 @@ handle!(
     elg_audio_player_free
 );
 
+#[elegance_macros::elg_builder]
 impl AudioPlayer {
     pub fn new(file: impl AsRef<Path>) -> Result<AudioPlayer, Error> {
         let file = cffi::path_str(file.as_ref());
@@ -232,6 +233,7 @@ handle!(
 unsafe impl Send for AudioStream {}
 unsafe impl Sync for AudioStream {}
 
+#[elegance_macros::elg_builder]
 impl AudioStream {
     pub fn new(options: AudioStreamOptions) -> Result<AudioStream, Error> {
         Self::make(options, sys::ElgClosure::NONE)
@@ -326,6 +328,7 @@ handle!(
     elg_audio_recorder_free
 );
 
+#[elegance_macros::elg_builder]
 impl AudioRecorder {
     pub fn new(options: AudioRecorderOptions) -> Result<AudioRecorder, Error> {
         Self::make(options, sys::ElgClosure::NONE)
@@ -519,6 +522,7 @@ pub struct CameraView {
     mode: ContentMode,
 }
 
+#[elegance_macros::elg_builder]
 impl CameraView {
     pub fn new(camera: &Camera) -> Self {
         Self {
@@ -569,6 +573,7 @@ handle!(
     elg_video_player_free
 );
 
+#[elegance_macros::elg_builder]
 impl VideoPlayer {
     /// A file path or URL.
     pub fn new(source: &str) -> Result<VideoPlayer, Error> {
@@ -648,6 +653,7 @@ pub struct VideoView {
     mode: ContentMode,
 }
 
+#[elegance_macros::elg_builder]
 impl VideoView {
     pub fn new(player: &VideoPlayer) -> Self {
         Self {
@@ -735,6 +741,7 @@ impl PartialEq for VideoFeed {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl VideoFeed {
     pub fn new() -> Result<VideoFeed, Error> {
         Self::from_raw(unsafe { sys::elg_video_feed_new() })
@@ -777,6 +784,7 @@ pub struct VideoFeedView {
     mirrored: bool,
 }
 
+#[elegance_macros::elg_builder]
 impl VideoFeedView {
     pub fn new(feed: &VideoFeed) -> Self {
         Self {
@@ -893,6 +901,7 @@ pub struct GpuImageView {
     mode: ContentMode,
 }
 
+#[elegance_macros::elg_builder]
 impl GpuImageView {
     pub fn new(image: &GpuImage) -> Self {
         Self {

@@ -19,6 +19,7 @@ impl Default for Color {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Color {
     pub const BLACK: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
     pub const WHITE: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
@@ -110,6 +111,7 @@ pub struct ColorTokens {
     pub warning: Color,
 }
 
+#[elegance_macros::elg_builder]
 impl ColorTokens {
     pub fn get(&self, token: ThemeColor) -> Color {
         match token {
@@ -163,6 +165,7 @@ impl Default for Theme {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Theme {
     pub fn colors(&self, scheme: ColorScheme) -> &ColorTokens {
         match scheme {
@@ -244,6 +247,7 @@ pub struct LinearGradient {
     pub end: UnitPoint,
 }
 
+#[elegance_macros::elg_builder]
 impl LinearGradient {
     pub fn new(stops: Vec<GradientStop>, start: UnitPoint, end: UnitPoint) -> Self {
         Self { stops, start, end }
@@ -267,6 +271,7 @@ pub struct RadialGradient {
     pub end_radius: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl RadialGradient {
     pub fn new(stops: Vec<GradientStop>, center: UnitPoint, start_radius: f32, end_radius: f32) -> Self {
         Self { stops, center, start_radius, end_radius }
@@ -287,6 +292,7 @@ pub struct EllipticalGradient {
     pub end_radius_fraction: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl EllipticalGradient {
     pub fn new(stops: Vec<GradientStop>, center: UnitPoint, start_radius_fraction: f32, end_radius_fraction: f32) -> Self {
         Self { stops, center, start_radius_fraction, end_radius_fraction }
@@ -307,6 +313,7 @@ pub struct AngularGradient {
     pub end_angle: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl AngularGradient {
     pub fn new(stops: Vec<GradientStop>, center: UnitPoint, start_angle: f32, end_angle: f32) -> Self {
         Self { stops, center, start_angle, end_angle }
@@ -351,6 +358,7 @@ impl Default for Material {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Material {
     const fn preset(blur: f32, light_alpha: f32, dark_alpha: f32) -> Self {
         Self {

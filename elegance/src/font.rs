@@ -52,6 +52,7 @@ impl Default for Font {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Font {
     pub fn system(size: f32, weight: impl Into<Weight>) -> Self {
         Self { family: String::new(), size, weight: weight.into(), italic: false }

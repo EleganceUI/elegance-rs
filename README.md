@@ -110,6 +110,21 @@ elegance = { path = "../elegance-rs/elegance" }
 | `(layout) { ... }` | a custom `Layout` over the children |
 | `.m(a, key: v)` | the modifier `.m_with(a, \|o\| o.key(v))`, e.g. `.frame(max_width: .infinity)` |
 
+### Custom components and completion
+
+Use `#[component]` on a function, or implement `Component` for a struct. On a struct's
+builder impl, `#[elg_builder(constructor)]` registers `fn new() -> Self` with `elg!`
+and enables typed dot completion; no handwritten `ElgNew<()>` impl is needed.
+Use plain `#[elg_builder]` for completion only, including on extension traits.
+
+With rust-analyzer proc macros enabled, `VStack(alignment: .…)` suggests horizontal
+alignments, while `.font(.…)` suggests fonts. Custom types can supply a namespace
+through `elegance::dot::DotValues`; imports and aliases work too. Positional constructor
+arguments and nested Rust expressions retain global marker lookup.
+
+Property prefixes such as `VStack(spa…)` and `.frame(wid…)` also complete, but may
+insert Rust method syntax (`spacing(…)`); change it to the DSL's `spacing: …`.
+
 ## Grids
 
 `VGrid`/`HGrid` flow children into fixed, flexible, or adaptive tracks; `Grid` is a table of

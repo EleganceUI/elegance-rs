@@ -24,6 +24,7 @@ pub struct ImageSource {
     pub scale: f32,
 }
 
+#[elegance_macros::elg_builder]
 impl ImageSource {
     pub fn system(name: impl Into<String>) -> Self {
         Self { system_name: name.into(), scale: 1.0, ..Default::default() }
@@ -116,6 +117,7 @@ pub struct AsyncImage {
     content: Option<Box<dyn Fn(&AsyncImagePhase) -> View>>,
 }
 
+#[elegance_macros::elg_builder]
 impl AsyncImage {
     pub fn new(url: impl Into<String>) -> Self {
         Self { url: url.into(), scale: 1.0, content_mode: None, content: None }

@@ -19,6 +19,7 @@ pub struct GraphicsContext<'a> {
     _call: PhantomData<&'a mut ()>,
 }
 
+#[elegance_macros::elg_builder]
 impl GraphicsContext<'_> {
     pub fn size(&self) -> Size {
         Size::from_c(unsafe { sys::elg_gc_size(self.ptr) })

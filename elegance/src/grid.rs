@@ -57,6 +57,7 @@ impl Default for GridItem {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl GridItem {
     pub fn fixed(size: impl Number) -> Self {
         let size = size.to_f32();
@@ -264,6 +265,7 @@ pub struct Grid {
     children: Vec<View>,
 }
 
+#[elegance_macros::elg_builder]
 impl Grid {
     pub fn new() -> Self {
         Self::default()
@@ -337,6 +339,7 @@ pub struct GridRow {
     cells: Vec<View>,
 }
 
+#[elegance_macros::elg_builder]
 impl GridRow {
     pub fn new() -> Self {
         Self::default()

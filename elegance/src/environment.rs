@@ -50,6 +50,7 @@ impl Drop for EnvironmentValues {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl EnvironmentValues {
     /// Borrows C++ environment values for the duration of a callback.
     pub(crate) unsafe fn borrowed(ptr: *mut c_void) -> Self {

@@ -29,6 +29,7 @@ impl Drop for Shape {
     }
 }
 
+#[elegance_macros::elg_builder]
 impl Shape {
     fn from_raw(ptr: *mut sys::Shape) -> Self {
         Self { ptr: NonNull::new(ptr).expect("elegance: no shape") }

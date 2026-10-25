@@ -38,6 +38,7 @@ pub struct HotReload {
 }
 
 #[cfg(feature = "dynamic")]
+#[elegance_macros::elg_builder]
 impl HotReload {
     pub fn new(module: impl Into<PathBuf>) -> Self {
         Self { module: module.into(), build_command: String::new(), watch: Vec::new(), show: HotReloadShow::Root }
