@@ -62,6 +62,13 @@ struct ElgSize {
     float width, height;
 };
 
+struct ElgPixelSize {
+    uint32_t width, height;
+};
+
+// on_size_change args: ElgPixelSize*. Callback ownership is transferred to the view.
+ELG_EXPORT elg::View* elg_mod_on_size_change(const elg::View* v, ElgClosure on_size_change);
+
 struct ElgPoint {
     float x, y;
 };

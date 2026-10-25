@@ -26,7 +26,10 @@ struct Args {
 
 enum Block {
     Views(Vec<Node>),
-    Content { pattern: TokenStream, body: Box<Node> },
+    Content {
+        pattern: TokenStream,
+        body: Box<Node>,
+    },
 }
 
 struct Modifier {
@@ -38,12 +41,31 @@ struct Modifier {
 }
 
 enum Node {
-    Element { path: TokenStream, args: Option<Args>, block: Option<Block>, modifiers: Vec<Modifier> },
-    Expr { expr: TokenStream, modifiers: Vec<Modifier> },
-    LayoutCall { layout: TokenStream, block: Block, modifiers: Vec<Modifier> },
-    If { condition: TokenStream, then: Box<Node>, otherwise: Option<Box<Node>> },
+    Element {
+        path: TokenStream,
+        args: Option<Args>,
+        block: Option<Block>,
+        modifiers: Vec<Modifier>,
+    },
+    Expr {
+        expr: TokenStream,
+        modifiers: Vec<Modifier>,
+    },
+    LayoutCall {
+        layout: TokenStream,
+        block: Block,
+        modifiers: Vec<Modifier>,
+    },
+    If {
+        condition: TokenStream,
+        then: Box<Node>,
+        otherwise: Option<Box<Node>>,
+    },
     // Each arm: its pattern (with any guard) and its view.
-    Match { value: TokenStream, arms: Vec<(TokenStream, Node)> },
+    Match {
+        value: TokenStream,
+        arms: Vec<(TokenStream, Node)>,
+    },
 }
 
 type Result<T> = std::result::Result<T, syn::Error>;
@@ -61,7 +83,12 @@ struct Parser {
 
 impl Parser {
     fn new(stream: TokenStream, end_span: Span) -> Self {
-        Self { tokens: stream.into_iter().collect(), pos: 0, end_span, errors: Vec::new() }
+        Self {
+            tokens: stream.into_iter().collect(),
+            pos: 0,
+            end_span,
+            errors: Vec::new(),
+        }
     }
 
     fn adopt_errors(&mut self, inner: &mut Parser) {
@@ -142,28 +169,45 @@ impl Parser {
                 self.pos += 1;
                 let modifiers = self.modifiers()?;
                 let inner = rewrite(group.stream());
-                Ok(Node::Expr { expr: quote!({ #inner }), modifiers })
+                Ok(Node::Expr {
+                    expr: quote!({ #inner }),
+                    modifiers,
+                })
             }
             Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis => {
                 let group = g.clone();
                 self.pos += 1;
                 if !is_group(self.peek(), Delimiter::Brace) {
-                    return error(group.span(), "a layout `(expr)` takes its children in a `{ ... }` block");
+                    return error(
+                        group.span(),
+                        "a layout `(expr)` takes its children in a `{ ... }` block",
+                    );
                 }
                 let block = self.block()?;
                 let modifiers = self.modifiers()?;
-                Ok(Node::LayoutCall { layout: rewrite(group.stream()), block, modifiers })
+                Ok(Node::LayoutCall {
+                    layout: rewrite(group.stream()),
+                    block,
+                    modifiers,
+                })
             }
-            Some(TokenTree::Ident(_)) | Some(TokenTree::Punct(_)) if self.starts_path() => self.element(),
-            Some(TokenTree::Literal(lit)) => {
-                error(lit.span(), "a string isn't a view here: write Text(\"...\")")
+            Some(TokenTree::Ident(_)) | Some(TokenTree::Punct(_)) if self.starts_path() => {
+                self.element()
             }
-            _ => error(self.span(), "expected a view: an element like Text(\"...\"), `{ expr }`, or `if`"),
+            Some(TokenTree::Literal(lit)) => error(
+                lit.span(),
+                "a string isn't a view here: write Text(\"...\")",
+            ),
+            _ => error(
+                self.span(),
+                "expected a view: an element like Text(\"...\"), `{ expr }`, or `if`",
+            ),
         }
     }
 
     fn starts_path(&self) -> bool {
-        matches!(self.peek(), Some(TokenTree::Ident(_))) || (self.is_punct(0, ':') && self.is_punct(1, ':'))
+        matches!(self.peek(), Some(TokenTree::Ident(_)))
+            || (self.is_punct(0, ':') && self.is_punct(1, ':'))
     }
 
     // A path: `a::b::C`, maybe with turbofish generics `::<T>`.
@@ -175,7 +219,11 @@ impl Parser {
                 if self.is_punct(0, '<') {
                     let mut depth = 0;
                     while let Some(token) = self.next() {
-                        let c = if let TokenTree::Punct(p) = &token { Some(p.as_char()) } else { None };
+                        let c = if let TokenTree::Punct(p) = &token {
+                            Some(p.as_char())
+                        } else {
+                            None
+                        };
                         path.extend([token]);
                         match c {
                             Some('<') => depth += 1,
@@ -216,22 +264,43 @@ impl Parser {
         };
         let block_follows = matches!(self.peek(), Some(TokenTree::Group(g))
             if g.delimiter() == Delimiter::Brace && same_line(head_end, g.span_open()));
-        let block = if block_follows { Some(self.block()?) } else { None };
+        let block = if block_follows {
+            Some(self.block()?)
+        } else {
+            None
+        };
         let modifiers = self.modifiers()?;
         if args.is_none() && block.is_none() {
             // A variable or constant holding a view.
-            return Ok(Node::Expr { expr: path, modifiers });
+            return Ok(Node::Expr {
+                expr: path,
+                modifiers,
+            });
         }
-        Ok(Node::Element { path, args, block, modifiers })
+        Ok(Node::Element {
+            path,
+            args,
+            block,
+            modifiers,
+        })
     }
 
     fn block(&mut self) -> Result<Block> {
-        let Some(TokenTree::Group(group)) = self.next() else { unreachable!() };
+        let Some(TokenTree::Group(group)) = self.next() else {
+            unreachable!()
+        };
         let mut inner = Parser::new(group.stream(), group.span_close());
         let block = if let Some(pattern) = inner.content_pattern() {
             let nodes = inner.nodes();
-            let body = inner.single(nodes, group.span(), "an `item in` block holds one view; wrap several in a stack");
-            Block::Content { pattern, body: Box::new(body) }
+            let body = inner.single(
+                nodes,
+                group.span(),
+                "an `item in` block holds one view; wrap several in a stack",
+            );
+            Block::Content {
+                pattern,
+                body: Box::new(body),
+            }
         } else {
             Block::Views(inner.nodes())
         };
@@ -256,7 +325,10 @@ impl Parser {
         }
         let end = end.filter(|&e| e > 0)?;
         // Paths like `Foo::Bar(x) in` aren't patterns we accept; an element would be a call.
-        if end >= 2 && matches!(self.tokens[end - 1], TokenTree::Group(_)) && matches!(self.tokens[end - 2], TokenTree::Ident(_)) {
+        if end >= 2
+            && matches!(self.tokens[end - 1], TokenTree::Group(_))
+            && matches!(self.tokens[end - 2], TokenTree::Ident(_))
+        {
             return None;
         }
         let pattern: TokenStream = self.tokens[..end].iter().cloned().collect();
@@ -271,7 +343,10 @@ impl Parser {
             self.pos += 1;
             let Some(TokenTree::Ident(name)) = self.peek().cloned() else {
                 // A `.` still waiting for its name: report it, keep what came before.
-                self.errors.push(syn::Error::new(dot_span, "expected a modifier name after `.`"));
+                self.errors.push(syn::Error::new(
+                    dot_span,
+                    "expected a modifier name after `.`",
+                ));
                 break;
             };
             self.pos += 1;
@@ -279,7 +354,11 @@ impl Parser {
             if self.is_punct(0, ':') && self.is_punct(1, ':') && self.is_punct(2, '<') {
                 let mut depth = 0;
                 while let Some(token) = self.next() {
-                    let c = if let TokenTree::Punct(p) = &token { Some(p.as_char()) } else { None };
+                    let c = if let TokenTree::Punct(p) = &token {
+                        Some(p.as_char())
+                    } else {
+                        None
+                    };
                     generics.extend([token]);
                     match c {
                         Some('<') => depth += 1,
@@ -302,7 +381,11 @@ impl Parser {
                 // Expanded as `expr.name`: rustc says to add parentheses, and an IDE completes it.
                 _ => None,
             };
-            modifiers.push(Modifier { name, generics: rewrite(generics), args });
+            modifiers.push(Modifier {
+                name,
+                generics: rewrite(generics),
+                args,
+            });
         }
         Ok(modifiers)
     }
@@ -331,7 +414,11 @@ impl Parser {
         if self.is_punct(0, '.') && !self.is_punct(1, '.') {
             return error(self.span(), "modifiers can't follow an `if`; wrap it: `{ elg!{ if ... } }.padding(8)` or modify each branch");
         }
-        Ok(Node::If { condition: rewrite(condition), then: Box::new(then), otherwise })
+        Ok(Node::If {
+            condition: rewrite(condition),
+            then: Box::new(then),
+            otherwise,
+        })
     }
 
     fn match_node(&mut self) -> Result<Node> {
@@ -358,7 +445,10 @@ impl Parser {
                 pattern.extend([inner.next().unwrap()]);
             }
             if inner.at_end() {
-                inner.errors.push(syn::Error::new(arm_span, "expected `=>` and a view after the pattern"));
+                inner.errors.push(syn::Error::new(
+                    arm_span,
+                    "expected `=>` and a view after the pattern",
+                ));
                 break;
             }
             inner.pos += 2;
@@ -376,9 +466,15 @@ impl Parser {
         }
         self.adopt_errors(&mut inner);
         if self.is_punct(0, '.') && !self.is_punct(1, '.') {
-            return error(self.span(), "modifiers can't follow a `match`; modify each arm");
+            return error(
+                self.span(),
+                "modifiers can't follow a `match`; modify each arm",
+            );
         }
-        Ok(Node::Match { value: rewrite(value), arms })
+        Ok(Node::Match {
+            value: rewrite(value),
+            arms,
+        })
     }
 
     fn branch(&mut self, span: Span) -> Result<Node> {
@@ -388,7 +484,11 @@ impl Parser {
         let mut inner = Parser::new(group.stream(), group.span_close());
         let nodes = inner.nodes();
         self.adopt_errors(&mut inner);
-        Ok(self.single(nodes, group.span(), "an `if` branch holds one view; wrap several in a stack"))
+        Ok(self.single(
+            nodes,
+            group.span(),
+            "an `if` branch holds one view; wrap several in a stack",
+        ))
     }
 
     // The one node of a block; with several, reports `message` and keeps the first.
@@ -397,7 +497,10 @@ impl Parser {
             self.errors.push(syn::Error::new(span, message));
         }
         if nodes.is_empty() {
-            Node::Expr { expr: quote!(()), modifiers: Vec::new() }
+            Node::Expr {
+                expr: quote!(()),
+                modifiers: Vec::new(),
+            }
         } else {
             nodes.swap_remove(0)
         }
@@ -410,7 +513,10 @@ fn same_line(a: Span, b: Span) -> bool {
 }
 
 fn parse_args(stream: TokenStream) -> Args {
-    let mut args = Args { positional: Vec::new(), named: Vec::new() };
+    let mut args = Args {
+        positional: Vec::new(),
+        named: Vec::new(),
+    };
     for part in split_commas(stream) {
         match named(&part) {
             Some((name, value)) => args.named.push((name, argument(value))),
@@ -422,8 +528,16 @@ fn parse_args(stream: TokenStream) -> Args {
 
 fn expand_node(node: &Node) -> TokenStream {
     match node {
-        Node::Element { path, args, block, modifiers } => {
-            let positional = args.as_ref().map(|a| a.positional.as_slice()).unwrap_or(&[]);
+        Node::Element {
+            path,
+            args,
+            block,
+            modifiers,
+        } => {
+            let positional = args
+                .as_ref()
+                .map(|a| a.positional.as_slice())
+                .unwrap_or(&[]);
             let mut expr = quote!(#path::elg_new((#(#positional,)*)));
             if let Some(args) = args {
                 for (name, value) in &args.named {
@@ -436,13 +550,24 @@ fn expand_node(node: &Node) -> TokenStream {
             expand_modifiers(expr, modifiers)
         }
         Node::Expr { expr, modifiers } => expand_modifiers(quote!((#expr)), modifiers),
-        Node::LayoutCall { layout, block, modifiers } => {
+        Node::LayoutCall {
+            layout,
+            block,
+            modifiers,
+        } => {
             let expr = expand_block(quote!((#layout)), block);
             expand_modifiers(expr, modifiers)
         }
-        Node::If { condition, then, otherwise } => {
+        Node::If {
+            condition,
+            then,
+            otherwise,
+        } => {
             let then = expand_node(then);
-            let otherwise = otherwise.as_ref().map(|o| expand_node(o)).unwrap_or_else(|| quote!(()));
+            let otherwise = otherwise
+                .as_ref()
+                .map(|o| expand_node(o))
+                .unwrap_or_else(|| quote!(()));
             quote!(::elegance::__private::if_view(move || -> bool { #condition }, #then, #otherwise))
         }
         Node::Match { value, arms } => {
@@ -461,10 +586,12 @@ fn expand_node(node: &Node) -> TokenStream {
 fn expand_block(expr: TokenStream, block: &Block) -> TokenStream {
     match block {
         Block::Views(children) => {
+            // Unlike vec!'s expression matcher, an array lets rust-analyzer recover
+            // unfinished child expressions (e.g. a callback ending in `event.`).
             let children = children.iter().map(expand_node);
             quote!(::elegance::__private::ElgChildren::elg_children(
                 #expr,
-                ::std::vec![#(::elegance::__private::IntoView::into_view(#children)),*]
+                ::std::vec::Vec::from([#(::elegance::__private::IntoView::into_view(#children)),*])
             ))
         }
         Block::Content { pattern, body } => {
@@ -475,7 +602,12 @@ fn expand_block(expr: TokenStream, block: &Block) -> TokenStream {
 }
 
 fn expand_modifiers(mut expr: TokenStream, modifiers: &[Modifier]) -> TokenStream {
-    for Modifier { name, generics, args } in modifiers {
+    for Modifier {
+        name,
+        generics,
+        args,
+    } in modifiers
+    {
         let Some(args) = args else {
             expr = quote!(#expr.#name #generics);
             continue;
@@ -497,9 +629,15 @@ pub fn expand(input: TokenStream) -> TokenStream {
     let mut parser = Parser::new(input, Span::call_site());
     let nodes = parser.nodes();
     if nodes.is_empty() && parser.errors.is_empty() {
-        parser.errors.push(syn::Error::new(Span::call_site(), "elg! needs a view"));
+        parser
+            .errors
+            .push(syn::Error::new(Span::call_site(), "elg! needs a view"));
     }
-    let root = parser.single(nodes, Span::call_site(), "elg! takes one root view; wrap several in a stack");
+    let root = parser.single(
+        nodes,
+        Span::call_site(),
+        "elg! takes one root view; wrap several in a stack",
+    );
     let body = expand_node(&root);
     // Errors go next to the expansion rather than replacing it.
     let errors = parser.errors.iter().map(syn::Error::to_compile_error);

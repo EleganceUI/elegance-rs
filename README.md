@@ -33,6 +33,9 @@ fn main() -> Result<std::process::ExitCode, Error> {
   modifiers, effects, animation, media, GPU images, HTTP/WebSocket, desktop, previews.
 - `elegance-macros`: `elg!`, `#[component]`, and `#[preview]`.
 - `cargo-elegance`: `cargo elegance preview`, the preview host runner.
+- `elegance-wgpu`: native Rust wgpu → Elegance GPU-image sharing, with a local pinned
+  wgpu checkout. Metal is hardware-tested here, while DX12/Vulkan still require platform
+  validation.
 
 ## Using it
 
@@ -174,8 +177,18 @@ tile().grayscale(1).blend_mode(.multiply).rotation_effect(15.0)
 backdrop().mask(LinearGradient::colors([Color::BLACK, Color::CLEAR]))
 ```
 
-`GpuImage` (`elegance::media`) shows frames another renderer (OpenGL, Vulkan, Direct3D) draws into
-shared, triple-buffered textures, e.g. a game or emulator embedded in a view.
+### Shared GPU images
+
+`GpuImage` represents externally produced GPU frames; `GpuImageView(&image)` displays
+it. For Rust wgpu rendering, `elegance-wgpu::Bridge` creates a compatible producer device,
+records frames through its safe render API, and publishes shared GPU memory without CPU pixel
+readback. GPU synchronization and frame retirement stay inside the bridge and native framework.
+
+`Bridge::resize` changes subsequent frame dimensions without replacing the image handle.
+Use `.on_sized(...)` to send physical-pixel layout dimensions to the producer thread.
+Metal/IOSurface, DX12/DXGI, and Vulkan/opaque-FD transports are implemented; unsupported
+sharing returns an error rather than falling back to CPU copies. GL/GLES and D3D11 sharing
+are not implemented. The old same-device Dawn handle/reservation API has been removed.
 
 ## State
 

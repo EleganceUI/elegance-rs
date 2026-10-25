@@ -6,6 +6,17 @@ use elegance_sys as sys;
 
 use crate::geometry::Point;
 
+/// Physical-pixel render dimensions reported by [`crate::ViewExt::on_size_change`].
+///
+/// Each dimension is the logical layout size multiplied by the window's display scale,
+/// rounded up. Visual transforms (such as `scale_effect`), clipping and shadows are excluded.
+/// Zero dimensions are possible; skip rendering or allocating textures for those sizes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PixelSize {
+    pub width: u32,
+    pub height: u32,
+}
+
 /// How long the pointer rests before hover starts, and lingers before it ends (seconds).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HoverDelay {
@@ -254,6 +265,18 @@ impl PointerEvent {
             modifiers: KeyModifiers(e.modifiers),
         }
     }
+}
+
+/// A left-button drag over a view. Movement is measured in window points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DragEvent {
+    Started,
+    /// Movement since the previous pointer position, not since the drag started.
+    Moved {
+        delta: Point,
+    },
+    /// The button was released or the drag was cancelled.
+    Ended,
 }
 
 /// What an event handler did with an event.

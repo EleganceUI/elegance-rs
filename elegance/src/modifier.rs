@@ -17,9 +17,12 @@ use elegance_sys as sys;
 
 use crate::color::Color;
 use crate::environment::EnvironmentValues;
-use crate::events::{EventResult, HoverDelay, KeyEvent, PointerEvent, ScrollEvent, TextInputEvent};
+use crate::events::{
+    DragEvent, EventResult, HoverDelay, KeyEvent, MouseButton, PointerEvent, PointerEventKind, ScrollEvent,
+    TextInputEvent,
+};
 use crate::ffi as cffi;
-use crate::geometry::{Alignment, ContentMode, EdgeInsets, ProposedSize, Rect, Size, UnitPoint};
+use crate::geometry::{Alignment, ContentMode, EdgeInsets, Point, ProposedSize, Rect, Size, UnitPoint};
 use crate::layout::LayoutChild;
 use crate::prop::{with_prop, IntoProp, Prop};
 use crate::shapes::Shape;
@@ -228,6 +231,121 @@ pub trait EventHandler: 'static {
 /// Handles input for the modified view: makes one EventHandler per mounted view.
 pub trait EventModifier: 'static {
     fn make_handler(&self) -> Box<dyn EventHandler>;
+}
+
+#[derive(Clone, Default)]
+struct EventCallbacks {
+    pointer: Option<std::rc::Rc<dyn Fn(&PointerEvent) -> bool>>,
+    scroll: Option<std::rc::Rc<dyn Fn(&ScrollEvent) -> bool>>,
+}
+
+impl EventHandler for EventCallbacks {
+    fn pointer(&mut self, event: &PointerEvent, _: Rect) -> EventResult {
+        if self.pointer.as_ref().is_some_and(|action| action(event)) {
+            EventResult::CONSUMED
+        } else {
+            EventResult::IGNORED
+        }
+    }
+
+    fn scroll(&mut self, event: &ScrollEvent) -> EventResult {
+        if self.scroll.as_ref().is_some_and(|action| action(event)) {
+            EventResult::CONSUMED
+        } else {
+            EventResult::IGNORED
+        }
+    }
+
+    fn covers_frame(&self) -> bool {
+        true
+    }
+}
+
+impl EventModifier for EventCallbacks {
+    fn make_handler(&self) -> Box<dyn EventHandler> {
+        Box::new(self.clone())
+    }
+}
+
+pub(crate) fn on_pointer_event(
+    content: View,
+    action: impl Fn(&PointerEvent) -> bool + 'static,
+) -> View {
+    event_modifier(
+        content,
+        EventCallbacks {
+            pointer: Some(std::rc::Rc::new(action)),
+            ..Default::default()
+        },
+    )
+}
+
+pub(crate) fn on_scroll(content: View, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
+    event_modifier(
+        content,
+        EventCallbacks {
+            scroll: Some(std::rc::Rc::new(action)),
+            ..Default::default()
+        },
+    )
+}
+
+struct DragModifier(std::rc::Rc<dyn Fn(DragEvent)>);
+
+struct DragHandler {
+    action: std::rc::Rc<dyn Fn(DragEvent)>,
+    last: Option<Point>,
+}
+
+impl EventHandler for DragHandler {
+    fn pointer(&mut self, event: &PointerEvent, _: Rect) -> EventResult {
+        let drag = match event.kind {
+            PointerEventKind::Down if event.button == MouseButton::Left && self.last.is_none() => {
+                self.last = Some(event.location);
+                DragEvent::Started
+            }
+            PointerEventKind::Move => {
+                let Some(previous) = self.last else {
+                    return EventResult::IGNORED;
+                };
+                self.last = Some(event.location);
+                DragEvent::Moved {
+                    delta: Point {
+                        x: event.location.x - previous.x,
+                        y: event.location.y - previous.y,
+                    },
+                }
+            }
+            PointerEventKind::Up if event.button == MouseButton::Left && self.last.is_some() => {
+                self.last = None;
+                DragEvent::Ended
+            }
+            PointerEventKind::Cancel if self.last.is_some() => {
+                self.last = None;
+                DragEvent::Ended
+            }
+            _ => return EventResult::IGNORED,
+        };
+        (self.action)(drag);
+        EventResult::CONSUMED
+    }
+
+    fn covers_frame(&self) -> bool {
+        true
+    }
+}
+
+impl EventModifier for DragModifier {
+    fn make_handler(&self) -> Box<dyn EventHandler> {
+        Box::new(DragHandler {
+            action: self.0.clone(),
+            last: None,
+        })
+    }
+}
+
+pub(crate) fn on_drag(content: View, action: impl Fn(DragEvent) + 'static) -> View {
+    event_modifier(content, DragModifier(std::rc::Rc::new(action)))
 }
 
 // --- Applying Rust modifiers ---

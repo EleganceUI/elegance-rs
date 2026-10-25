@@ -21,6 +21,8 @@ macro_rules! opaque {
     )*};
 }
 
+pub mod gpu_image;
+
 opaque!(
     /// `elg::View`
     View,
@@ -80,8 +82,6 @@ opaque!(
     Camera,
     /// `elg::VideoPlayer`
     VideoPlayer,
-    /// `elg::GpuImage`
-    GpuImage,
     /// `elg::VideoFeed`
     VideoFeed,
     /// `elg::http::Task`
@@ -184,6 +184,13 @@ pub struct ElgColor {
 pub struct ElgSize {
     pub width: f32,
     pub height: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgPixelSize {
+    pub width: u32,
+    pub height: u32,
 }
 
 #[repr(C)]
@@ -335,32 +342,6 @@ pub struct ElgShadow {
     pub x: f32,
     pub y: f32,
     pub spread: f32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct ElgGpuFrame {
-    pub buffer: u32,
-    pub width: u32,
-    pub height: u32,
-    pub texture: *mut c_void,
-    pub fence: *mut c_void,
-    pub fence_value: u64,
-    pub adapter_luid: [u8; 8],
-}
-
-impl Default for ElgGpuFrame {
-    fn default() -> Self {
-        Self {
-            buffer: 0,
-            width: 0,
-            height: 0,
-            texture: std::ptr::null_mut(),
-            fence: std::ptr::null_mut(),
-            fence_value: 0,
-            adapter_luid: [0; 8],
-        }
-    }
 }
 
 #[repr(C)]
@@ -1038,6 +1019,8 @@ extern "C" {
     pub fn elg_mod_allows_hit_testing(v: *const View, enabled: bool) -> *mut View;
     pub fn elg_mod_on_tap_gesture(v: *const View, on_tap: ElgClosure, count: i32) -> *mut View;
     pub fn elg_mod_on_hover(v: *const View, on_hover: ElgClosure, delay: *const ElgHoverDelay) -> *mut View;
+    /// `on_size_change` receives `*const ElgPixelSize` as its args; ownership transfers to the view.
+    pub fn elg_mod_on_size_change(v: *const View, on_size_change: ElgClosure) -> *mut View;
     pub fn elg_mod_on_drop(v: *const View, files: ElgClosure, text: ElgClosure, targeted: ElgClosure) -> *mut View;
     pub fn elg_mod_accessibility_label(v: *const View, label: ElgProp) -> *mut View;
     pub fn elg_mod_accessibility_value(v: *const View, value: ElgProp) -> *mut View;
@@ -1275,15 +1258,6 @@ extern "C" {
     pub fn elg_video_player_binding(player: *const VideoPlayer, which: i32) -> *mut BindingF32;
     pub fn elg_video_view(player: *const VideoPlayer, mode: i32) -> *mut View;
     pub fn elg_video_controls(player: *const VideoPlayer) -> *mut View;
-    pub fn elg_gpu_image_new(width: u32, height: u32, origin: i32) -> *mut GpuImage;
-    pub fn elg_gpu_image_clone(image: *const GpuImage) -> *mut GpuImage;
-    pub fn elg_gpu_image_free(image: *mut GpuImage);
-    pub fn elg_gpu_image_same(a: *const GpuImage, b: *const GpuImage) -> bool;
-    pub fn elg_gpu_image_begin_frame(image: *const GpuImage, frame: *mut ElgGpuFrame) -> bool;
-    pub fn elg_gpu_image_end_frame(image: *const GpuImage, frame: *const ElgGpuFrame, sync: i32);
-    pub fn elg_gpu_image_size(image: *const GpuImage) -> ElgSize;
-    pub fn elg_gpu_image_origin(image: *const GpuImage) -> i32;
-    pub fn elg_gpu_image_view(image: *const GpuImage, mode: i32) -> *mut View;
     pub fn elg_video_feed_new() -> *mut VideoFeed;
     pub fn elg_video_feed_clone(feed: *const VideoFeed) -> *mut VideoFeed;
     pub fn elg_video_feed_free(feed: *mut VideoFeed);
