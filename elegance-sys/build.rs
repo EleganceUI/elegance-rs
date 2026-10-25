@@ -27,11 +27,16 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod build_runtime;
 #[path = "build_cmake.rs"]
 mod cmake;
-mod build_runtime;
 
-const SHIM_FILES: &[&str] = &["shim/core.cpp", "shim/views.cpp", "shim/ext.cpp", "shim/platform.cpp"];
+const SHIM_FILES: &[&str] = &[
+    "shim/core.cpp",
+    "shim/views.cpp",
+    "shim/ext.cpp",
+    "shim/platform.cpp",
+];
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -52,12 +57,18 @@ fn main() {
     // An explicit build tree, else the preset's if it's built, else one this script builds.
     let build = match env::var_os(build_var).filter(|d| !d.is_empty()) {
         Some(dir) => PathBuf::from(dir),
-        None if is_built(&root.join("build").join(preset), dynamic) => root.join("build").join(preset),
+        None if is_built(&root.join("build").join(preset), dynamic) => {
+            root.join("build").join(preset)
+        }
         None if env::var("ELEGANCE_AUTO_BUILD").is_ok_and(|v| v == "0") => {
             missing_build(&root.join("build").join(preset), &root, preset, build_var)
         }
         None => {
-            let build = root.join("build").join(if dynamic { "cargo-release" } else { "cargo-release-static" });
+            let build = root.join("build").join(if dynamic {
+                "cargo-release"
+            } else {
+                "cargo-release-static"
+            });
             cmake::build_elegance(&root, &build, dynamic);
             build
         }
@@ -67,7 +78,11 @@ fn main() {
     if !generated.join("elg").join("export.h").exists() {
         missing_build(&build, &root, preset, build_var);
     }
-    let link = if dynamic { Link::shared(&build) } else { Link::from_manifest(&build) };
+    let link = if dynamic {
+        Link::shared(&build)
+    } else {
+        Link::from_manifest(&build)
+    };
     let link = link.unwrap_or_else(|| missing_build(&build, &root, preset, build_var));
 
     let mut shim = cc::Build::new();
@@ -85,20 +100,35 @@ fn main() {
         };
     }
     if shim.get_compiler().is_like_msvc() {
-        shim.flag("/std:c++latest").flag("/EHsc").flag("/permissive-").flag("/utf-8").flag("/Zc:__cplusplus");
+        shim.flag("/std:c++latest")
+            .flag("/EHsc")
+            .flag("/permissive-")
+            .flag("/utf-8")
+            .flag("/Zc:__cplusplus");
     } else {
         shim.flag("-std=c++23");
     }
     shim.compile("elegance_shim");
 
+    let runtime = copy_runtime_files(&link.runtime);
     for (kind, lib) in &link.libs {
-        link_lib(kind, lib);
+        // Link the staged dylib so its loader-relative install name reaches every consumer.
+        let staged = (env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos"))
+            .then(|| Path::new(lib))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "dylib"))
+            .and_then(|path| {
+                runtime
+                    .iter()
+                    .find(|file| file.file_name() == path.file_name())
+            });
+        match staged {
+            Some(path) => link_lib(kind, path.to_str().expect("runtime path must be UTF-8")),
+            None => link_lib(kind, lib),
+        }
     }
     println!("cargo:root={}", root.display());
     println!("cargo:build_dir={}", build.display());
     println!("cargo:dynamic={dynamic}");
-
-    copy_runtime_files(&link.runtime);
 }
 
 // ELEGANCE_ROOT, else a checkout beside this workspace, else a clone in the user cache folder.
@@ -112,14 +142,20 @@ fn elegance_root(manifest: &Path) -> PathBuf {
     if sibling.join("CMakeLists.txt").is_file() {
         return sibling;
     }
-    let reference = env::var("ELEGANCE_GIT_REF").ok().filter(|r| !r.is_empty()).unwrap_or_else(|| "main".to_owned());
+    let reference = env::var("ELEGANCE_GIT_REF")
+        .ok()
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "main".to_owned());
     cmake::clone_elegance(&reference)
 }
 
 fn is_built(build: &Path, dynamic: bool) -> bool {
     let library = if dynamic {
         build_runtime::shared_library(build).is_some()
-            && build.join("bin").join(format!("elegance-preview{}", env::consts::EXE_SUFFIX)).exists()
+            && build
+                .join("bin")
+                .join(format!("elegance-preview{}", env::consts::EXE_SUFFIX))
+                .exists()
     } else {
         build.join("elegance-link.txt").exists()
     };
@@ -127,7 +163,11 @@ fn is_built(build: &Path, dynamic: bool) -> bool {
 }
 
 fn missing_build(build: &Path, root: &Path, preset: &str, build_var: &str) -> ! {
-    let target = if preset == "dev-release" { "elegance elegance-preview" } else { "elegance" };
+    let target = if preset == "dev-release" {
+        "elegance elegance-preview"
+    } else {
+        "elegance"
+    };
     panic!(
         "\n\nelegance-sys: no usable Elegance build at {}.\nBuild Elegance first (from a VS developer prompt, in {}):\n    \
          cmake --preset {preset}\n    cmake --build build/{preset} --target {target}\nor set {build_var} to a \
@@ -153,7 +193,9 @@ impl Link {
     fn shared(build: &Path) -> Option<Link> {
         let file = build_runtime::shared_library(build)?;
         let mut runtime = vec![build.join("bin")];
-        if file.extension().is_some_and(|ext| ext != "lib") && file.parent() != Some(build.join("bin").as_path()) {
+        if file.extension().is_some_and(|ext| ext != "lib")
+            && file.parent() != Some(build.join("bin").as_path())
+        {
             runtime.push(file.clone());
         }
         Some(Link {
@@ -205,22 +247,32 @@ fn is_rust_staticlib(file: &str) -> bool {
 // A library file becomes a search folder and a name; a bare name is a system library.
 fn link_lib(kind: &str, lib: &str) {
     let path = Path::new(lib);
-    let framework = lib.strip_prefix("-framework ")
+    let framework = lib
+        .strip_prefix("-framework ")
         .or_else(|| lib.strip_prefix("-Wl,-framework,"))
         .or_else(|| lib.strip_prefix("LINKER:-framework,"))
         .map(str::trim)
-        .or_else(|| (path.extension().is_some_and(|ext| ext == "framework"))
-            .then(|| path.file_stem().and_then(|name| name.to_str())).flatten());
+        .or_else(|| {
+            (path.extension().is_some_and(|ext| ext == "framework"))
+                .then(|| path.file_stem().and_then(|name| name.to_str()))
+                .flatten()
+        });
     if let Some(framework) = framework {
         println!("cargo:rustc-link-lib=framework={framework}");
         if path.is_absolute() {
-            println!("cargo:rustc-link-search=framework={}", path.parent().unwrap().display());
+            println!(
+                "cargo:rustc-link-search=framework={}",
+                path.parent().unwrap().display()
+            );
         }
         return;
     }
     let name = if path.is_absolute() {
         println!("cargo:rerun-if-changed={lib}");
-        println!("cargo:rustc-link-search=native={}", path.parent().unwrap().display());
+        println!(
+            "cargo:rustc-link-search=native={}",
+            path.parent().unwrap().display()
+        );
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         // libfoo.a / libfoo.so link as `foo`; on Windows the file name is the name.
         match (cfg!(windows), stem.strip_prefix("lib")) {
@@ -228,7 +280,9 @@ fn link_lib(kind: &str, lib: &str) {
             _ => stem,
         }
     } else {
-        lib.trim_start_matches("-l").trim_end_matches(".lib").to_owned()
+        lib.trim_start_matches("-l")
+            .trim_end_matches(".lib")
+            .to_owned()
     };
     if kind == "static" {
         // Linked into the final binary, not copied into this crate's rlib (it's large).
@@ -239,11 +293,11 @@ fn link_lib(kind: &str, lib: &str) {
 }
 
 // Copy runtime libraries and the preview host to where Cargo puts binaries, tests, and examples.
-fn copy_runtime_files(runtime: &[PathBuf]) {
+fn copy_runtime_files(runtime: &[PathBuf]) -> Vec<PathBuf> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     // OUT_DIR is target/<profile>/build/<crate>-<hash>/out.
     let Some(profile_dir) = out_dir.ancestors().nth(3) else {
-        return;
+        return Vec::new();
     };
     let mut files = Vec::new();
     for item in runtime {
@@ -262,11 +316,29 @@ fn copy_runtime_files(runtime: &[PathBuf]) {
             files.push(item.clone());
         }
     }
-    for path in files {
+    for path in &files {
         println!("cargo:rerun-if-changed={}", path.display());
-        for dir in [profile_dir.to_path_buf(), profile_dir.join("deps"), profile_dir.join("examples")] {
+    }
+    let files = if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        build_runtime::prepare_macos_runtime(&files, &out_dir)
+    } else {
+        files
+    };
+    for path in &files {
+        for dir in [
+            profile_dir.to_path_buf(),
+            profile_dir.join("deps"),
+            profile_dir.join("examples"),
+        ] {
             let _ = fs::create_dir_all(&dir);
-            let _ = fs::copy(&path, dir.join(path.file_name().unwrap()));
+            fs::copy(path, dir.join(path.file_name().unwrap())).unwrap_or_else(|error| {
+                panic!(
+                    "failed to copy {} into {}: {error}",
+                    path.display(),
+                    dir.display()
+                )
+            });
         }
     }
+    files
 }

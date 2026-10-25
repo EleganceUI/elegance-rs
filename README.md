@@ -82,6 +82,12 @@ A build of your own must use the release C runtime (`/MD`) like Rust, not a Debu
 `-DELG_ACCESSKIT_SHARED=ON` (AccessKit's static library is a Rust staticlib, whose own Rust standard
 library clashes with the app's).
 
+On macOS, `elegance-sys` stages native dylibs with loader-relative install names and ad-hoc
+signs the staged copies before linking and copying them beside Cargo's binaries. Executables
+can run directly without an application build script, an rpath, or `DYLD_LIBRARY_PATH`. Keep
+the dylibs beside the executable when moving it. The original CMake build is not modified;
+distribution still requires your own signing and notarization.
+
 ### Working on the bindings
 
 Check out [elegance](https://github.com/EleganceUI/elegance) beside this repository, and
