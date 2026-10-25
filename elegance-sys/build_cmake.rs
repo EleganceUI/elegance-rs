@@ -52,7 +52,7 @@ pub fn clone_elegance(reference: &str) -> PathBuf {
 
 /// Configures (once) and builds Elegance in `build`: static, or shared plus the preview host.
 pub fn build_elegance(root: &Path, build: &Path, shared: bool) {
-    for watched in ["src", "include", "cmake", "apps/preview", "CMakeLists.txt", "vcpkg.json"] {
+    for watched in ["src", "include", "cmake", "apps/preview", "CMakeLists.txt", "vcpkg.json", "vcpkg-configuration.json"] {
         println!("cargo:rerun-if-changed={}", root.join(watched).display());
     }
     for var in ["VCPKG_ROOT", "ELEGANCE_VCPKG_DIR", "ELEGANCE_CACHE_DIR", "CMAKE", "NINJA"] {

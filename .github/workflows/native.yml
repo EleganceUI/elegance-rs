@@ -97,7 +97,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg-cache
-          key: vcpkg-native-${{ matrix.target }}-${{ hashFiles('elegance/vcpkg.json', 'elegance/cmake/triplets/*.cmake') }}
+          key: vcpkg-native-${{ matrix.target }}-${{ hashFiles('elegance/vcpkg.json', 'elegance/vcpkg-configuration.json', 'elegance/cmake/triplets/*.cmake', 'elegance/cmake/ports/**') }}
           restore-keys: vcpkg-native-${{ matrix.target }}-
 
       - name: Build
