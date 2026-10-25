@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "build_cmake.rs"]
 mod cmake;
+mod build_runtime;
 
 const SHIM_FILES: &[&str] = &["shim/core.cpp", "shim/views.cpp", "shim/ext.cpp", "shim/platform.cpp"];
 
@@ -100,7 +101,6 @@ fn main() {
     copy_runtime_files(&link.runtime);
 }
 
-// A shared build also needs the preview host, which cargo-elegance runs.
 // ELEGANCE_ROOT, else a checkout beside this workspace, else a clone in the user cache folder.
 fn elegance_root(manifest: &Path) -> PathBuf {
     println!("cargo:rerun-if-env-changed=ELEGANCE_ROOT");
@@ -118,7 +118,7 @@ fn elegance_root(manifest: &Path) -> PathBuf {
 
 fn is_built(build: &Path, dynamic: bool) -> bool {
     let library = if dynamic {
-        ["lib/elegance.lib", "lib/libelegance.so", "lib/libelegance.dylib"].iter().any(|f| build.join(f).exists())
+        build_runtime::shared_library(build).is_some()
             && build.join("bin").join(format!("elegance-preview{}", env::consts::EXE_SUFFIX)).exists()
     } else {
         build.join("elegance-link.txt").exists()
@@ -143,22 +143,23 @@ struct Link {
     /// (kind, name or file): "static" or "lib".
     libs: Vec<(&'static str, String)>,
     defines: Vec<String>,
-    /// DLLs, and folders of them, to copy beside the binaries.
+    /// Shared libraries and preview hosts, or folders containing them, to copy beside the binaries.
     runtime: Vec<PathBuf>,
 }
 
 impl Link {
-    // A shared build: elegance.dll's import library; its bin folder holds the DLLs and the
-    // preview host.
+    // A shared build: the import library on Windows, the shared library elsewhere.
+    // Its bin folder also holds the preview host.
     fn shared(build: &Path) -> Option<Link> {
-        let lib = build.join("lib").join("elegance.lib");
-        let unix = build.join("lib").join("libelegance.so");
-        let mac = build.join("lib").join("libelegance.dylib");
-        let file = [lib, unix, mac].into_iter().find(|f| f.exists())?;
+        let file = build_runtime::shared_library(build)?;
+        let mut runtime = vec![build.join("bin")];
+        if file.extension().is_some_and(|ext| ext != "lib") && file.parent() != Some(build.join("bin").as_path()) {
+            runtime.push(file.clone());
+        }
         Some(Link {
             libs: vec![("lib", file.display().to_string())],
             defines: Vec::new(),
-            runtime: vec![build.join("bin")],
+            runtime,
         })
     }
 
@@ -237,9 +238,7 @@ fn link_lib(kind: &str, lib: &str) {
     }
 }
 
-// Windows finds DLLs next to the executable: copy Elegance's runtime files to where cargo puts
-// binaries, tests, and examples. A folder contributes its DLLs (and, for a shared build, the
-// preview host).
+// Copy runtime libraries and the preview host to where Cargo puts binaries, tests, and examples.
 fn copy_runtime_files(runtime: &[PathBuf]) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     // OUT_DIR is target/<profile>/build/<crate>-<hash>/out.
@@ -254,8 +253,8 @@ fn copy_runtime_files(runtime: &[PathBuf]) {
             };
             for entry in entries.flatten() {
                 let path = entry.path();
-                let name = path.file_name().unwrap().to_string_lossy().to_ascii_lowercase();
-                if name.ends_with(".dll") || name == "elegance-preview.exe" {
+                let name = path.file_name().unwrap().to_string_lossy();
+                if path.is_file() && build_runtime::is_runtime_file(&name) {
                     files.push(path);
                 }
             }
