@@ -305,7 +305,7 @@ fn json_string_after(text: &str, key: &str) -> Vec<String> {
     values
 }
 
-fn cache_dir() -> Option<PathBuf> {
+pub fn cache_dir() -> Option<PathBuf> {
     let var = |name: &str| env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if cfg!(windows) {
         var("LOCALAPPDATA")

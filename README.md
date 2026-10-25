@@ -44,18 +44,46 @@ fn main() -> Result<std::process::ExitCode, Error> {
 elegance = { git = "https://github.com/EleganceUI/elegance-rs" }
 ```
 
-The first build compiles Elegance itself (C++, with CMake and vcpkg), which takes a while: about
-half an hour when vcpkg has to build Dawn. `cargo build -vv` shows its progress. Later builds reuse
-it. You need Visual Studio's C++ workload (or Apple Clang on macOS) and git; the rest is found or
-downloaded.
+On Linux (x86_64, ARM64), macOS (Apple Silicon, Intel), and Windows (x64, ARM64, x86), the build
+downloads a prebuilt Elegance: one shared library (`elegance_native`) holding Elegance, its
+dependencies, and the C++ shim, which Cargo copies next to your binaries. You need no C++ compiler,
+CMake, or vcpkg, only `curl` and `tar` (built into Windows 10+, macOS, and Linux distributions).
+Ship the library beside your executable; on Linux, also give the executable an rpath of `$ORIGIN`
+(`-C link-args=-Wl,-rpath,$ORIGIN`), or set `LD_LIBRARY_PATH`. The library needs glibc 2.35+ on
+Linux and macOS 13.3+.
 
-Elegance is linked statically by default: an app is one executable plus the DLLs Elegance's
-dependencies come in, which are copied next to it. The `dynamic` feature links `elegance.dll`
-instead, which previews need.
+Prebuilt libraries are attached to GitHub releases: a `vX.Y.Z` release per version, and a
+`native-<hash>` prerelease for every revision of the shim on `main` (CI builds them; see
+`.github/workflows/native.yml`). Each records the hash of the shim sources it was built from, and the
+build script only uses one that matches its own. When there's none (a target without prebuilts,
+or a shim change CI hasn't built yet), it builds Elegance from source as described below.
+
+| Variable | Effect |
+|---|---|
+| `ELEGANCE_PREBUILT=0` | never download: build from source |
+| `ELEGANCE_PREBUILT=1` | always use a prebuilt library, even beside an Elegance checkout; fail without one |
+| `ELEGANCE_NATIVE_DIR` | an extracted archive to use (offline builds, mirrors) |
+| `ELEGANCE_PREBUILT_URL` | a folder (`https://`, `file://`) holding `elegance-native-<target>.tar.gz` |
+
+Downloads are cached in the user cache folder (`elegance/native/`) and shared by every project.
+Previews (the `dynamic` feature) still build Elegance from source.
+
+### Building from source
+
+The first source build compiles Elegance itself (C++, with CMake and vcpkg), which takes a while:
+about half an hour when vcpkg has to build Dawn. `cargo build -vv` shows its progress. Later builds
+reuse it. You need Visual Studio's C++ workload, Xcode 26 on macOS, or GCC 14+ on Linux (set
+`CC=gcc-14 CXX=g++-14` where it isn't the default), and git; the rest is found or downloaded.
+
+From source, Elegance is linked statically by default: an app is one executable plus the DLLs
+Elegance's dependencies come in, which are copied next to it. The `dynamic` feature links
+`elegance.dll` instead, which previews need.
 
 ### Where Elegance comes from
 
-`elegance-sys`'s build script needs Elegance's source:
+A source build happens when `ELEGANCE_ROOT` or `ELEGANCE_BUILD_DIR` is set, when there's an
+Elegance checkout beside this repository, or when no prebuilt library fits. It needs Elegance's
+source:
 
 1. `ELEGANCE_ROOT`, if set;
 2. a checkout beside this repository (`../elegance`), for working on both;

@@ -1,0 +1,153 @@
+# Builds the prebuilt native library (elegance-sys/native: the shim and Elegance in one shared
+# library) for each target, and publishes the archives that elegance-sys's build script downloads
+# (build_prebuilt.rs):
+#
+#   push to main   a prerelease tagged native-<shim hash, 12 hex digits>, its archives replaced by
+#                  each run (Elegance fixes behind an unchanged shim)
+#   tag v*         the release for that tag, whose archives never change
+#
+# Each archive bundles Elegance's main at build time; BUILDINFO in it records the commit.
+name: Native library
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: [elegance-sys/shim/**, elegance-sys/native/**, .github/workflows/native.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 (glibc 2.35) so the library loads on older distributions too.
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04, triplet: x64-linux }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm, triplet: arm64-linux }
+          - { target: aarch64-apple-darwin, runner: macos-15, triplet: arm64-osx, osx_arch: arm64 }
+          - { target: x86_64-apple-darwin, runner: macos-15, triplet: x64-osx, osx_arch: x86_64 }
+          - { target: x86_64-pc-windows-msvc, runner: windows-2025, triplet: x64-windows-static, msvc_arch: amd64 }
+          - { target: aarch64-pc-windows-msvc, runner: windows-11-arm, triplet: arm64-windows-static, msvc_arch: arm64 }
+          - { target: i686-pc-windows-msvc, runner: windows-2025, triplet: x86-windows-static, msvc_arch: amd64_x86, experimental: true }
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: elegance-rs
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/elegance
+          ref: main
+          path: elegance
+
+      - name: Install tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-14 g++-14 ninja-build pkg-config autoconf autoconf-archive automake libtool python3-jinja2 \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxinerama-dev libx11-xcb-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libdbus-1-dev libibus-1.0-dev libudev-dev libcurl4-openssl-dev
+          pipx install 'cmake>=4.3'
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      # Xcode 16's libc++ lacks std::jthread / std::stop_token.
+      - uses: maxim-lobanov/setup-xcode@v1
+        if: runner.os == 'macOS'
+        with:
+          xcode-version: "26"
+      - name: Install tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja pkgconf
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.msvc_arch }}
+      - name: Install tools (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          pipx install 'cmake>=4.3' ninja
+          echo "CXX=cl" >> "$GITHUB_ENV"
+
+      - name: Set up vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          if [ "$RUNNER_OS" = Windows ]; then "$VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics; else "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics; fi
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg-cache
+          key: vcpkg-native-${{ matrix.target }}-${{ hashFiles('elegance/vcpkg.json', 'elegance/cmake/triplets/*.cmake') }}
+          restore-keys: vcpkg-native-${{ matrix.target }}-
+
+      - name: Build
+        run: |
+          args=()
+          [ -n "${{ matrix.osx_arch }}" ] && args+=(-DCMAKE_OSX_ARCHITECTURES=${{ matrix.osx_arch }} -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3)
+          cmake -S elegance-rs/elegance-sys/native -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DELEGANCE_ROOT="$PWD/elegance" -DVCPKG_MANIFEST_DIR="$PWD/elegance" \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_OVERLAY_TRIPLETS="$PWD/elegance/cmake/triplets" \
+            "${args[@]}"
+          cmake --build build
+          cmake --install build --prefix dist
+
+      - name: Package
+        run: |
+          {
+            echo "target ${{ matrix.target }}"
+            echo "elegance $(git -C elegance rev-parse HEAD)"
+            echo "elegance-rs $(git -C elegance-rs rev-parse HEAD)"
+          } > dist/BUILDINFO
+          tar -czf elegance-native-${{ matrix.target }}.tar.gz -C dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: elegance-native-${{ matrix.target }}
+          path: elegance-native-${{ matrix.target }}.tar.gz
+
+  publish:
+    needs: build
+    # Publish what built, even if an experimental target failed.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: archives
+          merge-multiple: true
+      - name: Publish
+        run: |
+          set -e
+          ls archives
+          first=$(ls archives/*.tar.gz | head -n 1)
+          hash=$(tar -xzOf "$first" ./shim.sha256 | cut -c1-12)
+          if [ "${{ github.ref_type }}" = tag ]; then
+            tag="${{ github.ref_name }}"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --verify-tag --title "$tag" --generate-notes
+          else
+            tag="native-$hash"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "${{ github.sha }}" \
+              --title "Native library for shim $hash" \
+              --notes "Prebuilt native libraries for elegance-sys, built from shim revision $hash. Updated automatically."
+          fi
+          gh release upload "$tag" archives/*.tar.gz --clobber

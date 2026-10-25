@@ -1,6 +1,8 @@
-// Builds the C++ shim against an Elegance build tree and links Elegance.
+// Links Elegance: a prebuilt library from this crate's GitHub release when there is one for the
+// target (build_prebuilt.rs: the shim and Elegance in one shared library, no C++ toolchain
+// needed), else the C++ shim built here against an Elegance build tree.
 //
-// By default Elegance is linked statically, from a static build (the dev-release-static preset):
+// From source, Elegance is linked statically, from a static build (the dev-release-static preset):
 // the app is one executable plus the DLLs Elegance's dependencies come in. The `dynamic` feature
 // links elegance.dll from a shared build (dev-release) instead, which the preview host and hot
 // reload need: a views module and the host it loads into must share one Elegance.
@@ -30,6 +32,8 @@ use std::path::{Path, PathBuf};
 mod build_runtime;
 #[path = "build_cmake.rs"]
 mod cmake;
+#[path = "build_prebuilt.rs"]
+mod prebuilt;
 
 const SHIM_FILES: &[&str] = &[
     "shim/core.cpp",
@@ -40,8 +44,18 @@ const SHIM_FILES: &[&str] = &[
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let root = elegance_root(&manifest);
     let dynamic = env::var_os("CARGO_FEATURE_DYNAMIC").is_some();
+    // `dynamic` is for previews, whose host comes from a source build.
+    if let Some(native) = (!dynamic).then(|| prebuilt::find(&manifest)).flatten() {
+        let library = prebuilt::library(&native);
+        let runtime = copy_runtime_files(&[native.join("lib")]);
+        link_lib("lib", &staged_or(&library, &runtime));
+        println!("cargo:native_dir={}", native.display());
+        println!("cargo:dynamic=false");
+        return;
+    }
+
+    let root = elegance_root(&manifest);
     let (build_var, preset) = if dynamic {
         ("ELEGANCE_SHARED_BUILD_DIR", "dev-release")
     } else {
@@ -112,19 +126,7 @@ fn main() {
 
     let runtime = copy_runtime_files(&link.runtime);
     for (kind, lib) in &link.libs {
-        // Link the staged dylib so its loader-relative install name reaches every consumer.
-        let staged = (env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos"))
-            .then(|| Path::new(lib))
-            .filter(|path| path.extension().is_some_and(|ext| ext == "dylib"))
-            .and_then(|path| {
-                runtime
-                    .iter()
-                    .find(|file| file.file_name() == path.file_name())
-            });
-        match staged {
-            Some(path) => link_lib(kind, path.to_str().expect("runtime path must be UTF-8")),
-            None => link_lib(kind, lib),
-        }
+        link_lib(kind, &staged_or(Path::new(lib), &runtime));
     }
     println!("cargo:root={}", root.display());
     println!("cargo:build_dir={}", build.display());
@@ -244,6 +246,20 @@ fn is_rust_staticlib(file: &str) -> bool {
     })
 }
 
+// On macOS, the staged copy of a dylib (see copy_runtime_files), so its loader-relative install
+// name reaches every consumer; otherwise `lib` itself.
+fn staged_or(lib: &Path, runtime: &[PathBuf]) -> String {
+    let staged = (env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos"))
+        .then_some(lib)
+        .filter(|path| path.extension().is_some_and(|ext| ext == "dylib"))
+        .and_then(|path| runtime.iter().find(|file| file.file_name() == path.file_name()));
+    staged
+        .map_or(lib, PathBuf::as_path)
+        .to_str()
+        .expect("library path must be UTF-8")
+        .to_owned()
+}
+
 // A library file becomes a search folder and a name; a bare name is a system library.
 fn link_lib(kind: &str, lib: &str) {
     let path = Path::new(lib);
@@ -284,7 +300,9 @@ fn link_lib(kind: &str, lib: &str) {
             .trim_end_matches(".lib")
             .to_owned()
     };
-    if kind == "static" {
+    // A static library given as a plain file (`lib /path/libfoo.a`) links statically too.
+    let is_archive = path.is_absolute() && path.extension().is_some_and(|ext| ext == "a");
+    if kind == "static" || is_archive {
         // Linked into the final binary, not copied into this crate's rlib (it's large).
         println!("cargo:rustc-link-lib=static:-bundle={name}");
     } else {

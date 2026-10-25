@@ -26,7 +26,15 @@
 #include <utility>
 #include <vector>
 
+// ELG_SHIM_SHARED: the shim and Elegance built into one shared library (native/CMakeLists.txt, the
+// prebuilt library), which exports just these functions and ELG_API.
+#if defined(ELG_SHIM_SHARED) && defined(_WIN32)
+#define ELG_EXPORT extern "C" __declspec(dllexport)
+#elif defined(ELG_SHIM_SHARED)
+#define ELG_EXPORT extern "C" __attribute__((visibility("default")))
+#else
 #define ELG_EXPORT extern "C"
+#endif
 
 extern "C" {
 
