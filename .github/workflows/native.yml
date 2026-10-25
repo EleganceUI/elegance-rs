@@ -1,12 +1,11 @@
-# Builds the prebuilt native library (elegance-sys/native: the shim and Elegance in one shared
-# library) for each target, and publishes the archives that elegance-sys's build script downloads
-# (build_prebuilt.rs):
+# Builds a prebuilt shared library containing the elegance-sys shim and Elegance for each target.
+# Publishes archives for elegance-sys's build script (build_prebuilt.rs) to download:
 #
-#   push to main   a prerelease tagged native-<shim hash, 12 hex digits>, its archives replaced by
-#                  each run (Elegance fixes behind an unchanged shim)
-#   tag v*         the release for that tag, whose archives never change
+#   push to main   Update the prerelease native-<first 12 digits of the shim hash>,
+#                  replacing its archives so Elegance fixes can ship without shim changes.
+#   tag v*         Upload archives to the release for that version tag.
 #
-# Each archive bundles Elegance's main at build time; BUILDINFO in it records the commit.
+# Each archive includes Elegance's main branch at build time; BUILDINFO records its commit.
 name: Native library
 
 on:
