@@ -3,11 +3,16 @@
 # native library for the new commit first (native.yml), and only then commits the pin: a checkout
 # never pins an Elegance whose prebuilt library doesn't exist yet.
 #
+# A change to Elegance that needs shim (or other bindings) changes comes with an elegance-rs branch
+# of the same name as the Elegance branch it's merged from; Elegance's linux.yml checks that branch's
+# shim on the pull request. Here, that branch is built instead of main, and merged into main
+# together with the pin, then deleted. Without one, main is built as it is.
+#
 # Users pick it up with `cargo update -p elegance` (git dependencies); a vX.Y.Z release keeps what
 # it pinned. Elegance's notify-bindings.yml starts it after each push to Elegance's main (a
-# repository_dispatch event of type "elegance-updated" with the commit, once Elegance has the
-# ELEGANCE_RS_TOKEN secret); the schedule catches anything else. It can also be run by hand with a
-# branch, tag, or commit.
+# repository_dispatch event of type "elegance-updated" with the commit and the merged branch, once
+# Elegance has the ELEGANCE_RS_TOKEN secret); the schedule catches anything else. It can also be
+# run by hand with a branch, tag, or commit, and an elegance-rs branch to merge.
 name: Update Elegance
 
 on:
@@ -17,6 +22,10 @@ on:
         inputs:
             rev:
                 description: Elegance branch, tag, or full commit hash (default main)
+                type: string
+                required: false
+            branch:
+                description: elegance-rs branch with the bindings changes it needs, merged with the pin (default none)
                 type: string
                 required: false
     repository_dispatch:
@@ -37,13 +46,19 @@ jobs:
         outputs:
             rev: ${{ steps.check.outputs.rev }}
             changed: ${{ steps.check.outputs.changed }}
+            bindings_branch: ${{ steps.bindings.outputs.branch }}
+            bindings_sha: ${{ steps.bindings.outputs.sha }}
         steps:
             - uses: actions/checkout@v7
+            # main as it is now, not as it was when this run was queued: an earlier run may have
+            # moved the pin since.
+            - name: Current main
+              run: git fetch --quiet --depth 1 origin main
             - id: check
               env:
                   WANTED: ${{ inputs.rev || github.event.client_payload.rev || 'main' }}
               run: |
-                  pinned=$(head -n 1 elegance-sys/native/elegance-rev | tr -d '\r[:space:]')
+                  pinned=$(git show origin/main:elegance-sys/native/elegance-rev | head -n 1 | tr -d '\r[:space:]')
                   url=https://github.com/${{ github.repository_owner }}/elegance
                   if [[ "$WANTED" =~ ^[0-9a-f]{40}$ ]]; then
                     rev=$WANTED
@@ -59,6 +74,25 @@ jobs:
                   echo "Pinned: $pinned. $WANTED: $rev."
                   echo "rev=$rev" >> "$GITHUB_OUTPUT"
                   if [ "$rev" = "$pinned" ]; then echo "changed=false"; else echo "changed=true"; fi >> "$GITHUB_OUTPUT"
+            # The elegance-rs commit to build: the matching branch's, else main's. Its exact commit,
+            # so what's merged later is what was built.
+            - id: bindings
+              env:
+                  BRANCH: ${{ inputs.branch || github.event.client_payload.branch }}
+              run: |
+                  sha=
+                  if [ -n "$BRANCH" ] && [ "$BRANCH" != main ]; then
+                    sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                    [ -n "$sha" ] || echo "No elegance-rs branch $BRANCH: building main."
+                  fi
+                  if [ -n "$sha" ]; then
+                    echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+                    echo "Building elegance-rs's $BRANCH (${sha:0:12}), to merge with the pin."
+                  else
+                    sha=$(git rev-parse origin/main)
+                    echo "branch=" >> "$GITHUB_OUTPUT"
+                  fi
+                  echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
     build:
         needs: check
@@ -66,6 +100,7 @@ jobs:
         uses: ./.github/workflows/native.yml
         with:
             elegance_rev: ${{ needs.check.outputs.rev }}
+            bindings_ref: ${{ needs.check.outputs.bindings_sha }}
 
     pin:
         needs: [check, build]
@@ -77,19 +112,31 @@ jobs:
                   fetch-depth: 0
             # Pushed with the workflow's token, which starts no other workflow: the library for this
             # pin is already published.
-            - name: Commit the pin
+            - name: Merge and commit the pin
               env:
                   REV: ${{ needs.check.outputs.rev }}
+                  BRANCH: ${{ needs.check.outputs.bindings_branch }}
+                  BUILT: ${{ needs.check.outputs.bindings_sha }}
               run: |
-                  # The library's hash covers the shim too: if it changed on main since this run
-                  # started, the new pin with that shim has no library yet. The next run redoes it.
-                  if ! git diff --quiet "${{ github.sha }}" HEAD -- elegance-sys/shim; then
-                    echo "::warning::The shim changed on main during this run; not pinning ${REV:0:12} yet."
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  if [ -n "$BRANCH" ]; then
+                    git merge --no-ff "$BUILT" -m "Merge $BRANCH for Elegance ${REV:0:12}" || {
+                      echo "::error::elegance-rs's $BRANCH doesn't merge cleanly into main. Merge main into it and push; the next run (or a manual one with rev ${REV:0:12} and branch $BRANCH) pins it."
+                      exit 1
+                    }
+                  fi
+                  # The library's hash covers the shim too: if main's shim changed since the commit
+                  # built (or merging brought in other shim changes), the new pin with this shim has
+                  # no library yet. The next run redoes it (from a branch: merge main into it, then
+                  # run this by hand with rev and branch).
+                  if ! git diff --quiet "$BUILT" HEAD -- elegance-sys/shim; then
+                    echo "::warning::The shim on main${BRANCH:+ merged with $BRANCH} differs from the one built (${BUILT:0:12}); not pinning ${REV:0:12} yet."
                     exit 0
                   fi
                   echo "$REV" > elegance-sys/native/elegance-rev
-                  git config user.name "github-actions[bot]"
-                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                   git commit -am "Update Elegance to ${REV:0:12}" \
                     -m "The native library for it is published; see EleganceUI/elegance@$REV."
                   git push origin HEAD:main
+                  # Merged: a later Elegance branch of the same name starts a new one.
+                  if [ -n "$BRANCH" ]; then git push origin --delete "$BRANCH"; fi

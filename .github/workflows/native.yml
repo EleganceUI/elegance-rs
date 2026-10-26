@@ -4,8 +4,9 @@
 #
 #   push to main   a prerelease tagged native-<hash, 12 hex digits>
 #   tag v*         the release for that tag
-#   called by update-elegance.yml with a newer Elegance commit: its prerelease, published before
-#                  that workflow moves the pin to it
+#   called by update-elegance.yml with a newer Elegance commit (and the bindings commit to build:
+#                  main's, or the matching branch's): its prerelease, published before that
+#                  workflow moves the pin to it
 #
 # Each archive bundles the Elegance commit elegance-sys/native/elegance-rev pins, and the hash
 # covers the shim sources and that pin (BUILDINFO in the archive records both repositories'
@@ -22,6 +23,10 @@ on:
         inputs:
             elegance_rev:
                 description: Build this Elegance commit instead of the pinned one (written into elegance-rev first)
+                type: string
+                required: false
+            bindings_ref:
+                description: Build this elegance-rs commit's shim instead of the triggering one
                 type: string
                 required: false
 
@@ -83,6 +88,7 @@ jobs:
         steps:
             - uses: actions/checkout@v7
               with:
+                  ref: ${{ inputs.bindings_ref }}
                   path: elegance-rs
             # The pinned Elegance, or the candidate update-elegance.yml passes (pinned here first, so
             # the library's hash is the one the pin commit will have).
@@ -260,7 +266,7 @@ jobs:
                     gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --verify-tag --title "$tag" --generate-notes
                   else
                     tag="native-$hash"
-                    gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "${{ github.sha }}" \
+                    gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "${{ inputs.bindings_ref || github.sha }}" \
                       --title "Native library $hash" \
                       --notes "Prebuilt native libraries for elegance-sys: its shim with Elegance ${elegance:0:12} (EleganceUI/elegance@$elegance). Published automatically."
                   fi
