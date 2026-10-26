@@ -88,6 +88,19 @@ mod vulkan;
 #[cfg(target_os = "linux")]
 pub use vulkan::Bridge;
 
+/// A tiny executor for the hardware tests, which avoids a runtime dependency.
+#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+pub(crate) fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    let mut future = std::pin::pin!(future);
+    loop {
+        if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut context) {
+            return value;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

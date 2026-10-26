@@ -40,7 +40,7 @@ pub fn dot_value(name: &Ident, namespace: Option<&Ident>) -> TokenStream {
     let field = field_ident(name);
     match namespace {
         Some(namespace) => quote_spanned!(name.span()=>
-            ::core::clone::Clone::clone(&#namespace.#field)
+            ::elegance::__private::dot_value(&#namespace.#field)
         ),
         None => {
             let ty = crate::dot::name_type(name, &quote!(::elegance::dot));
@@ -129,7 +129,7 @@ fn rewrite_in(tokens: TokenStream, namespace: Option<&Ident>) -> TokenStream {
                     // follows the dot, so the text before the dot must be the same.
                     None if !after_dot && starts_expression(prev) && namespace.is_some() => {
                         let namespace = namespace.unwrap();
-                        out.extend(quote!(::core::clone::Clone::clone(&#namespace #p)));
+                        out.extend(quote!(::elegance::__private::dot_value(&#namespace #p)));
                     }
                     _ => out.extend([token.clone()]),
                 }
@@ -371,7 +371,7 @@ mod tests {
         // Wrapped like a finished `.name`, so the text before the dot matches (see rewrite_in).
         assert_eq!(
             argument_in(value, Some(&namespace)).to_string(),
-            ":: core :: clone :: Clone :: clone (& dots .)"
+            ":: elegance :: __private :: dot_value (& dots .)"
         );
     }
 

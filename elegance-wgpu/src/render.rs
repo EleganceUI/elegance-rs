@@ -210,6 +210,27 @@ impl RenderFrame<'_> {
     }
 }
 
+impl Bridge {
+    /// Record and publish a GPU frame without exposing reusable destination handles.
+    /// Resource creation uses `device()`. All frame writes/submission remain owned
+    /// by the bridge, and existing GPU sharing/fence synchronization is unchanged.
+    /// Use unsafe `render_raw` only when access beyond the restricted frame API is needed.
+    pub fn render(&mut self, encode: impl FnOnce(&mut RenderFrame<'_>)) -> Result<(), Error> {
+        // SAFETY: RenderFrame exposes neither the destination nor its encoder.
+        // Supplied attachments and buffers are caller-owned; passes cannot finish
+        // or submit the private encoder. Backend allocation initializes the target.
+        unsafe {
+            self.render_raw(|device, encoder, target| {
+                encode(&mut RenderFrame {
+                    device,
+                    encoder,
+                    target,
+                });
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,23 +263,7 @@ mod tests {
     #[test]
     #[ignore = "requires a Metal GPU and the native Elegance library"]
     fn metal_attachments_reuse_and_follow_size_format_and_device() {
-        use std::{future::Future, sync::Arc, task};
-
-        fn block_on<T>(future: impl Future<Output = T>) -> T {
-            struct Wake;
-            impl task::Wake for Wake {
-                fn wake(self: Arc<Self>) {}
-            }
-            let waker = task::Waker::from(Arc::new(Wake));
-            let mut cx = task::Context::from_waker(&waker);
-            let mut future = std::pin::pin!(future);
-            loop {
-                if let task::Poll::Ready(value) = future.as_mut().poll(&mut cx) {
-                    return value;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-        }
+        use crate::block_on;
 
         fn render(
             device: &wgpu::Device,
@@ -359,27 +364,6 @@ mod tests {
                     assert_ne!(cached.depth_stencil, previous.1);
                 }
             }
-        }
-    }
-}
-
-impl Bridge {
-    /// Record and publish a GPU frame without exposing reusable destination handles.
-    /// Resource creation uses `device()`. All frame writes/submission remain owned
-    /// by the bridge, and existing GPU sharing/fence synchronization is unchanged.
-    /// Use unsafe `render_raw` only when access beyond the restricted frame API is needed.
-    pub fn render(&mut self, encode: impl FnOnce(&mut RenderFrame<'_>)) -> Result<(), Error> {
-        // SAFETY: RenderFrame exposes neither the destination nor its encoder.
-        // Supplied attachments and buffers are caller-owned; passes cannot finish
-        // or submit the private encoder. Backend allocation initializes the target.
-        unsafe {
-            self.render_raw(|device, encoder, target| {
-                encode(&mut RenderFrame {
-                    device,
-                    encoder,
-                    target,
-                });
-            })
         }
     }
 }

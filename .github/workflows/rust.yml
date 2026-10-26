@@ -1,0 +1,43 @@
+# Checks, lints and tests the Rust crates on each desktop platform, against the prebuilt native
+# library (native.yml publishes it). A change to the shim or the Elegance pin has no prebuilt until
+# native.yml has run for it, so this fails on such a change rather than building Elegance from
+# source (about half an hour per platform); rerun it once native.yml has published the library.
+name: Rust
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+    workflow_dispatch:
+
+concurrency:
+    group: rust-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    CARGO_TERM_COLOR: always
+    ELEGANCE_PREBUILT: "1"
+
+jobs:
+    test:
+        strategy:
+            fail-fast: false
+            matrix:
+                # Ubuntu 22.04: the prebuilt library needs glibc 2.35+.
+                runner: [ubuntu-22.04, macos-15, windows-2025]
+        runs-on: ${{ matrix.runner }}
+        steps:
+            - uses: actions/checkout@v7
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+            - uses: Swatinem/rust-cache@v2
+            # Cargo copies the library beside test binaries; on Linux they find it via an rpath.
+            - name: Linux rpath
+              if: runner.os == 'Linux'
+              shell: bash
+              run: echo 'RUSTFLAGS=-C link-args=-Wl,-rpath,$ORIGIN' >> "$GITHUB_ENV"
+            - name: Clippy
+              run: cargo clippy --workspace --all-targets -- -D warnings
+            - name: Test
+              run: cargo test --workspace

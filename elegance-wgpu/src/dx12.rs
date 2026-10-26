@@ -820,6 +820,7 @@ impl Drop for Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block_on;
 
     #[test]
     fn budget_is_bounded_and_returned_on_completion() {
@@ -855,22 +856,6 @@ mod tests {
             thread.join().unwrap();
         }
         assert_eq!(counts.active.load(Ordering::Acquire), 0);
-    }
-
-    fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
-        struct Wake;
-        impl std::task::Wake for Wake {
-            fn wake(self: Arc<Self>) {}
-        }
-        let waker = std::task::Waker::from(Arc::new(Wake));
-        let mut context = std::task::Context::from_waker(&waker);
-        let mut future = std::pin::pin!(future);
-        loop {
-            if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut context) {
-                return value;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
     }
 
     fn test_bridge() -> Bridge {

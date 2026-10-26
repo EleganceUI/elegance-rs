@@ -187,4 +187,11 @@ pub mod __private {
     pub use crate::preview::PreviewItem;
     pub use crate::view::{Component, IntoView, View, ViewExt};
     pub use inventory;
+
+    /// A `.name` shorthand's value, a clone of its namespace field. A function rather than
+    /// `Clone::clone` in the expansion, which clippy flags as `clone_on_copy` in user code.
+    #[inline]
+    pub fn dot_value<T: Clone>(value: &T) -> T {
+        value.clone()
+    }
 }

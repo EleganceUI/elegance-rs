@@ -643,6 +643,7 @@ impl Drop for Bridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block_on;
 
     #[test]
     fn budget_is_bounded_and_returned_on_completion() {
@@ -871,23 +872,6 @@ mod tests {
         }
         wait_for(|| counts.active.load(Ordering::Acquire) == 3);
         assert_eq!(counts.quarantined.load(Ordering::Acquire), 3);
-    }
-
-    // A tiny executor avoids a runtime dependency for these hardware tests.
-    fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
-        struct Wake;
-        impl std::task::Wake for Wake {
-            fn wake(self: Arc<Self>) {}
-        }
-        let waker = std::task::Waker::from(Arc::new(Wake));
-        let mut cx = std::task::Context::from_waker(&waker);
-        let mut future = std::pin::pin!(future);
-        loop {
-            if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut cx) {
-                return value;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
     }
 
     #[test]

@@ -1,4 +1,6 @@
 //! Compile-time coverage for the API used by the DSL's receiver-based completion.
+// The `.into()`s check that namespace fields convert, some into their own type.
+#![allow(clippy::useless_conversion)]
 use elegance::dot::{self, DotTarget, DotValues, ResolveDotValues};
 use elegance::prelude::*;
 

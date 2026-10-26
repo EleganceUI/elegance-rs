@@ -570,7 +570,7 @@ fn expand_node(node: &Node) -> TokenStream {
             }
             if let Some(args) = args {
                 for (name, value) in &args.named {
-                    expr = expand_call(expr, name, &TokenStream::new(), &[value.clone()]);
+                    expr = expand_call(expr, name, &TokenStream::new(), std::slice::from_ref(value));
                 }
             }
             if let Some(block) = block {
@@ -828,7 +828,7 @@ fn expand_modifiers(mut expr: TokenStream, modifiers: &[Modifier]) -> TokenStrea
             let options = format_ident!("__elg_options");
             let mut setters = quote!(#options);
             for (n, v) in &args.named {
-                setters = expand_call(setters, n, &TokenStream::new(), &[v.clone()]);
+                setters = expand_call(setters, n, &TokenStream::new(), std::slice::from_ref(v));
             }
             let positional = positional.into_iter().map(argument);
             expr = quote_spanned!(name.span()=> #expr.#with #generics(#(#positional,)* |#options| #setters));

@@ -1355,7 +1355,7 @@ mod tests {
         let result = std::panic::catch_unwind({
             let guard = tracked(&counts, &drops);
             move || {
-                let _pending = vec![guard];
+                let _pending = [guard];
                 panic!("simulated poll callback panic");
             }
         });
