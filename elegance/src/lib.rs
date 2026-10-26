@@ -72,6 +72,7 @@ pub mod error;
 pub mod events;
 pub mod font;
 pub mod geometry;
+pub mod gpu_image;
 pub mod graphics;
 pub mod grid;
 pub mod hot_reload;
@@ -113,6 +114,7 @@ pub use geometry::{
     HorizontalAlignment, Len, Number, Point, ProposedSize, Rect, Size, UnitPoint,
     VerticalAlignment, DEFAULT_STACK_SPACING, INFINITY,
 };
+pub use gpu_image::{GpuImage, GpuImageOrigin, GpuImageView};
 pub use graphics::{Canvas, GraphicsContext};
 pub use grid::{
     grid_tracks_length, resolve_grid_tracks, Grid, GridItem, GridItemKind, GridLayout, GridRow,
@@ -132,8 +134,8 @@ pub use layout::{
 pub use media::{
     audio_input_devices, audio_output_devices, camera_devices, AudioDevice, AudioPlayer,
     AudioRecorder, AudioRecorderOptions, AudioStream, AudioStreamOptions, Camera, CameraDevice,
-    CameraOptions, CameraView, GpuImage, GpuImageOrigin, GpuImageView, PlayOptions, Sound,
-    VideoControls, VideoFeed, VideoFeedView, VideoFormat, VideoPlayer, VideoView,
+    CameraOptions, CameraView, PlayOptions, Sound, VideoControls, VideoFeed, VideoFeedView,
+    VideoFormat, VideoPlayer, VideoView,
 };
 pub use modifier::{
     AsDecoration, AsEffect, AsEnvironment, AsEvent, AsLayout, DecorationModifier, EffectModifier,
