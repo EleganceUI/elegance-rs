@@ -60,11 +60,10 @@ pub fn shorthand_names(tokens: &TokenStream) -> Vec<Ident> {
         }
         let prev = i.checked_sub(1).map(|i| &tokens[i]);
         let after_dot = matches!(prev, Some(TokenTree::Punct(q)) if q.as_char() == '.');
-        if let Some(TokenTree::Ident(name)) = tokens.get(i + 1) {
-            if !after_dot && starts_expression(prev) && !names.iter().any(|n| n == name) {
+        if let Some(TokenTree::Ident(name)) = tokens.get(i + 1)
+            && !after_dot && starts_expression(prev) && !names.iter().any(|n| n == name) {
                 names.push(field_ident(name));
             }
-        }
     }
     names
 }
@@ -158,19 +157,16 @@ pub fn argument(tokens: TokenStream) -> TokenStream {
 
 pub fn argument_in(tokens: TokenStream, namespace: Option<&Ident>) -> TokenStream {
     let items: Vec<TokenTree> = tokens.clone().into_iter().collect();
-    if let [TokenTree::Literal(literal)] = items.as_slice() {
-        if let Ok(text) =
+    if let [TokenTree::Literal(literal)] = items.as_slice()
+        && let Ok(text) =
             syn::parse2::<syn::LitStr>(TokenStream::from(TokenTree::Literal(literal.clone())))
-        {
-            if has_placeholder(&text.value()) {
+            && has_placeholder(&text.value()) {
                 let format = match interpolate(&text) {
                     Ok(format) => format,
                     Err(error) => return error.to_compile_error(),
                 };
                 return quote!(::elegance::__private::Interpolated(move || #format));
             }
-        }
-    }
     rewrite_in(tokens, namespace)
 }
 

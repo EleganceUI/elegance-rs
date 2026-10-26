@@ -32,16 +32,16 @@ pub struct LayoutChild {
 
 #[elegance_macros::elg_builder]
 impl LayoutChild {
-    pub(crate) unsafe fn slice<'a>(ptr: *const sys::LayoutChild, count: usize) -> &'a [LayoutChild] {
+    pub(crate) unsafe fn slice<'a>(ptr: *const sys::LayoutChild, count: usize) -> &'a [LayoutChild] { unsafe {
         if ptr.is_null() {
             &[]
         } else {
             std::slice::from_raw_parts(ptr as *const LayoutChild, count)
         }
-    }
-    pub(crate) unsafe fn from_ptr<'a>(ptr: *const sys::LayoutChild) -> &'a LayoutChild {
+    }}
+    pub(crate) unsafe fn from_ptr<'a>(ptr: *const sys::LayoutChild) -> &'a LayoutChild { unsafe {
         &*(ptr as *const LayoutChild)
-    }
+    }}
     fn ptr(&self) -> *const sys::LayoutChild {
         &self.raw
     }
@@ -94,14 +94,14 @@ pub(crate) fn layout_value<K: LayoutValueKey>(view: View, value: K::Value) -> Vi
     let owner = LayoutValue { key: TypeId::of::<K>(), value: Box::new(value) };
     // The owner closure's data is the LayoutValue; calling it answers whether it's the wanted key.
     let data = Box::into_raw(Box::new(owner));
-    unsafe extern "C" fn matches(data: *mut c_void, _: *mut c_void, ret: *mut c_void) -> bool {
+    unsafe extern "C" fn matches(data: *mut c_void, _: *mut c_void, ret: *mut c_void) -> bool { unsafe {
         let value = &*(data as *const LayoutValue);
         *(ret as *mut bool) = REQUESTED.with(|r| r.get()) == Some(value.key);
         true
-    }
-    unsafe extern "C" fn drop_value(data: *mut c_void) {
+    }}
+    unsafe extern "C" fn drop_value(data: *mut c_void) { unsafe {
         drop(Box::from_raw(data as *mut LayoutValue));
-    }
+    }}
     let closure = sys::ElgClosure { data: data as *mut c_void, call: Some(matches), drop: Some(drop_value) };
     view.modify(|v| unsafe { sys::elg_mod_rust_layout_value(v, closure) })
 }
@@ -262,7 +262,7 @@ pub struct ZStackLayout {
 }
 
 macro_rules! stack_layout {
-    ($t:ident, $kind:expr, |$s:ident| $alignment:expr, $spacing:expr) => {
+    ($t:ident, $kind:expr_2021, |$s:ident| $alignment:expr_2021, $spacing:expr_2021) => {
         impl $t {
             pub fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
                 let $s = self;

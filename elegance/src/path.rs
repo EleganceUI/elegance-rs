@@ -151,9 +151,9 @@ impl Path {
     }
 
     /// Writes this path into a closure's C++ Path result.
-    pub(crate) unsafe fn write_into(&self, ret: *mut std::ffi::c_void) {
+    pub(crate) unsafe fn write_into(&self, ret: *mut std::ffi::c_void) { unsafe {
         sys::elg_path_assign(ret as *mut sys::Path, self.as_ptr());
-    }
+    }}
 
     pub fn move_to(&mut self, point: Point) -> &mut Self {
         unsafe { sys::elg_path_move_to(self.as_mut_ptr(), point.c()) };

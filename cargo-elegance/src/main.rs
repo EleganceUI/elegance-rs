@@ -41,11 +41,10 @@ options: -p/--package <name>  --bin <name>  --manifest-path <file>  --release
 fn main() -> ExitCode {
     let args: Vec<OsString> = env::args_os().collect();
     // As cargo's RUSTC_WORKSPACE_WRAPPER: `cargo-elegance <rustc> <args>...`.
-    if let (Some(name), Some(first)) = (env::var_os(WRAP_CRATE), args.get(1)) {
-        if first != "elegance" {
+    if let (Some(name), Some(first)) = (env::var_os(WRAP_CRATE), args.get(1))
+        && first != "elegance" {
             return wrap_rustc(&name.to_string_lossy(), &args[1..]);
         }
-    }
     // `cargo elegance ...` runs `cargo-elegance elegance ...`.
     let mut args: Vec<String> = args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
     if args.first().is_some_and(|a| a == "elegance") {

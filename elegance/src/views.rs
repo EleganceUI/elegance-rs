@@ -929,9 +929,9 @@ impl<T: PartialEq + 'static> IntoView for ForEach<T, KeyFn<T>> {
     }
 }
 
-unsafe extern "C" fn items_equal<T: PartialEq>(a: *mut c_void, b: *mut c_void) -> bool {
+unsafe extern "C" fn items_equal<T: PartialEq>(a: *mut c_void, b: *mut c_void) -> bool { unsafe {
     std::panic::catch_unwind(|| *(a as *const Rc<T>) == *(b as *const Rc<T>)).unwrap_or(false)
-}
+}}
 
 /// Converts items to ForEach entries and pushes them into a C++ vector (`ret`).
 pub(crate) fn push_items<T: PartialEq + 'static>(
@@ -1143,7 +1143,7 @@ pub struct LazyHStack {
 }
 
 macro_rules! lazy_stack {
-    ($t:ident, $align:ty, $vertical:expr) => {
+    ($t:ident, $align:ty, $vertical:expr_2021) => {
         #[elegance_macros::elg_builder]
         impl $t {
             pub fn new(for_each: impl IntoView) -> Self {

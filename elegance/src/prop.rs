@@ -404,17 +404,17 @@ pub(crate) trait PropValue: Clone + 'static {
 }
 
 macro_rules! pod_value {
-    ($t:ty, $c:ty, |$v:ident| $to_c:expr) => {
+    ($t:ty, $c:ty, |$v:ident| $to_c:expr_2021) => {
         impl PropValue for $t {
             fn with_c<R>(&self, f: impl FnOnce(*const c_void) -> R) -> R {
                 let $v = self;
                 let c: $c = $to_c;
                 f(&c as *const $c as *const c_void)
             }
-            unsafe fn write(&self, ret: *mut c_void) {
+            unsafe fn write(&self, ret: *mut c_void) { unsafe {
                 let $v = self;
                 *(ret as *mut $c) = $to_c;
-            }
+            }}
         }
     };
 }
@@ -433,9 +433,9 @@ impl PropValue for String {
         let c = ffi::s(self);
         f(&c as *const sys::ElgStr as *const c_void)
     }
-    unsafe fn write(&self, ret: *mut c_void) {
+    unsafe fn write(&self, ret: *mut c_void) { unsafe {
         ffi::write_string(ret, self);
-    }
+    }}
 }
 
 impl PropValue for Font {
@@ -443,19 +443,19 @@ impl PropValue for Font {
         let c = self.c();
         f(&c as *const sys::ElgFont as *const c_void)
     }
-    unsafe fn write(&self, ret: *mut c_void) {
+    unsafe fn write(&self, ret: *mut c_void) { unsafe {
         let c = self.c();
         sys::elg_font_assign(ret as *mut sys::Font, &c);
-    }
+    }}
 }
 
 impl PropValue for ShapeStyle {
     fn with_c<R>(&self, f: impl FnOnce(*const c_void) -> R) -> R {
         self.with_c(|c| f(c as *const sys::ElgShapeStyle as *const c_void))
     }
-    unsafe fn write(&self, ret: *mut c_void) {
+    unsafe fn write(&self, ret: *mut c_void) { unsafe {
         ShapeStyle::with_c(self, |c| sys::elg_shape_style_assign(ret as *mut sys::ShapeStyle, c));
-    }
+    }}
 }
 
 /// Calls `f` with the C form of `prop` (static values stay valid for the call).

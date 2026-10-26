@@ -86,7 +86,7 @@ mod entry {
     /// The views module's entry, which the preview host looks up. Each loaded copy of a module has
     /// its own statics.
     #[doc(hidden)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn elg_module_entry() -> *const c_void {
         module_entry()
     }
@@ -114,7 +114,7 @@ mod entry {
             } else {
                 module.previews[index as usize].body
             };
-            body().write_into(ret as *mut c_void);
+            unsafe { body().write_into(ret as *mut c_void) };
         }));
         match result {
             Ok(()) => true,

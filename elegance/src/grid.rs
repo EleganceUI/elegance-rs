@@ -161,7 +161,7 @@ fn grid_view(kind: i32, items: &[GridItem], alignment: Alignment, a: Len, b: Len
 }
 
 macro_rules! line_grid {
-    ($(#[$doc:meta])* $name:ident, $tracks:ident, $kind:expr, $layout:ident) => {
+    ($(#[$doc:meta])* $name:ident, $tracks:ident, $kind:expr_2021, $layout:ident) => {
         $(#[$doc])*
         pub struct $name {
             $tracks: Vec<GridItem>,

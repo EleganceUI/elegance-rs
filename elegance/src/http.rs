@@ -104,7 +104,7 @@ impl Response {
 /// A response, or why the request failed (no connection, timeout, ...).
 pub type HttpResult = Result<Response, String>;
 
-unsafe fn read_response(r: &sys::ElgResponse) -> HttpResult {
+unsafe fn read_response(r: &sys::ElgResponse) -> HttpResult { unsafe {
     if !r.ok {
         return Err(r.error.as_str().to_owned());
     }
@@ -113,7 +113,7 @@ unsafe fn read_response(r: &sys::ElgResponse) -> HttpResult {
         .map(|h| (h.name.as_str().to_owned(), h.value.as_str().to_owned()))
         .collect();
     Ok(Response { status: r.status, headers, body: r.body.as_slice().to_vec() })
-}
+}}
 
 /// A request started with [`fetch`]: cancel it with `cancel` (or let it finish).
 pub struct Task {

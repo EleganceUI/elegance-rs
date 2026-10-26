@@ -30,7 +30,7 @@ pub(crate) fn store_panic(payload: Box<dyn Any + Send>) {
     });
 }
 
-unsafe extern "C" fn call_shared<F: Fn(*mut c_void, *mut c_void)>(data: *mut c_void, args: *mut c_void, ret: *mut c_void) -> bool {
+unsafe extern "C" fn call_shared<F: Fn(*mut c_void, *mut c_void)>(data: *mut c_void, args: *mut c_void, ret: *mut c_void) -> bool { unsafe {
     let f = &*(data as *const F);
     match catch_unwind(AssertUnwindSafe(|| f(args, ret))) {
         Ok(()) => true,
@@ -39,13 +39,13 @@ unsafe extern "C" fn call_shared<F: Fn(*mut c_void, *mut c_void)>(data: *mut c_v
             false
         }
     }
-}
+}}
 
 unsafe extern "C" fn call_borrowed<F: FnMut(*mut c_void, *mut c_void)>(
     data: *mut c_void,
     args: *mut c_void,
     ret: *mut c_void,
-) -> bool {
+) -> bool { unsafe {
     let f = &mut *(data as *mut F);
     match catch_unwind(AssertUnwindSafe(|| f(args, ret))) {
         Ok(()) => true,
@@ -54,18 +54,18 @@ unsafe extern "C" fn call_borrowed<F: FnMut(*mut c_void, *mut c_void)>(
             false
         }
     }
-}
+}}
 
 unsafe extern "C" fn call_nothing(_: *mut c_void, _: *mut c_void, _: *mut c_void) -> bool {
     true
 }
 
-unsafe extern "C" fn drop_box<T>(data: *mut c_void) {
+unsafe extern "C" fn drop_box<T>(data: *mut c_void) { unsafe {
     // Drops run from C++ destructors, which can't unwind: report and carry on.
     if catch_unwind(AssertUnwindSafe(|| drop(Box::from_raw(data as *mut T)))).is_err() {
         eprintln!("elegance: a value panicked while being dropped by Elegance");
     }
-}
+}}
 
 /// An owned closure that C++ may call any number of times. `args` and `ret` point at values whose
 /// types depend on the call site (see the shim).
@@ -133,12 +133,12 @@ pub(crate) fn s(text: &str) -> sys::ElgStr {
     sys::ElgStr::new(text)
 }
 
-unsafe extern "C" fn string_sink(ctx: *mut c_void, ptr: *const c_char, len: usize) {
+unsafe extern "C" fn string_sink(ctx: *mut c_void, ptr: *const c_char, len: usize) { unsafe {
     let target = &mut *(ctx as *mut String);
     if !ptr.is_null() {
         target.push_str(&String::from_utf8_lossy(std::slice::from_raw_parts(ptr.cast(), len)));
     }
-}
+}}
 
 /// Collects a string that C++ sends through a sink.
 pub(crate) fn read_string(f: impl FnOnce(sys::ElgStrSink, *mut c_void)) -> String {
@@ -148,13 +148,13 @@ pub(crate) fn read_string(f: impl FnOnce(sys::ElgStrSink, *mut c_void)) -> Strin
 }
 
 /// Writes a string into a closure's `std::string` result.
-pub(crate) unsafe fn write_string(ret: *mut c_void, value: &str) {
+pub(crate) unsafe fn write_string(ret: *mut c_void, value: &str) { unsafe {
     sys::elg_string_assign(ret as *mut sys::CppString, s(value));
-}
+}}
 
-pub(crate) unsafe fn read_cpp_string(arg: *const c_void) -> String {
+pub(crate) unsafe fn read_cpp_string(arg: *const c_void) -> String { unsafe {
     sys::elg_string_view(arg as *const sys::CppString).as_str().to_owned()
-}
+}}
 
 pub(crate) fn path_str(path: &std::path::Path) -> String {
     path.to_string_lossy().into_owned()

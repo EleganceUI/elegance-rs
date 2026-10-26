@@ -80,14 +80,14 @@ impl View {
     }
 
     /// Moves this view into a closure's C++ `View` result.
-    pub(crate) unsafe fn write_into(self, ret: *mut c_void) {
+    pub(crate) unsafe fn write_into(self, ret: *mut c_void) { unsafe {
         sys::elg_view_move_into(ret as *mut sys::View, self.into_raw());
-    }
+    }}
 
     /// Takes ownership of a borrowed C++ view by copying it.
-    pub(crate) unsafe fn copy_from(ptr: *const sys::View) -> Self {
+    pub(crate) unsafe fn copy_from(ptr: *const sys::View) -> Self { unsafe {
         Self::from_raw(sys::elg_view_clone(ptr))
-    }
+    }}
 
     pub(crate) fn modify(self, f: impl FnOnce(*const sys::View) -> *mut sys::View) -> View {
         let result = f(self.as_ptr());

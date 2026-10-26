@@ -26,7 +26,7 @@ pub struct VSplitView {
 }
 
 macro_rules! split_view {
-    ($t:ident, $axis:expr) => {
+    ($t:ident, $axis:expr_2021) => {
         impl $t {
             pub fn new() -> Self {
                 Self::default()

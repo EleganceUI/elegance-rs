@@ -211,11 +211,11 @@ struct StagedSignal<'a> {
 }
 impl StagedSignal<'_> {
     fn remove(&self) -> bool {
-        if let Some(queue) = unsafe { self.queue.as_hal::<Vulkan>() } {
+        match unsafe { self.queue.as_hal::<Vulkan>() } { Some(queue) => {
             queue.remove_signal_semaphore(self.semaphore)
-        } else {
+        } _ => {
             false
-        }
+        }}
     }
 }
 impl Drop for StagedSignal<'_> {

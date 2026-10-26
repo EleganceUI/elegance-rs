@@ -5,15 +5,27 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-rust-version = "1.93"
 
 [dependencies]
 elegance = { path = "../elegance" }
 elegance-sys = { path = "../elegance-sys" }
-wgpu = { version = "=30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "dx12", "vulkan", "wgsl"] }
+wgpu = { version = "=30.0.1", default-features = false, features = [
+    "std",
+    "parking_lot",
+    "metal",
+    "dx12",
+    "vulkan",
+    "wgsl",
+] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", default-features = false, features = ["Win32_Foundation", "Win32_Security", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common", "Win32_System_Threading"] }
+windows = { version = "0.62", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_Threading",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ash = "0.38"

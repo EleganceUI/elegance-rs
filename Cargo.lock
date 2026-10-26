@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-elegance"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde_json",
 ]
@@ -197,7 +197,7 @@ dependencies = [
 
 [[package]]
 name = "elegance"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "elegance-macros",
  "elegance-sys",
@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "elegance-macros"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "elegance-sys"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cc",
  "sha2",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "elegance-wgpu"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ash",
  "elegance",

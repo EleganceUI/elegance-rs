@@ -122,18 +122,24 @@ pub struct ElgStr {
 
 impl ElgStr {
     pub fn new(s: &str) -> Self {
-        Self { ptr: s.as_ptr().cast(), len: s.len() }
+        Self {
+            ptr: s.as_ptr().cast(),
+            len: s.len(),
+        }
     }
-    pub const EMPTY: Self = Self { ptr: std::ptr::null(), len: 0 };
+    pub const EMPTY: Self = Self {
+        ptr: std::ptr::null(),
+        len: 0,
+    };
     /// # Safety
     /// The pointer must be valid UTF-8 for `len` bytes, for `'a`.
-    pub unsafe fn as_str<'a>(&self) -> &'a str {
+    pub unsafe fn as_str<'a>(&self) -> &'a str { unsafe {
         if self.ptr.is_null() {
             ""
         } else {
             std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr.cast(), self.len))
         }
-    }
+    }}
 }
 
 #[repr(C)]
@@ -145,17 +151,28 @@ pub struct ElgBytes {
 
 impl ElgBytes {
     pub fn new(b: &[u8]) -> Self {
-        Self { ptr: b.as_ptr(), len: b.len() }
+        Self {
+            ptr: b.as_ptr(),
+            len: b.len(),
+        }
     }
-    pub const EMPTY: Self = Self { ptr: std::ptr::null(), len: 0 };
+    pub const EMPTY: Self = Self {
+        ptr: std::ptr::null(),
+        len: 0,
+    };
     /// # Safety
     /// The pointer must be valid for `len` bytes, for `'a`.
-    pub unsafe fn as_slice<'a>(&self) -> &'a [u8] {
-        if self.ptr.is_null() { &[] } else { std::slice::from_raw_parts(self.ptr, self.len) }
-    }
+    pub unsafe fn as_slice<'a>(&self) -> &'a [u8] { unsafe {
+        if self.ptr.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(self.ptr, self.len)
+        }
+    }}
 }
 
-pub type ElgCallFn = unsafe extern "C" fn(data: *mut c_void, args: *mut c_void, ret: *mut c_void) -> bool;
+pub type ElgCallFn =
+    unsafe extern "C" fn(data: *mut c_void, args: *mut c_void, ret: *mut c_void) -> bool;
 pub type ElgDropFn = unsafe extern "C" fn(data: *mut c_void);
 pub type ElgStrSink = unsafe extern "C" fn(ctx: *mut c_void, ptr: *const c_char, len: usize);
 
@@ -167,7 +184,11 @@ pub struct ElgClosure {
 }
 
 impl ElgClosure {
-    pub const NONE: Self = Self { data: std::ptr::null_mut(), call: None, drop: None };
+    pub const NONE: Self = Self {
+        data: std::ptr::null_mut(),
+        call: None,
+        drop: None,
+    };
 }
 
 #[repr(C)]
@@ -684,7 +705,7 @@ pub struct ElgGridDesc {
 /// `elg::Theme`: light then dark tokens, 12 colors each.
 pub type ElgTheme = [ElgColor; 24];
 
-extern "C" {
+unsafe extern "C" {
     // --- core.cpp ---
     pub fn elg_take_error(sink: ElgStrSink, ctx: *mut c_void) -> i32;
     pub fn elg_error_pending() -> bool;
@@ -790,21 +811,44 @@ extern "C" {
     pub fn elg_transition_offset(x: f32, y: f32) -> *mut Transition;
     pub fn elg_transition_move(edge: u32) -> *mut Transition;
     pub fn elg_transition_slide() -> *mut Transition;
-    pub fn elg_transition_asymmetric(insertion: *const Transition, removal: *const Transition) -> *mut Transition;
+    pub fn elg_transition_asymmetric(
+        insertion: *const Transition,
+        removal: *const Transition,
+    ) -> *mut Transition;
     pub fn elg_transition_combined(a: *const Transition, b: *const Transition) -> *mut Transition;
-    pub fn elg_transition_pose(transition: *const Transition, progress: f32, removal: bool, size: ElgSize) -> ElgPose;
+    pub fn elg_transition_pose(
+        transition: *const Transition,
+        progress: f32,
+        removal: bool,
+        size: ElgSize,
+    ) -> ElgPose;
     pub fn elg_transition_clone(transition: *const Transition) -> *mut Transition;
     pub fn elg_transition_free(transition: *mut Transition);
 
     pub fn elg_layouts_core(sink: ElgStrSink, ctx: *mut c_void);
 
     // --- views.cpp ---
-    pub fn elg_vstack(alignment: i32, spacing: ElgOptLen, children: *mut *mut View, count: usize) -> *mut View;
-    pub fn elg_hstack(alignment: i32, spacing: ElgOptLen, children: *mut *mut View, count: usize) -> *mut View;
-    pub fn elg_zstack(alignment: ElgAlignment, children: *mut *mut View, count: usize) -> *mut View;
+    pub fn elg_vstack(
+        alignment: i32,
+        spacing: ElgOptLen,
+        children: *mut *mut View,
+        count: usize,
+    ) -> *mut View;
+    pub fn elg_hstack(
+        alignment: i32,
+        spacing: ElgOptLen,
+        children: *mut *mut View,
+        count: usize,
+    ) -> *mut View;
+    pub fn elg_zstack(alignment: ElgAlignment, children: *mut *mut View, count: usize)
+    -> *mut View;
     pub fn elg_spacer(min_length: ElgOptLen) -> *mut View;
     pub fn elg_empty_view() -> *mut View;
-    pub fn elg_aligned_position(container: ElgRect, content: ElgSize, alignment: ElgAlignment) -> ElgPoint;
+    pub fn elg_aligned_position(
+        container: ElgRect,
+        content: ElgSize,
+        alignment: ElgAlignment,
+    ) -> ElgPoint;
     pub fn elg_stack_layout_size(
         kind: i32,
         alignment: ElgAlignment,
@@ -845,8 +889,20 @@ extern "C" {
         step: f32,
         on_editing_changed: ElgClosure,
     ) -> *mut View;
-    pub fn elg_stepper(take_label: *mut View, take_value: *mut BindingI32, min: i32, max: i32, step: i32) -> *mut View;
-    pub fn elg_stepper_title(title: ElgStr, take_value: *mut BindingI32, min: i32, max: i32, step: i32) -> *mut View;
+    pub fn elg_stepper(
+        take_label: *mut View,
+        take_value: *mut BindingI32,
+        min: i32,
+        max: i32,
+        step: i32,
+    ) -> *mut View;
+    pub fn elg_stepper_title(
+        title: ElgStr,
+        take_value: *mut BindingI32,
+        min: i32,
+        max: i32,
+        step: i32,
+    ) -> *mut View;
     pub fn elg_progress(fraction: ElgProp) -> *mut View;
     pub fn elg_progress_indeterminate() -> *mut View;
     pub fn elg_picker(
@@ -861,7 +917,11 @@ extern "C" {
 
     pub fn elg_if(condition: ElgProp, take_then: *mut View, take_else: *mut View) -> *mut View;
     pub fn elg_for_each(items: ElgClosure) -> *mut View;
-    pub fn elg_for_each_items_push(target: *mut ForEachItems, items: *const ElgForEachItem, count: usize);
+    pub fn elg_for_each_items_push(
+        target: *mut ForEachItems,
+        items: *const ElgForEachItem,
+        count: usize,
+    );
 
     pub fn elg_scroll_position_new() -> *mut ScrollPosition;
     pub fn elg_scroll_position_clone(position: *const ScrollPosition) -> *mut ScrollPosition;
@@ -877,7 +937,12 @@ extern "C" {
         position: *const ScrollPosition,
         sticks_to_end: bool,
     ) -> *mut View;
-    pub fn elg_lazy_stack(vertical: bool, alignment: i32, spacing: ElgOptLen, take_for_each: *mut View) -> *mut View;
+    pub fn elg_lazy_stack(
+        vertical: bool,
+        alignment: i32,
+        spacing: ElgOptLen,
+        take_for_each: *mut View,
+    ) -> *mut View;
     pub fn elg_list(take_for_each: *mut View, position: *const ScrollPosition) -> *mut View;
 
     pub fn elg_divider() -> *mut View;
@@ -891,7 +956,12 @@ extern "C" {
     ) -> *mut View;
     pub fn elg_submenu(title: ElgStr, menu: ElgClosure) -> *mut View;
     pub fn elg_menu(items: *mut *mut View, count: usize) -> *mut View;
-    pub fn elg_menu_button(take_label: *mut View, menu: ElgClosure, opens: i32, shows_indicator: bool) -> *mut View;
+    pub fn elg_menu_button(
+        take_label: *mut View,
+        menu: ElgClosure,
+        opens: i32,
+        shows_indicator: bool,
+    ) -> *mut View;
 
     pub fn elg_split_view(axis: i32, panes: *mut *mut View, count: usize) -> *mut View;
     pub fn elg_navigation_split_view(
@@ -927,14 +997,31 @@ extern "C" {
     pub fn elg_shape_free(shape: *mut Shape);
     pub fn elg_shape_to_view(shape: *const Shape) -> *mut View;
     pub fn elg_rectangle() -> *mut Shape;
-    pub fn elg_rounded_rectangle(top_left: f32, top_right: f32, bottom_right: f32, bottom_left: f32) -> *mut Shape;
+    pub fn elg_rounded_rectangle(
+        top_left: f32,
+        top_right: f32,
+        bottom_right: f32,
+        bottom_left: f32,
+    ) -> *mut Shape;
     pub fn elg_capsule() -> *mut Shape;
     pub fn elg_circle() -> *mut Shape;
-    pub fn elg_path_shape(path: *const Path, view_box: *const ElgRect, fill_rule: i32) -> *mut Shape;
+    pub fn elg_path_shape(
+        path: *const Path,
+        view_box: *const ElgRect,
+        fill_rule: i32,
+    ) -> *mut Shape;
     pub fn elg_custom_shape(path: ElgClosure, fill_rule: i32) -> *mut Shape;
     pub fn elg_shape_fill(shape: *const Shape, style: ElgProp) -> *mut Shape;
-    pub fn elg_shape_stroke(shape: *const Shape, color: ElgProp, style: *const ElgStrokeStyle) -> *mut Shape;
-    pub fn elg_shape_stroke_border(shape: *const Shape, color: ElgProp, line_width: f32) -> *mut Shape;
+    pub fn elg_shape_stroke(
+        shape: *const Shape,
+        color: ElgProp,
+        style: *const ElgStrokeStyle,
+    ) -> *mut Shape;
+    pub fn elg_shape_stroke_border(
+        shape: *const Shape,
+        color: ElgProp,
+        line_width: f32,
+    ) -> *mut Shape;
 
     pub fn elg_path_new() -> *mut Path;
     pub fn elg_path_clone(path: *const Path) -> *mut Path;
@@ -944,7 +1031,12 @@ extern "C" {
     pub fn elg_path_move_to(path: *mut Path, p: ElgPoint);
     pub fn elg_path_line_to(path: *mut Path, p: ElgPoint);
     pub fn elg_path_quad_to(path: *mut Path, control: ElgPoint, end: ElgPoint);
-    pub fn elg_path_cubic_to(path: *mut Path, control1: ElgPoint, control2: ElgPoint, end: ElgPoint);
+    pub fn elg_path_cubic_to(
+        path: *mut Path,
+        control1: ElgPoint,
+        control2: ElgPoint,
+        end: ElgPoint,
+    );
     pub fn elg_path_arc_to(
         path: *mut Path,
         rx: f32,
@@ -964,17 +1056,33 @@ extern "C" {
     pub fn elg_path_empty(path: *const Path) -> bool;
     pub fn elg_path_bounds(path: *const Path) -> ElgRect;
     pub fn elg_path_contains(path: *const Path, p: ElgPoint, rule: i32) -> bool;
-    pub fn elg_path_transformed(path: *const Path, sx: f32, sy: f32, dx: f32, dy: f32) -> *mut Path;
+    pub fn elg_path_transformed(path: *const Path, sx: f32, sy: f32, dx: f32, dy: f32)
+    -> *mut Path;
     pub fn elg_path_flatten(path: *const Path, tolerance: f32, polyline: ElgClosure);
-    pub fn elg_path_stroked(path: *const Path, style: *const ElgStrokeStyle, tolerance: f32) -> *mut Path;
+    pub fn elg_path_stroked(
+        path: *const Path,
+        style: *const ElgStrokeStyle,
+        tolerance: f32,
+    ) -> *mut Path;
 
     pub fn elg_canvas(draw: ElgClosure) -> *mut View;
     pub fn elg_gc_size(gc: *const GraphicsContext) -> ElgSize;
     pub fn elg_gc_scale(gc: *const GraphicsContext) -> f32;
     pub fn elg_gc_time(gc: *const GraphicsContext) -> f64;
     pub fn elg_gc_request_frame(gc: *mut GraphicsContext);
-    pub fn elg_gc_fill_rect(gc: *mut GraphicsContext, rect: ElgRect, color: ElgColor, radii: *const f32);
-    pub fn elg_gc_stroke_rect(gc: *mut GraphicsContext, rect: ElgRect, color: ElgColor, width: f32, radii: *const f32);
+    pub fn elg_gc_fill_rect(
+        gc: *mut GraphicsContext,
+        rect: ElgRect,
+        color: ElgColor,
+        radii: *const f32,
+    );
+    pub fn elg_gc_stroke_rect(
+        gc: *mut GraphicsContext,
+        rect: ElgRect,
+        color: ElgColor,
+        width: f32,
+        radii: *const f32,
+    );
     pub fn elg_gc_draw_rect(
         gc: *mut GraphicsContext,
         rect: ElgRect,
@@ -983,7 +1091,12 @@ extern "C" {
         border: ElgColor,
         border_width: f32,
     );
-    pub fn elg_gc_fill_path(gc: *mut GraphicsContext, path: *const Path, style: *const ElgShapeStyle, rule: i32);
+    pub fn elg_gc_fill_path(
+        gc: *mut GraphicsContext,
+        path: *const Path,
+        style: *const ElgShapeStyle,
+        rule: i32,
+    );
     pub fn elg_gc_stroke_path(
         gc: *mut GraphicsContext,
         path: *const Path,
@@ -1016,19 +1129,42 @@ extern "C" {
     pub fn elg_font_assign(target: *mut Font, value: *const ElgFont);
     pub fn elg_shape_style_assign(target: *mut ShapeStyle, value: *const ElgShapeStyle);
 
-    pub fn elg_mod_padding(v: *const View, top: f32, leading: f32, bottom: f32, trailing: f32) -> *mut View;
+    pub fn elg_mod_padding(
+        v: *const View,
+        top: f32,
+        leading: f32,
+        bottom: f32,
+        trailing: f32,
+    ) -> *mut View;
     pub fn elg_mod_frame(v: *const View, options: *const ElgFrameOptions) -> *mut View;
     pub fn elg_mod_frame_size(v: *const View, size: ElgProp, alignment: ElgAlignment) -> *mut View;
     pub fn elg_mod_fixed_size(v: *const View, horizontal: bool, vertical: bool) -> *mut View;
-    pub fn elg_mod_aspect_ratio(v: *const View, has_ratio: bool, ratio: f32, mode: i32) -> *mut View;
+    pub fn elg_mod_aspect_ratio(
+        v: *const View,
+        has_ratio: bool,
+        ratio: f32,
+        mode: i32,
+    ) -> *mut View;
     pub fn elg_mod_resizable(v: *const View) -> *mut View;
     pub fn elg_mod_layout_priority(v: *const View, priority: f32) -> *mut View;
     pub fn elg_mod_z_index(v: *const View, z: ElgProp) -> *mut View;
     pub fn elg_mod_offset(v: *const View, x: ElgProp, y: ElgProp) -> *mut View;
-    pub fn elg_mod_background_view(v: *const View, take_background: *mut View, alignment: ElgAlignment) -> *mut View;
+    pub fn elg_mod_background_view(
+        v: *const View,
+        take_background: *mut View,
+        alignment: ElgAlignment,
+    ) -> *mut View;
     pub fn elg_mod_background(v: *const View, style: ElgProp) -> *mut View;
-    pub fn elg_mod_background_shape(v: *const View, style: ElgProp, shape: *const Shape) -> *mut View;
-    pub fn elg_mod_overlay(v: *const View, take_overlay: *mut View, alignment: ElgAlignment) -> *mut View;
+    pub fn elg_mod_background_shape(
+        v: *const View,
+        style: ElgProp,
+        shape: *const Shape,
+    ) -> *mut View;
+    pub fn elg_mod_overlay(
+        v: *const View,
+        take_overlay: *mut View,
+        alignment: ElgAlignment,
+    ) -> *mut View;
     pub fn elg_mod_border(v: *const View, color: ElgColor, width: f32) -> *mut View;
     pub fn elg_mod_clipped(v: *const View) -> *mut View;
     pub fn elg_mod_clip_shape(v: *const View, shape: *const Shape) -> *mut View;
@@ -1037,12 +1173,24 @@ extern "C" {
     pub fn elg_mod_shadow(v: *const View, shadow: ElgShadow) -> *mut View;
     pub fn elg_mod_inner_shadow(v: *const View, shadow: ElgShadow) -> *mut View;
     pub fn elg_mod_blur(v: *const View, radius: ElgProp, opaque: bool) -> *mut View;
-    pub fn elg_mod_color_filter(v: *const View, kind: i32, amount: ElgProp, color: ElgProp) -> *mut View;
+    pub fn elg_mod_color_filter(
+        v: *const View,
+        kind: i32,
+        amount: ElgProp,
+        color: ElgProp,
+    ) -> *mut View;
     pub fn elg_mod_blend_mode(v: *const View, mode: i32) -> *mut View;
     pub fn elg_mod_compositing_group(v: *const View) -> *mut View;
-    pub fn elg_mod_rotation_effect(v: *const View, degrees: ElgProp, anchor: ElgPoint) -> *mut View;
-    pub fn elg_mod_scale_effect(v: *const View, x: ElgProp, y: *const ElgProp, anchor: ElgPoint) -> *mut View;
-    pub fn elg_mod_mask(v: *const View, take_mask: *mut View, alignment: ElgAlignment) -> *mut View;
+    pub fn elg_mod_rotation_effect(v: *const View, degrees: ElgProp, anchor: ElgPoint)
+    -> *mut View;
+    pub fn elg_mod_scale_effect(
+        v: *const View,
+        x: ElgProp,
+        y: *const ElgProp,
+        anchor: ElgPoint,
+    ) -> *mut View;
+    pub fn elg_mod_mask(v: *const View, take_mask: *mut View, alignment: ElgAlignment)
+    -> *mut View;
     pub fn elg_mod_mask_style(v: *const View, style: ElgProp) -> *mut View;
     pub fn elg_mod_content_shape(v: *const View, shape: *const Shape) -> *mut View;
     pub fn elg_mod_allows_hit_testing(v: *const View, enabled: bool) -> *mut View;
@@ -1051,10 +1199,19 @@ extern "C" {
     pub fn elg_mod_on_rotate(v: *const View, on_rotate: ElgClosure) -> *mut View;
     pub fn elg_mod_on_smart_magnify(v: *const View, on_smart_magnify: ElgClosure) -> *mut View;
     pub fn elg_mod_pointer_style(v: *const View, style: ElgProp) -> *mut View;
-    pub fn elg_mod_on_hover(v: *const View, on_hover: ElgClosure, delay: *const ElgHoverDelay) -> *mut View;
+    pub fn elg_mod_on_hover(
+        v: *const View,
+        on_hover: ElgClosure,
+        delay: *const ElgHoverDelay,
+    ) -> *mut View;
     /// `on_size_change` receives `*const ElgPixelSize` as its args; ownership transfers to the view.
     pub fn elg_mod_on_size_change(v: *const View, on_size_change: ElgClosure) -> *mut View;
-    pub fn elg_mod_on_drop(v: *const View, files: ElgClosure, text: ElgClosure, targeted: ElgClosure) -> *mut View;
+    pub fn elg_mod_on_drop(
+        v: *const View,
+        files: ElgClosure,
+        text: ElgClosure,
+        targeted: ElgClosure,
+    ) -> *mut View;
     pub fn elg_mod_accessibility_label(v: *const View, label: ElgProp) -> *mut View;
     pub fn elg_mod_accessibility_value(v: *const View, value: ElgProp) -> *mut View;
     pub fn elg_mod_accessibility_hint(v: *const View, hint: ElgProp) -> *mut View;
@@ -1087,7 +1244,11 @@ extern "C" {
     pub fn elg_mod_button_style(v: *const View, style: *const ButtonStyle) -> *mut View;
     pub fn elg_mod_toggle_style(v: *const View, style: *const ToggleStyle) -> *mut View;
     pub fn elg_mod_text_field_style(v: *const View, style: *const TextFieldStyle) -> *mut View;
-    pub fn elg_mod_animation(v: *const View, animation: *const Animation, version: ElgClosure) -> *mut View;
+    pub fn elg_mod_animation(
+        v: *const View,
+        animation: *const Animation,
+        version: ElgClosure,
+    ) -> *mut View;
     pub fn elg_mod_transition(v: *const View, transition: *const Transition) -> *mut View;
     pub fn elg_mod_animates_layout(v: *const View, enabled: bool) -> *mut View;
 
@@ -1104,18 +1265,29 @@ extern "C" {
     pub fn elg_button_config_clone(c: *const ButtonConfiguration) -> *mut ButtonConfiguration;
     pub fn elg_button_config_label(c: *const ButtonConfiguration) -> *mut View;
     pub fn elg_button_config_state(c: *const ButtonConfiguration, which: i32) -> bool;
-    pub fn elg_button_style_make_body(style: *const ButtonStyle, c: *const ButtonConfiguration) -> *mut View;
+    pub fn elg_button_style_make_body(
+        style: *const ButtonStyle,
+        c: *const ButtonConfiguration,
+    ) -> *mut View;
     pub fn elg_toggle_config_free(c: *mut ToggleConfiguration);
     pub fn elg_toggle_config_clone(c: *const ToggleConfiguration) -> *mut ToggleConfiguration;
     pub fn elg_toggle_config_label(c: *const ToggleConfiguration) -> *mut View;
     pub fn elg_toggle_config_state(c: *const ToggleConfiguration, which: i32) -> bool;
     pub fn elg_toggle_config_toggle(c: *const ToggleConfiguration);
-    pub fn elg_toggle_style_make_body(style: *const ToggleStyle, c: *const ToggleConfiguration) -> *mut View;
+    pub fn elg_toggle_style_make_body(
+        style: *const ToggleStyle,
+        c: *const ToggleConfiguration,
+    ) -> *mut View;
     pub fn elg_text_field_config_free(c: *mut TextFieldConfiguration);
-    pub fn elg_text_field_config_clone(c: *const TextFieldConfiguration) -> *mut TextFieldConfiguration;
+    pub fn elg_text_field_config_clone(
+        c: *const TextFieldConfiguration,
+    ) -> *mut TextFieldConfiguration;
     pub fn elg_text_field_config_field(c: *const TextFieldConfiguration) -> *mut View;
     pub fn elg_text_field_config_state(c: *const TextFieldConfiguration, which: i32) -> bool;
-    pub fn elg_text_field_style_make_body(style: *const TextFieldStyle, c: *const TextFieldConfiguration) -> *mut View;
+    pub fn elg_text_field_style_make_body(
+        style: *const TextFieldStyle,
+        c: *const TextFieldConfiguration,
+    ) -> *mut View;
 
     /// The `elg::ModuleEntry` of a Rust views module (one per loaded module; built once).
     pub fn elg_rust_module_entry(
@@ -1166,13 +1338,24 @@ extern "C" {
     pub fn elg_button_style_rust(make_body: ElgClosure) -> *mut ButtonStyle;
     pub fn elg_toggle_style_rust(make_body: ElgClosure) -> *mut ToggleStyle;
     pub fn elg_text_field_style_rust(make_body: ElgClosure) -> *mut TextFieldStyle;
-    pub fn elg_rust_layout_view(layout: ElgClosure, children: *mut *mut View, count: usize) -> *mut View;
+    pub fn elg_rust_layout_view(
+        layout: ElgClosure,
+        children: *mut *mut View,
+        count: usize,
+    ) -> *mut View;
     pub fn elg_layout_cache_get(cache: *const LayoutCache) -> *mut c_void;
     pub fn elg_layout_cache_set(cache: *mut LayoutCache, owner: ElgClosure);
     pub fn elg_layout_cache_stale(cache: *const LayoutCache) -> bool;
     pub fn elg_layout_cache_set_stale(cache: *mut LayoutCache, stale: bool);
-    pub fn elg_layout_child_size_that_fits(child: *const LayoutChild, proposal: ElgProposedSize) -> ElgSize;
-    pub fn elg_layout_child_place(child: *const LayoutChild, position: ElgPoint, proposal: ElgProposedSize);
+    pub fn elg_layout_child_size_that_fits(
+        child: *const LayoutChild,
+        proposal: ElgProposedSize,
+    ) -> ElgSize;
+    pub fn elg_layout_child_place(
+        child: *const LayoutChild,
+        position: ElgPoint,
+        proposal: ElgProposedSize,
+    );
     pub fn elg_layout_child_priority(child: *const LayoutChild) -> f32;
     pub fn elg_layout_child_is_spacer(child: *const LayoutChild) -> bool;
     pub fn elg_mod_rust_layout_value(v: *const View, owner: ElgClosure) -> *mut View;
@@ -1198,7 +1381,12 @@ extern "C" {
     pub fn elg_effects_set_content_shape(e: *mut Effects, shape: *const Shape);
     pub fn elg_effects_set_inner_shadow(e: *mut Effects, shadow: *const ElgShadow);
     pub fn elg_effects_set_blur(e: *mut Effects, radius: *const ElgProp, opaque: bool);
-    pub fn elg_effects_set_color_filter(e: *mut Effects, kind: i32, amount: ElgProp, color: ElgProp);
+    pub fn elg_effects_set_color_filter(
+        e: *mut Effects,
+        kind: i32,
+        amount: ElgProp,
+        color: ElgProp,
+    );
     pub fn elg_effects_blend_mode(e: *const Effects) -> i32;
     pub fn elg_effects_set_blend_mode(e: *mut Effects, mode: i32);
     pub fn elg_effects_compositing_group(e: *const Effects) -> bool;
@@ -1260,7 +1448,11 @@ extern "C" {
     pub fn elg_audio_recorder_is_recording(recorder: *const AudioRecorder) -> bool;
     pub fn elg_audio_recorder_duration(recorder: *const AudioRecorder) -> f64;
     pub fn elg_audio_recorder_level(recorder: *const AudioRecorder) -> f32;
-    pub fn elg_audio_recorder_error(recorder: *const AudioRecorder, sink: ElgStrSink, ctx: *mut c_void);
+    pub fn elg_audio_recorder_error(
+        recorder: *const AudioRecorder,
+        sink: ElgStrSink,
+        ctx: *mut c_void,
+    );
     pub fn elg_audio_recorder_sample_rate(recorder: *const AudioRecorder) -> u32;
     pub fn elg_audio_recorder_channels(recorder: *const AudioRecorder) -> u32;
     pub fn elg_audio_recorder_samples(recorder: *const AudioRecorder, each: ElgClosure);
@@ -1268,7 +1460,12 @@ extern "C" {
     pub fn elg_audio_recorder_wav(recorder: *const AudioRecorder, each: ElgClosure);
     pub fn elg_audio_recorder_sound(recorder: *const AudioRecorder) -> *mut Sound;
     pub fn elg_camera_devices(each: ElgClosure);
-    pub fn elg_camera_new(device_id: ElgStr, width: u32, height: u32, mirrored: bool) -> *mut Camera;
+    pub fn elg_camera_new(
+        device_id: ElgStr,
+        width: u32,
+        height: u32,
+        mirrored: bool,
+    ) -> *mut Camera;
     pub fn elg_camera_clone(camera: *const Camera) -> *mut Camera;
     pub fn elg_camera_free(camera: *mut Camera);
     pub fn elg_camera_start(camera: *const Camera, start: bool);
@@ -1362,7 +1559,11 @@ extern "C" {
     pub fn elg_tray_icon_clone(icon: *const TrayIcon) -> *mut TrayIcon;
     pub fn elg_tray_icon_free(icon: *mut TrayIcon);
     pub fn elg_tray_icon_set_tooltip(icon: *const TrayIcon, tooltip: ElgStr);
-    pub fn elg_tray_icon_set_menu(icon: *const TrayIcon, menu: *const ElgTrayMenuItem, count: usize);
+    pub fn elg_tray_icon_set_menu(
+        icon: *const TrayIcon,
+        menu: *const ElgTrayMenuItem,
+        count: usize,
+    );
 
     pub fn elg_layouts_platform(sink: ElgStrSink, ctx: *mut c_void);
 }
@@ -1390,7 +1591,12 @@ mod tests {
     #[test]
     fn struct_layouts_match_the_shim() {
         let mut text = String::new();
-        for layouts in [elg_layouts_core, elg_layouts_views, elg_layouts_ext, elg_layouts_platform] {
+        for layouts in [
+            elg_layouts_core,
+            elg_layouts_views,
+            elg_layouts_ext,
+            elg_layouts_platform,
+        ] {
             unsafe { layouts(append, (&raw mut text).cast()) };
         }
         let native: BTreeMap<&str, (usize, usize)> = text

@@ -76,26 +76,24 @@ pub(crate) fn take() -> Option<Error> {
 /// After a shim call: panics with the error, as the C++ API would throw.
 #[track_caller]
 pub(crate) fn check() {
-    if unsafe { sys::elg_error_pending() } {
-        if let Some(error) = take() {
+    if unsafe { sys::elg_error_pending() }
+        && let Some(error) = take() {
             panic!("elegance: {error}");
         }
-    }
 }
 
 /// After a shim call whose failure is part of the API (loading files, ...).
 pub(crate) fn result() -> Result<(), Error> {
-    if unsafe { sys::elg_error_pending() } {
-        if let Some(error) = take() {
+    if unsafe { sys::elg_error_pending() }
+        && let Some(error) = take() {
             return Err(error);
         }
-    }
     Ok(())
 }
 
 /// Calls the shim and checks for an error.
 macro_rules! ffi {
-    ($call:expr) => {{
+    ($call:expr_2021) => {{
         #[allow(unused_unsafe)]
         let result = unsafe { $call };
         $crate::error::check();

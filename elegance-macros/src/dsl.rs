@@ -292,7 +292,7 @@ impl Parser {
             unreachable!()
         };
         let mut inner = Parser::new(group.stream(), group.span_close());
-        let block = if let Some(pattern) = inner.content_pattern() {
+        let block = match inner.content_pattern() { Some(pattern) => {
             let nodes = inner.nodes();
             let body = inner.single(
                 nodes,
@@ -303,9 +303,9 @@ impl Parser {
                 pattern,
                 body: Box::new(body),
             }
-        } else {
+        } _ => {
             Block::Views(inner.nodes())
-        };
+        }};
         self.adopt_errors(&mut inner);
         Ok(block)
     }

@@ -117,14 +117,11 @@ fn helpers(sig: &Signature, vis: &Visibility, attrs: &[syn::Attribute]) -> Vec<T
         .to_string()
         .trim_start_matches("r#")
         .strip_suffix("_with")
-    {
-        if let Some(FnArg::Typed(arg)) = sig.inputs.last() {
-            if let Some(options) = options_target(&arg.ty, &generics) {
+        && let Some(FnArg::Typed(arg)) = sig.inputs.last()
+            && let Some(options) = options_target(&arg.ty, &generics) {
                 let name = format_ident!("__elg_options_{base}");
                 helpers.push(witness_helper(&name, &options, vis, attrs));
             }
-        }
-    }
     helpers
 }
 
@@ -249,13 +246,12 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
             };
             let mut additions = Vec::new();
             for item in &imp.items {
-                if let syn::ImplItem::Fn(method) = item {
-                    if matches!(method.vis, Visibility::Public(_)) {
+                if let syn::ImplItem::Fn(method) = item
+                    && matches!(method.vis, Visibility::Public(_)) {
                         for tokens in helpers(&method.sig, &method.vis, &method.attrs) {
                             additions.push(syn::parse2::<syn::ImplItem>(tokens)?);
                         }
                     }
-                }
             }
             imp.items.extend(additions);
             Ok(quote!(#imp #registration))

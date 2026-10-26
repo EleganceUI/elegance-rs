@@ -171,14 +171,13 @@ fn fetch(dir: &Path, url: &str, hash: &str) -> Result<PathBuf, String> {
 // curl and tar come with Windows 10 and later, macOS, and practically every Linux. On Windows, use
 // the system's own: Git for Windows puts GNU tar on PATH, which takes `C:\...` for a remote host.
 fn system_tool(name: &str) -> PathBuf {
-    if cfg!(windows) {
-        if let Some(root) = env::var_os("SystemRoot") {
+    if cfg!(windows)
+        && let Some(root) = env::var_os("SystemRoot") {
             let exe = Path::new(&root).join("System32").join(format!("{name}.exe"));
             if exe.is_file() {
                 return exe;
             }
         }
-    }
     PathBuf::from(name)
 }
 

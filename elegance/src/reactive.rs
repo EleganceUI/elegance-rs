@@ -283,11 +283,10 @@ impl<T: 'static> State<T> {
     pub fn set(&self, value: T) {
         let (cell, node) = self.cell();
         ffi!(sys::elg_check_ui_thread());
-        if let Some(eq) = cell.eq {
-            if eq(&cell.value.borrow(), &value) {
+        if let Some(eq) = cell.eq
+            && eq(&cell.value.borrow(), &value) {
                 return;
             }
-        }
         let old = cell.value.replace(value);
         drop(old);
         ffi!(sys::elg_node_notify(node));
