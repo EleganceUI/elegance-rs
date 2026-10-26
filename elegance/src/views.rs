@@ -17,7 +17,7 @@ use crate::ffi as cffi;
 use crate::geometry::{Alignment, HorizontalAlignment, Len, Number, VerticalAlignment};
 use crate::image::ImageSource;
 use crate::prop::{with_prop, IntoProp, Prop};
-use crate::reactive::{untrack, Binding, Computed, State};
+use crate::reactive::{untrack, Binding, Computed, IntoBinding, State};
 use crate::text::{Text, TextSpan};
 use crate::view::{raw_views, IntoView, View};
 
@@ -331,16 +331,16 @@ pub struct TextFieldBuilder<const SECURE: bool> {
     on_key: Option<Box<dyn Fn(&KeyEvent) -> bool>>,
 }
 
-/// `TextField("Name", $name, on_submit: save)`
+/// `TextField("Name", name, on_submit: save)`
 pub type TextField = TextFieldBuilder<false>;
 /// A TextField for passwords.
 pub type SecureField = TextFieldBuilder<true>;
 
 impl<const SECURE: bool> TextFieldBuilder<SECURE> {
-    pub fn new(placeholder: impl Into<String>, text: impl Into<Binding<String>>) -> Self {
+    pub fn new(placeholder: impl Into<String>, text: impl IntoBinding<String>) -> Self {
         Self {
             placeholder: placeholder.into(),
-            text: text.into(),
+            text: text.into_binding(),
             on_submit: None,
             max_lines: 1,
             styler: None,
@@ -370,7 +370,7 @@ impl<const SECURE: bool> TextFieldBuilder<SECURE> {
     }
 }
 
-impl<const SECURE: bool, P: Into<String>, B: Into<Binding<String>>> ElgNew<(P, B)>
+impl<const SECURE: bool, P: Into<String>, B: IntoBinding<String>> ElgNew<(P, B)>
     for TextFieldBuilder<SECURE>
 {
     type Out = Self;
@@ -434,9 +434,9 @@ pub struct Slider {
 
 #[elegance_macros::elg_builder]
 impl Slider {
-    pub fn new(value: impl Into<Binding<f32>>) -> Self {
+    pub fn new(value: impl IntoBinding<f32>) -> Self {
         Self {
-            value: value.into(),
+            value: value.into_binding(),
             min: 0.0,
             max: 1.0,
             step: 0.0,
@@ -463,7 +463,7 @@ impl Slider {
     }
 }
 
-impl<B: Into<Binding<f32>>> ElgNew<(B,)> for Slider {
+impl<B: IntoBinding<f32>> ElgNew<(B,)> for Slider {
     type Out = Slider;
     fn elg_new((value,): (B,)) -> Slider {
         Slider::new(value)
@@ -496,10 +496,10 @@ pub struct Stepper {
 }
 
 impl Stepper {
-    pub fn new(label: impl IntoLabel, value: impl Into<Binding<i32>>) -> Self {
+    pub fn new(label: impl IntoLabel, value: impl IntoBinding<i32>) -> Self {
         Self {
             label: label.into_label(),
-            value: value.into(),
+            value: value.into_binding(),
             min: i32::MIN,
             max: i32::MAX,
             step: 1,
@@ -519,7 +519,7 @@ impl Stepper {
     }
 }
 
-impl<L: IntoLabel, B: Into<Binding<i32>>> ElgNew<(L, B)> for Stepper {
+impl<L: IntoLabel, B: IntoBinding<i32>> ElgNew<(L, B)> for Stepper {
     type Out = Stepper;
     fn elg_new((label, value): (L, B)) -> Stepper {
         Stepper::new(label, value)
@@ -599,7 +599,7 @@ pub enum PickerStyle {
 
 /// One of several options; `selection` is the chosen option's value.
 ///
-/// `Picker($size, [(Size::S, "S"), (Size::M, "M"), (Size::L, "L")], style: .menu)`
+/// `Picker(size,[(Size::S, "S"), (Size::M, "M"), (Size::L, "L")], style: .menu)`
 pub struct Picker<T: 'static> {
     selection: Binding<T>,
     options: Vec<(T, String)>,
@@ -609,11 +609,11 @@ pub struct Picker<T: 'static> {
 #[elegance_macros::elg_builder]
 impl<T: PartialEq + Clone + 'static> Picker<T> {
     pub fn new<S: Into<String>>(
-        selection: impl Into<Binding<T>>,
+        selection: impl IntoBinding<T>,
         options: impl IntoIterator<Item = (T, S)>,
     ) -> Self {
         Self {
-            selection: selection.into(),
+            selection: selection.into_binding(),
             options: options
                 .into_iter()
                 .map(|(value, label)| (value, label.into()))
@@ -630,7 +630,7 @@ impl<T: PartialEq + Clone + 'static> Picker<T> {
 impl<T, B, I, S> ElgNew<(B, I)> for Picker<T>
 where
     T: PartialEq + Clone + 'static,
-    B: Into<Binding<T>>,
+    B: IntoBinding<T>,
     I: IntoIterator<Item = (T, S)>,
     S: Into<String>,
 {
@@ -683,15 +683,15 @@ pub struct Toggle {
 }
 
 impl Toggle {
-    pub fn new(label: impl IntoLabel, is_on: impl Into<Binding<bool>>) -> Self {
+    pub fn new(label: impl IntoLabel, is_on: impl IntoBinding<bool>) -> Self {
         Self {
             label: label.into_label(),
-            is_on: is_on.into(),
+            is_on: is_on.into_binding(),
         }
     }
 }
 
-impl<L: IntoLabel, B: Into<Binding<bool>>> ElgNew<(L, B)> for Toggle {
+impl<L: IntoLabel, B: IntoBinding<bool>> ElgNew<(L, B)> for Toggle {
     type Out = Toggle;
     fn elg_new((label, is_on): (L, B)) -> Toggle {
         Toggle::new(label, is_on)

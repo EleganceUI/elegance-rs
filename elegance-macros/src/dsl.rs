@@ -708,6 +708,9 @@ fn expand_call(
         quote!(#receiver_name)
     };
     let mut values = Vec::new();
+    // Declared after the call: rust-analyzer finds the cursor in a macro's expansion by text
+    // offset, so nothing before a `.name` may spell out what's typed.
+    let mut locals = TokenStream::new();
     for (index, arg) in args.iter().enumerate() {
         if has_shorthand(arg.clone()) {
             let helper = format_ident!(
@@ -718,6 +721,19 @@ fn expand_call(
             let target = format_ident!("__elg_dot_target_{index}", span = Span::mixed_site());
             let namespace = format_ident!("__elg_dots_{index}", span = Span::mixed_site());
             let fallback = format_ident!("__ElgDotFallback{index}");
+            // Where the parameter's type has no namespace, a local one holds just the names used
+            // here, as Dots that convert like any value. Either way `.name` is a field access.
+            let local = format_ident!("__ElgLocalDots{index}", span = Span::mixed_site());
+            // The declarations get the call site's span: the user's identifier must appear only
+            // in the field access, or rust-analyzer maps it to this declaration instead.
+            let names: Vec<_> = crate::rewrite::shorthand_names(arg)
+                .into_iter()
+                .map(|mut name| {
+                    name.set_span(Span::call_site());
+                    name
+                })
+                .collect();
+            let types = names.iter().map(|name| crate::dot::name_type(name, &quote!(::elegance::dot)));
             let arg = argument_in(arg.clone(), Some(&namespace));
             bindings.extend(quote! {
                 // An extra reference makes this a lower-priority fallback than
@@ -728,9 +744,15 @@ fn expand_call(
                     }
                 }
                 impl<T: ?Sized> #fallback for &T {}
-                use ::elegance::dot::ResolveDotValues as _;
+                #[allow(unused_imports)]
+                use ::elegance::dot::{LocalDotValues as _, TypedDotValues as _};
                 let #target = (&#receiver).#helper();
-                let #namespace = (&#target).resolve_dot_values();
+                let #namespace = (&#target).__elg_values(::core::marker::PhantomData::<#local>);
+            });
+            locals.extend(quote! {
+                #[allow(non_camel_case_types, dead_code)]
+                #[derive(Clone, Copy, Default)]
+                struct #local { #(#names: #types),* }
             });
             values.push(arg);
         } else {
@@ -739,9 +761,12 @@ fn expand_call(
     }
     // Keep argument expressions in the call: separate let bindings would change
     // temporary drop scopes and remove expected types from callback parameters.
+    let result = format_ident!("__elg_result", span = Span::mixed_site());
     quote!({
         #bindings
-        #receiver.#name #generics(#(#values),*)
+        let #result = #receiver.#name #generics(#(#values),*);
+        #locals
+        #result
     })
 }
 

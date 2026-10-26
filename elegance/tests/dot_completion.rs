@@ -159,6 +159,13 @@ mod custom_props {
     }
 }
 
+// A parameter of exactly an Elegance type (not `impl Into<..>`) takes names too.
+#[allow(dead_code)]
+fn plain_typed_builtin_parameters() {
+    let builder = CustomBuilder;
+    let _ = elg! { builder.concrete(.bold) };
+}
+
 // cargo check --tests checks these without invoking native UI constructors.
 #[allow(dead_code)]
 fn receiver_helpers() {
@@ -261,44 +268,29 @@ fn receiver_helpers() {
 }
 
 #[test]
-fn namespaces_preserve_marker_types_and_defaults() {
+fn namespaces_hold_values_and_markers() {
+    // A type with its own values holds them.
     let horizontal = HorizontalAlignment::dot_values();
-    let _: dot::leading = horizontal.leading;
-    let _: dot::trailing = horizontal.trailing;
-    let _: dot::center = horizontal.center;
-    let _: dot::r#move = PointerStyle::dot_values().r#move;
+    assert_eq!(horizontal.leading, HorizontalAlignment::Leading);
+    assert_eq!(horizontal.trailing, HorizontalAlignment::Trailing);
+    assert_eq!(horizontal.center, HorizontalAlignment::Center);
+    assert_eq!(PointerStyle::dot_values().r#move, PointerStyle::Move);
+    // A type that takes other types' values (`Prop<Color>` takes theme colors) holds the dots.
+    let _: dot::accent = <Prop<Color> as DotValues>::dot_values().accent;
     let all = dot::Values::default();
     let _: dot::accent = all.accent;
     let _: dot::infinity = all.infinity;
     let _: dot::bgra = all.bgra;
-    assert_eq!(
-        HorizontalAlignment::from(horizontal.leading),
-        HorizontalAlignment::Leading
-    );
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DotValues)]
 enum Density {
     Compact,
     Comfortable,
-}
-
-struct DensityValues {
-    compact: Density,
-    comfortable: Density,
-}
-
-impl Default for DensityValues {
-    fn default() -> Self {
-        Self {
-            compact: Density::Compact,
-            comfortable: Density::Comfortable,
-        }
-    }
-}
-
-impl DotValues for Density {
-    type Values = DensityValues;
+    ExtraRoomy,
+    Move,
+    #[allow(dead_code)]
+    Custom(u32),
 }
 
 use elegance::HorizontalAlignment as ImportedAlignment;
@@ -329,10 +321,87 @@ fn user_namespaces_imports_and_aliases_are_resolved_by_type() {
     assert_eq!(elg! { builder.value(.compact) }, Density::Compact);
 
     let typed = DotTarget::<Density>::new();
-    let namespace: DensityValues = (&typed).resolve_dot_values();
+    let namespace = (&typed).resolve_dot_values();
     assert_eq!(namespace.comfortable, Density::Comfortable);
+    assert_eq!(namespace.extra_roomy, Density::ExtraRoomy);
+    assert_eq!(namespace.r#move, Density::Move);
     let alias = DotTarget::<AlignmentAlias>::new();
-    let _: dot::leading = (&alias).resolve_dot_values().leading;
+    assert_eq!((&alias).resolve_dot_values().leading, HorizontalAlignment::Leading);
+}
+
+// A component written by hand, with no #[elg_builder]: names convert through `Into`/`IntoProp`.
+#[derive(Default)]
+struct HandWritten {
+    density: Option<Density>,
+    reactive: Option<Prop<Density>>,
+}
+
+impl elegance::dsl::ElgNew<()> for HandWritten {
+    type Out = Self;
+    fn elg_new(_: ()) -> Self {
+        Self::default()
+    }
+}
+
+impl HandWritten {
+    fn density(mut self, density: impl Into<Density>) -> Self {
+        self.density = Some(density.into());
+        self
+    }
+    fn reactive(mut self, density: impl IntoProp<Density>) -> Self {
+        self.reactive = Some(density.into_prop());
+        self
+    }
+}
+
+#[test]
+fn derived_names_work_without_registration() {
+    let hand = elg! { HandWritten(density: .extra_roomy, reactive: .compact) };
+    assert_eq!(hand.density, Some(Density::ExtraRoomy));
+    assert_eq!(hand.reactive.unwrap().static_value(), Some(&Density::Compact));
+
+    // Nested, where only the conversion knows the type.
+    let nested: Density = elg! { { Density::from(.comfortable) } };
+    assert_eq!(nested, Density::Comfortable);
+}
+
+#[component]
+fn DefaultedProps(
+    #[prop(default = .comfortable)] density: Density,
+    #[prop(default = .trailing)] alignment: HorizontalAlignment,
+) -> impl IntoView {
+    let _ = (density, alignment);
+    EmptyView()
+}
+
+#[test]
+fn prop_defaults_take_leading_dot_names() {
+    let props = DefaultedProps::new();
+    assert_eq!(props.density, Density::Comfortable);
+    assert_eq!(props.alignment, HorizontalAlignment::Trailing);
+    let props = elg! { DefaultedProps(density: .move) };
+    assert_eq!(props.density, Density::Move);
+}
+
+#[component]
+fn ReactiveProps(
+    #[prop(default = "Untitled")] label: Prop<String>,
+    #[prop(default = .compact)] density: Prop<Density>,
+) -> impl IntoView {
+    let _ = (label, density);
+    EmptyView()
+}
+
+#[test]
+fn prop_props_take_anything_into_prop_takes() {
+    let props = ReactiveProps::new();
+    assert_eq!(props.label.static_value().map(String::as_str), Some("Untitled"));
+    assert_eq!(props.density.static_value(), Some(&Density::Compact));
+    let props = elg! { ReactiveProps(label: "plain") };
+    assert_eq!(props.label.static_value().map(String::as_str), Some("plain"));
+    let props = elg! { ReactiveProps(label: || "from a closure".to_string(), density: .extra_roomy) };
+    assert!(props.label.is_reactive());
+    assert_eq!(props.density.static_value(), Some(&Density::ExtraRoomy));
 }
 
 #[derive(Default)]

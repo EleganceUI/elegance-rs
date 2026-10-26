@@ -21,7 +21,7 @@ use crate::geometry::{
     Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size, UnitPoint,
 };
 use crate::prop::{with_prop, IntoProp, Prop};
-use crate::reactive::Binding;
+use crate::reactive::IntoBinding;
 use crate::shapes::Shape;
 use crate::styles::{IntoButtonStyle, IntoTextFieldStyle, IntoToggleStyle};
 use crate::text::Text;
@@ -1167,22 +1167,25 @@ pub trait ViewExt: IntoView + Sized {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_help(v, cffi::s(&text)) })
     }
-    /// A panel of `content` beside the view, shown while `is_presented` is true.
+    /// A panel of `content` beside the view, shown while `is_presented` is true. With a `State`,
+    /// dismissing it sets the state back to false; with a closure or a `Computed`
+    /// (`move || todos.read().is_empty()`, `todos.map(Vec::is_empty)`) it's shown while the
+    /// condition holds, and dismissing it closes it until the condition next becomes true.
     fn popover<V: IntoView>(
         self,
-        is_presented: impl Into<Binding<bool>>,
+        is_presented: impl IntoBinding<bool>,
         content: impl Fn() -> V + 'static,
     ) -> View {
         self.popover_with(is_presented, content, |o| o)
     }
     fn popover_with<V: IntoView>(
         self,
-        is_presented: impl Into<Binding<bool>>,
+        is_presented: impl IntoBinding<bool>,
         content: impl Fn() -> V + 'static,
         options: impl FnOnce(PopoverOptions) -> PopoverOptions,
     ) -> View {
         let o = options(PopoverOptions::default());
-        let binding = is_presented.into().cpp();
+        let binding = is_presented.into_binding().cpp();
         let content = cffi::closure(move |_, ret| unsafe { content().into_view().write_into(ret) });
         self.into_view().modify(|v| unsafe {
             sys::elg_mod_popover(v, binding, content, o.opens as i32, o.padded)
@@ -1197,8 +1200,8 @@ pub trait ViewExt: IntoView + Sized {
             .modify(|v| unsafe { sys::elg_mod_focusable(v, focusable) })
     }
     /// Two-way focus: true while the view has focus; setting it true focuses the view.
-    fn focused(self, is_focused: impl Into<Binding<bool>>) -> View {
-        let binding = is_focused.into().cpp();
+    fn focused(self, is_focused: impl IntoBinding<bool>) -> View {
+        let binding = is_focused.into_binding().cpp();
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_focused(v, binding) })
     }

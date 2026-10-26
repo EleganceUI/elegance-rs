@@ -1,12 +1,27 @@
-//! Markers behind the DSL's leading-dot shorthand. Direct builder arguments use a
-//! target-specific namespace so rust-analyzer offers only compatible marker fields.
-//! The fields contain the same markers as the global fallback (`elegance::dot::leading`,
-//! etc.), converting into the parameter's type (`HorizontalAlignment::Leading`,
-//! `Alignment::LEADING`, `Edges::LEADING`, ...).
+//! The DSL's leading-dot shorthand. `.leading` in `elg!` is a [`Dot`] named `leading`: a value
+//! whose type spells the name (`Dot<(l, e, a, d, i, n, g)>`), and which converts into whatever
+//! type has a value by that name (`HorizontalAlignment::Leading`, `Alignment::LEADING`, ...).
+//! Because the name is in the type, any crate can add values: `#[derive(DotValues)]` on an enum
+//! makes `.variant_name` work wherever that enum is expected.
 //!
-//! Each marker is its own type, so the shorthand works where the parameter's type is known. In a
-//! closure that returns one of several values (`if on { .accent } else { .secondary }`) write the
-//! enum out: `ThemeColor::Accent`.
+//! ```ignore
+//! #[derive(Clone, Copy, PartialEq, DotValues)]
+//! enum Density { Compact, Comfortable }
+//!
+//! #[component]
+//! fn Row(density: Density) -> impl IntoView { ... }
+//!
+//! elg! { Row(density: .compact) }
+//! ```
+//!
+//! Where a builder method's parameter type is known (`#[component]` props, `#[elg_builder]`
+//! impls), the name is a field of that type's namespace ([`DotValues`]), which also gives
+//! rust-analyzer highlighting and completions. Elsewhere it converts through `Into`/`IntoProp`
+//! like any value.
+//! In a closure that returns one of several values (`if on { .accent } else { .secondary }`)
+//! write the type out: `ThemeColor::Accent`.
+//!
+//! The names Elegance's own types answer to are aliases here (`elegance::dot::leading`).
 
 #![allow(non_camel_case_types)]
 
@@ -30,16 +45,109 @@ use crate::window::WindowControlsStyle;
 use crate::prop::Prop;
 use elegance_macros::dots;
 
-/// The marker namespace accepted by a leading-dot argument target.
-///
-/// Namespace fields are marker values, not converted target values, so existing
-/// `Into`, `Number`, and `IntoProp` conversions keep their original semantics.
+/// `.name` in `elg!`: a value whose type is the name, spelled with [`chars`].
+pub struct Dot<Name>(std::marker::PhantomData<fn() -> Name>);
+
+impl<Name> Dot<Name> {
+    pub const NEW: Self = Self(std::marker::PhantomData);
+}
+
+impl<Name> Clone for Dot<Name> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Name> Copy for Dot<Name> {}
+
+impl<Name> Default for Dot<Name> {
+    fn default() -> Self {
+        Self::NEW
+    }
+}
+
+impl<Name> PartialEq for Dot<Name> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<Name> Eq for Dot<Name> {}
+
+impl<Name> std::hash::Hash for Dot<Name> {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
+
+impl<Name> std::fmt::Debug for Dot<Name> {
+    // Not `f`: the key `.f` is a name in this module.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Dot")
+    }
+}
+
+/// The letters names are spelled with: `Dot<(a, b, o, v, e)>` is `.above`. Digits are `_0`..`_9`
+/// and `_` is `__`.
+#[doc(hidden)]
+pub mod chars {
+    macro_rules! chars {
+        ($($c:ident)*) => {$(
+            #[derive(Clone, Copy, Debug)]
+            pub enum $c {}
+        )*};
+    }
+    chars!(
+        a b c d e f g h i j k l m n o p q r s t u v w x y z
+        A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+        _0 _1 _2 _3 _4 _5 _6 _7 _8 _9 __
+    );
+}
+
+/// The values a leading dot can name where this type is expected, as fields: `.compact` in
+/// `elg!` reads the field `compact` (so rust-analyzer highlights and completes it). A field holds
+/// the value itself, or, for a type that takes other types' values, a [`Dot`] that converts.
+/// `#[derive(DotValues)]` implements it for enums.
 pub trait DotValues {
     type Values: Default;
 
     fn dot_values() -> Self::Values {
         Self::Values::default()
     }
+}
+
+/// The namespace lookup `elg!` does at a call site: `(&target).__elg_values(PhantomData::<L>)`
+/// picks the parameter type's [`DotValues`] when it has one (this trait), and otherwise `L`, a
+/// struct the call site declares holding just the names it uses as [`Dot`]s
+/// ([`LocalDotValues`]). Defined once here, not per call site: nested `elg!` calls see the
+/// enclosing block's items, and two call sites' traits would make the method ambiguous.
+#[doc(hidden)]
+pub trait TypedDotValues {
+    type Values;
+    fn __elg_values<L>(self, local: std::marker::PhantomData<L>) -> Self::Values;
+}
+
+impl<T: DotValues + ?Sized> TypedDotValues for &DotTarget<T> {
+    type Values = T::Values;
+    fn __elg_values<L>(self, _: std::marker::PhantomData<L>) -> T::Values {
+        T::dot_values()
+    }
+}
+
+#[doc(hidden)]
+pub trait LocalDotValues {
+    fn __elg_values<L: Default>(self, local: std::marker::PhantomData<L>) -> L;
+}
+
+impl<T: ?Sized> LocalDotValues for &&DotTarget<T> {
+    fn __elg_values<L: Default>(self, _: std::marker::PhantomData<L>) -> L {
+        L::default()
+    }
+}
+
+/// An enum made with `#[derive(DotValues)]`, so a reactive `Prop` of it takes its names too.
+pub trait DotEnum: DotValues {}
+
+impl<T: DotEnum> DotValues for Prop<T> {
+    type Values = T::Values;
 }
 
 /// A zero-sized argument-type witness used to resolve leading-dot namespaces.

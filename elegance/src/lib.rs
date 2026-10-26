@@ -33,7 +33,6 @@
 //! | `if cond { ... } else { ... }` | a reactive `If` |
 //! | `match value { pat => View(), ... }` | the view for the current value, rebuilt when it changes |
 //! | `.leading`, `.accent`, `.bold` | [`dot`] shorthand, converted to the parameter's type |
-//! | `$name` | `name.binding()` |
 //! | `"{count} left"` | a reactive string: `move \|\| format!("{count} left")` |
 //! | `{ expr }` | any Rust value that is [`IntoView`] |
 //! | `(layout) { ... }` | a custom [`Layout`] over the children |
@@ -93,7 +92,7 @@ pub mod view;
 pub mod views;
 pub mod window;
 
-pub use elegance_macros::{component, elg, elg_builder, preview};
+pub use elegance_macros::{component, elg, elg_builder, preview, DotValues};
 
 pub use animation::{with_animation, Animation, AnimationValue, Pose, Transition};
 pub use app::{post_to_ui_thread, version, App, AppHandle, TitleBar, WindowDesc};
@@ -144,7 +143,7 @@ pub use modifier::{
 pub use navigation::{ColumnWidth, HSplitView, NavigationSplitView, NavigationStack, VSplitView};
 pub use path::{FillRule, LineCap, LineJoin, Path, Polyline, StrokeStyle};
 pub use prop::{IntoProp, Prop, ResolveColor, ResolveStyle};
-pub use reactive::{batch, computed, effect, untrack, Binding, Computed, State};
+pub use reactive::{batch, computed, effect, untrack, Binding, Computed, IntoBinding, ReadRef, State, WriteRef};
 pub use shapes::{
     Capsule, Circle, CustomShape, PathShape, PathShapeOptions, Rectangle, RoundedRectangle, Shape,
 };
@@ -181,7 +180,10 @@ pub mod prelude {
 /// Used by the macros' expansions.
 #[doc(hidden)]
 pub mod __private {
-    pub use crate::dsl::{if_view, match_view, ElgChildren, ElgNew, Interpolated, Missing};
+    pub use crate::dsl::{
+        if_view, match_view, ElgChildren, ElgNew, Interpolated, Missing, ReadPlain, ReadReactive,
+        Reader,
+    };
     pub use crate::preview::PreviewItem;
     pub use crate::view::{Component, IntoView, View, ViewExt};
     pub use inventory;

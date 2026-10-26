@@ -145,7 +145,7 @@ fn gallery() -> impl IntoView {
     let header = elg! { Text("Header").font(.headline) };
 
     elg! {
-        NavigationStack($path, destination: |route: &Route| match route {
+        NavigationStack(path,destination: |route: &Route| match route {
             Route::Detail(id) => Text(format!("Detail {id}")),
         }, root_title: "Home") {
             ScrollView(position: position.clone(), sticks_to_end: false) {
@@ -154,11 +154,11 @@ fn gallery() -> impl IntoView {
                 Badge(title: "Mail".to_string(), count: 3, note: "unread".to_string())
                 { Card { title: "Card".into() } }
                 Text(move || if compact.get() { "S" } else { "Small" })
-                Slider($volume, min: 0, max: 1, step: 0.1)
-                Stepper("Guests: {guests}", $guests, min: 1, max: 10)
-                Picker($size, [(Size3::S, "S"), (Size3::M, "M"), (Size3::L, "L")], style: .menu)
-                SecureField("Password", $name, max_lines: 1)
-                Toggle(Label("Wi-Fi", "wifi-high"), $on).toggle_style(SwitchToggleStyle)
+                Slider(volume, min: 0, max: 1, step: 0.1)
+                Stepper("Guests: {guests}", guests, min: 1, max: 10)
+                Picker(size, [(Size3::S, "S"), (Size3::M, "M"), (Size3::L, "L")], style: .menu)
+                SecureField("Password", name, max_lines: 1)
+                Toggle(Label("Wi-Fi", "wifi-high"), on).toggle_style(SwitchToggleStyle)
                 ProgressView(volume)
                 ProgressView()
                 if on.get() {
@@ -216,7 +216,7 @@ fn gallery() -> impl IntoView {
                 })
                 Button(action: move || volume += 0.1) { Label("Louder", "speaker-high") }
                     .button_style(Pill)
-                    .popover($showing, || elg! { Text("Popover") }, opens: .above)
+                    .popover(showing,|| elg! { Text("Popover") }, opens: .above)
                     .help("Turns it up")
                     .on_key_press(.space, move || volume -= 0.1)
                     .pointer_style(.pointer)
@@ -376,4 +376,39 @@ fn completion_carriers_preserve_positional_evaluation_and_moves() {
     assert_eq!(elg! { Identity(borrowed) }, "owned");
     let value = elg! { Identity(value) };
     assert_eq!(value, "owned");
+}
+
+#[derive(PartialEq)]
+struct Viewport {
+    size: (u32, u32),
+    name: String,
+}
+
+#[test]
+fn text_placeholders_take_fields_and_expressions() {
+    struct Identity;
+    impl<T> elegance::dsl::ElgNew<(T,)> for Identity {
+        type Out = T;
+        fn elg_new((value,): (T,)) -> T {
+            value
+        }
+    }
+    let size = (640, 480);
+    let viewport = Viewport { size: (3, 4), name: "main".into() };
+    let width = 6;
+    let text = elg! { Identity("{size.0}x{size.1} {viewport.name:>width$} {viewport.size.1:03} {size.0 / 2} {{x}} {width}") };
+    assert_eq!((text.0)(), "640x480   main 004 320 {x} 6");
+}
+
+fn reactive_text_placeholders() -> impl IntoView {
+    let render_size = State::new((0, 0));
+    let viewport = computed(|| Viewport { size: (1, 2), name: String::new() });
+    let binding = render_size.binding();
+    elg! {
+        VStack {
+            Text("Rendering at {render_size.0}x{render_size.1}")
+            Text("{viewport.size.0:?} {viewport.name}")
+            Text("{binding.1} {render_size.get().0 + 1}")
+        }
+    }
 }

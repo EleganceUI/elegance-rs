@@ -14,6 +14,28 @@ struct Prop {
     default: Option<TokenStream>,
 }
 
+/// `Prop<T>` -> `T`: such a prop is reactive, set from anything `IntoProp<T>` takes.
+fn prop_inner(ty: &Type) -> Option<&Type> {
+    let Type::Path(path) = ty else { return None };
+    let last = path.path.segments.last()?;
+    let syn::PathArguments::AngleBracketed(args) = &last.arguments else { return None };
+    match (last.ident == "Prop", args.args.len(), args.args.first()) {
+        (true, 1, Some(syn::GenericArgument::Type(inner))) => Some(inner),
+        _ => None,
+    }
+}
+
+/// The setter's parameter type and the conversion to the prop's type.
+fn setter_input(ty: &Type) -> (TokenStream, TokenStream) {
+    match prop_inner(ty) {
+        Some(inner) => (
+            quote!(impl ::elegance::IntoProp<#inner>),
+            quote!(::elegance::IntoProp::into_prop(value)),
+        ),
+        None => (quote!(impl ::std::convert::Into<#ty>), quote!(value.into())),
+    }
+}
+
 fn option_inner(ty: &Type) -> bool {
     if let Type::Path(path) = ty {
         if let Some(last) = path.path.segments.last() {
@@ -24,8 +46,9 @@ fn option_inner(ty: &Type) -> bool {
     false
 }
 
-// `#[prop(default)]` or `#[prop(default = expr)]`.
-fn prop_default(attrs: &mut Vec<syn::Attribute>) -> syn::Result<Option<TokenStream>> {
+// `#[prop(default)]` or `#[prop(default = expr)]`, where `expr` may use the DSL's leading-dot
+// names: `#[prop(default = .compact)]`, `#[prop(default = Font::system(12.0, .bold))]`.
+fn prop_default(attrs: &mut Vec<syn::Attribute>, ty: &Type) -> syn::Result<Option<TokenStream>> {
     let mut default = None;
     let mut error = None;
     attrs.retain(|attr| {
@@ -35,8 +58,32 @@ fn prop_default(attrs: &mut Vec<syn::Attribute>) -> syn::Result<Option<TokenStre
         let result = attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("default") {
                 if meta.input.peek(Token![=]) {
-                    let expr: syn::Expr = meta.value()?.parse()?;
-                    default = Some(quote!(#expr));
+                    let tokens: TokenStream = meta.value()?.parse()?;
+                    let items: Vec<_> = tokens.clone().into_iter().collect();
+                    let dot_name = match items.as_slice() {
+                        [proc_macro2::TokenTree::Punct(dot), proc_macro2::TokenTree::Ident(name)]
+                            if dot.as_char() == '.' =>
+                        {
+                            Some(crate::rewrite::dot_value(name, None))
+                        }
+                        _ => None,
+                    };
+                    let is_dot = dot_name.is_some();
+                    let value = match dot_name {
+                        Some(value) => value,
+                        None => {
+                            let rewritten = crate::rewrite::rewrite(tokens);
+                            syn::parse2::<syn::Expr>(rewritten.clone())?;
+                            rewritten
+                        }
+                    };
+                    // Converted as the setter converts, so `default = "Untitled"` works for a
+                    // `Prop<String>`; a lone `.name` converts into the prop's type, known here.
+                    default = Some(match (prop_inner(ty), is_dot) {
+                        (Some(inner), _) => quote!(::elegance::IntoProp::<#inner>::into_prop(#value)),
+                        (None, true) => quote!(<#ty as ::std::convert::From<_>>::from(#value)),
+                        (None, false) => value,
+                    });
                 } else {
                     default = Some(quote!(::std::default::Default::default()));
                 }
@@ -93,7 +140,7 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
                 "components are functions, not methods",
             ));
         };
-        let default = prop_default(&mut typed.attrs)?;
+        let default = prop_default(&mut typed.attrs, &typed.ty)?;
         let Pat::Ident(pat) = typed.pat.as_ref() else {
             return Err(syn::Error::new_spanned(
                 &typed.pat,
@@ -187,6 +234,7 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
     let setters = props.iter().enumerate().map(|(i, p)| {
         let field = &p.name;
         let ty = &p.ty;
+        let (input, convert) = setter_input(ty);
         let moved = props.iter().filter(|q| q.name != p.name).map(|q| {
             let f = &q.name;
             quote!(#f: self.#f)
@@ -197,14 +245,14 @@ fn expand_inner(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream
                     param_of(j).map(|param| if j == i { quote!(#ty) } else { quote!(#param) })
                 });
                 quote! {
-                    #vis fn #field(self, value: impl ::std::convert::Into<#ty>) -> #name<#(#result_params),*> {
-                        #name { #field: value.into(), #(#moved),* }
+                    #vis fn #field(self, value: #input) -> #name<#(#result_params),*> {
+                        #name { #field: #convert, #(#moved),* }
                     }
                 }
             }
             None => quote! {
-                #vis fn #field(mut self, value: impl ::std::convert::Into<#ty>) -> Self {
-                    self.#field = value.into();
+                #vis fn #field(mut self, value: #input) -> Self {
+                    self.#field = #convert;
                     self
                 }
             },

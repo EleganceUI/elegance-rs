@@ -144,24 +144,58 @@ elegance = { path = "../elegance-rs/elegance" }
 | `ForEach(xs, id: \|x\| x.id) { x in ... }` | a content closure per item (also `AsyncImage(url) { phase in ... }`) |
 | `if cond { ... } else { ... }` | a reactive `If` |
 | `match value { pat => View(), ... }` | the view for the current value, rebuilt when it changes (`Clone + PartialEq` values) |
-| `.leading`, `.accent`, `.bold`, `.infinity` | shorthand for the parameter's type (`elegance::dot`) |
-| `$name` | `name.binding()` |
+| `.leading`, `.accent`, `.bold`, `.infinity` | a value of the parameter's type, by name (see below) |
 | `"{count} left"` | text that updates when `count` changes |
+| `"{size.0}x{size.1}"`, `"{user.name:>8}"`, `"{a + b}"` | fields of state (read reactively) and any expression in a placeholder |
 | `{ expr }`, or a variable | any Rust value that is `IntoView` |
 | `(layout) { ... }` | a custom `Layout` over the children |
 | `.m(a, key: v)` | the modifier `.m_with(a, \|o\| o.key(v))`, e.g. `.frame(max_width: .infinity)` |
 
+### Leading-dot names
+
+`.name` is a value whose type spells the name, and it converts into whatever type has a value
+by that name: `.leading` is `HorizontalAlignment::Leading` for a stack and `Alignment::LEADING`
+for a frame. Any crate can add names. `#[derive(DotValues)]` on an enum makes its unit
+variants names, in snake_case:
+
+```rust
+#[derive(Clone, Copy, PartialEq, DotValues)]
+enum Density { Compact, Comfortable, ExtraRoomy }
+
+#[component]
+fn Row(title: String, #[prop(default = .comfortable)] density: Density) -> impl IntoView { ... }
+
+elg! { Row(title: "Inbox".into(), density: .extra_roomy) }
+```
+
+The names work wherever the parameter is a `Density`, an `impl Into<Density>`, or an
+`impl IntoProp<Density>`, including on your own structs' builder methods with no attribute.
+A parameter of exactly `Density` (not `impl Into<..>`) also works when the method's impl has
+`#[elg_builder]`, as `#[component]` props always do. A name the type doesn't have is a compile
+error at that name.
+
+### Named arguments
+
+On an element, `Name(a, key: v)` calls the builder method `.key(v)`: `#[component]` makes one
+per prop. On a modifier, `.m(a, key: v)` calls `.m_with(a, |o| o.key(v))`, so the names are the
+builder methods of the options struct `m_with` takes: `.popover(editing, content, opens: .above)`
+is `.popover_with(editing, content, |o| o.opens(.above))`, and `opens` is
+`PopoverOptions::opens`. Your own modifiers get named arguments the same way: add a `name_with`
+method taking `impl FnOnce(Options) -> Options`.
+
 ### Custom components and completion
 
-Use `#[component]` on a function, or implement `Component` for a struct. On a struct's
+Use `#[component]` on a function, or implement `Component` for a struct. A prop of type
+`Prop<T>` is reactive: it takes anything a reactive argument takes (a value, a `State`, a
+closure, `"{interpolated}"` text). A `Binding<T>` prop is two-way: pass the parent's `State`.
+`components-rs` in elegance-examples shows every kind of prop. On a struct's
 builder impl, `#[elg_builder(constructor)]` registers `fn new() -> Self` with `elg!`
 and enables typed dot completion; no handwritten `ElgNew<()>` impl is needed.
 Use plain `#[elg_builder]` for completion only, including on extension traits.
 
 With rust-analyzer proc macros enabled, `VStack(alignment: .…)` suggests horizontal
-alignments, while `.font(.…)` suggests fonts. Custom types can supply a namespace
-through `elegance::dot::DotValues`; imports and aliases work too. Positional constructor
-arguments and nested Rust expressions retain global marker lookup.
+alignments, while `.font(.…)` suggests fonts, and a `#[derive(DotValues)]` enum's prop suggests
+its variants. Imports and aliases work too.
 
 Property prefixes such as `VStack(spa…)` and `.frame(wid…)` also complete, but may
 insert Rust method syntax (`spacing(…)`); change it to the DSL's `spacing: …`.
@@ -251,3 +285,33 @@ are not implemented. The old same-device Dawn handle/reservation API has been re
 State (`State`, `Binding`, `Computed`) is made of `Copy` handles, so `move` closures capture them
 without cloning. State lives as long as the views that made it: when an `If` branch switches or a
 `ForEach` item goes, the state created inside it is freed, and using a freed handle panics.
+
+```rust
+let todos = State::new(vec![todo]);
+todos.read().len();                 // a guard (tracked); also todos.get(), todos.with(|t| ..)
+todos.peek().len();                 // the same without subscribing
+todos.write().push(another);        // notifies when the guard drops; also set(..), update(|t| ..)
+editing.toggle();                   // State<bool>
+let is_empty = todos.map(Vec::is_empty); // a Computed<bool>
+```
+
+Elegance is fine-grained: a component's body runs once, and what updates later is each closure
+Elegance runs reactively — a reactive argument, `if`/`match` in `elg!`, a `Computed`, an `effect`.
+A read inside such a closure subscribes it wherever the closure was written (in `elg!`, a helper
+function, a variable). A read directly in the body, or an expression evaluated once as an
+argument (`.disabled(todos.read().is_empty())`), is a one-time value, so pass a closure or a
+derived value instead (`.popover` doesn't accept a plain `bool` at all):
+
+```rust
+.disabled(move || draft.read().is_empty())
+.disabled(draft.map(String::is_empty))
+.popover(editing, content)                         // two-way: dismissing sets `editing` to false
+.popover(move || todos.read().is_empty(), content) // read-only: shown while the list is empty
+.popover(todos.map(Vec::is_empty), content)
+```
+
+Two-way arguments (Toggle, TextField, Slider, Stepper, Picker, `.popover`, `.focused`, ...) take
+`impl IntoBinding<T>`: a `State` or `Binding` (two-way: `Toggle("Wi-Fi", wifi)`), or, read-only,
+a `Computed` or a closure.
+Reactive one-way arguments take `impl IntoProp<T>`: a value, a `State`/`Binding`/`Computed`, or a
+closure.

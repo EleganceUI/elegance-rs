@@ -4,11 +4,17 @@
 //! let mut count = State::new(0);
 //! elg! { Text("Count: {count}") }        // re-renders that one Text when count changes
 //! Button("+", move || count += 1)
+//! *count.write() += 1;                   // or count.set(..), count.update(|c| ..)
+//! let n = *count.read();                 // or count.get(), count.with(|c| ..)
 //! ```
 //!
 //! Reading state inside a closure Elegance runs reactively (a reactive argument, a computed, an
 //! effect) subscribes that closure; writing it re-runs exactly the closures that read it, once per
-//! frame. Everything is UI-thread only, so these handles are neither `Send` nor `Sync`.
+//! frame. It doesn't matter where the closure was written (in `elg!`, in a helper function, in a
+//! variable): what counts is that Elegance calls it. A component's body runs once, so a read there
+//! (`if todos.read().is_empty()` outside `elg!`) is a one-time value; pass a closure
+//! (`move || todos.read().is_empty()`) or a derived value (`todos.map(Vec::is_empty)`) instead.
+//! Everything is UI-thread only, so these handles are neither `Send` nor `Sync`.
 //!
 //! The handles are `Copy`. Their values live as long as the views that created them: state made
 //! while building a view ends when the view is removed (an `If` branch switching, a `ForEach` item
@@ -16,11 +22,11 @@
 //! (before `App::run`) lives for the whole program.
 
 use std::any::Any;
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::ffi::c_void;
 use std::fmt;
 use std::marker::PhantomData;
-use std::ops::{AddAssign, SubAssign};
+use std::ops::{AddAssign, Deref, DerefMut, Not, SubAssign};
 use std::rc::Rc;
 
 use elegance_sys as sys;
@@ -199,38 +205,77 @@ impl<T: 'static> State<T> {
         lookup(self.handle)
     }
 
-    /// Reads the value, subscribing the running computed/effect/reactive argument.
+    #[track_caller]
+    fn borrow(&self, tracked: bool) -> ReadRef<T> {
+        let (cell, node) = self.cell();
+        if tracked {
+            ffi!(sys::elg_node_track(node));
+        }
+        let value = cell.value.try_borrow().expect("elegance: state read while it's being written");
+        // SAFETY: the guard keeps `cell` alive and drops this borrow first.
+        let value = unsafe { std::mem::transmute::<Ref<'_, T>, Ref<'static, T>>(value) };
+        ReadRef { value, _owner: cell }
+    }
+
+    /// Reads the value, subscribing the running computed/effect/reactive argument:
+    /// `todos.read().is_empty()`, `*count.read()`. Drop the guard before writing.
+    #[track_caller]
+    pub fn read(&self) -> ReadRef<T> {
+        self.borrow(true)
+    }
+
+    /// Reads without subscribing.
+    #[track_caller]
+    pub fn peek(&self) -> ReadRef<T> {
+        self.borrow(false)
+    }
+
+    /// A copy of the value (a tracked read, like `read`).
     #[track_caller]
     pub fn get(&self) -> T
     where
         T: Clone,
     {
-        self.with(T::clone)
+        self.read().clone()
     }
 
-    /// Reads the value by reference (subscribing, like `get`).
+    /// Reads the value by reference (subscribing, like `read`).
     #[track_caller]
     pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        let (cell, node) = self.cell();
-        ffi!(sys::elg_node_track(node));
-        let value = cell.value.try_borrow().expect("elegance: state read while it's being updated");
-        f(&value)
-    }
-
-    /// Reads without subscribing.
-    #[track_caller]
-    pub fn peek(&self) -> T
-    where
-        T: Clone,
-    {
-        self.with_untracked(T::clone)
+        f(&self.read())
     }
 
     #[track_caller]
     pub fn with_untracked<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        let (cell, _) = self.cell();
-        let value = cell.value.try_borrow().expect("elegance: state read while it's being updated");
-        f(&value)
+        f(&self.peek())
+    }
+
+    /// A value derived from this state, recomputed when it changes:
+    /// `.popover(todos.map(Vec::is_empty), ...)`, `.disabled(draft.map(String::is_empty))`.
+    pub fn map<R: PartialEq + 'static>(&self, f: impl Fn(&T) -> R + 'static) -> Computed<R> {
+        let state = *self;
+        Computed::new(move || state.with(&f))
+    }
+
+    /// Changes the value through a guard, re-running what read it when the guard is dropped:
+    /// `*count.write() += 1`, `todos.write().push(todo)`. UI thread only.
+    #[track_caller]
+    pub fn write(&self) -> WriteRef<T> {
+        let (cell, node) = self.cell();
+        ffi!(sys::elg_check_ui_thread());
+        let value = cell.value.try_borrow_mut().expect("elegance: state written while it's being read");
+        // SAFETY: the guard keeps `cell` alive and drops this borrow first.
+        let value = unsafe { std::mem::transmute::<RefMut<'_, T>, RefMut<'static, T>>(value) };
+        WriteRef { value: Some(value), node, _owner: cell }
+    }
+
+    /// Flips a `bool` (or anything with `!`).
+    #[track_caller]
+    pub fn toggle(&self)
+    where
+        T: Not<Output = T> + Clone,
+    {
+        self.update(|value| *value = !value.clone());
     }
 
     /// Writes the value, re-running what read it. UI thread only.
@@ -251,17 +296,11 @@ impl<T: 'static> State<T> {
     /// Changes the value in place: `count.update(|c| *c += 2)`.
     #[track_caller]
     pub fn update(&self, change: impl FnOnce(&mut T)) {
-        let (cell, node) = self.cell();
-        ffi!(sys::elg_check_ui_thread());
-        {
-            let mut value = cell.value.try_borrow_mut().expect("elegance: state updated while it's being read");
-            change(&mut value);
-        }
-        ffi!(sys::elg_node_notify(node));
+        change(&mut self.write());
     }
 
-    /// A two-way connection to this state, for passing to controls and child views.
-    /// In `elg!`, `$name` is `name.binding()`.
+    /// A two-way connection to this state. Controls and `Binding` props take the state itself, so
+    /// this is rarely needed.
     pub fn binding(&self) -> Binding<T> {
         Binding { kind: BindingKind::State(self.handle), _marker: PhantomData }
     }
@@ -297,6 +336,65 @@ impl<T: fmt::Debug + 'static> fmt::Debug for State<T> {
             self.with_untracked(|value| f.debug_tuple("State").field(value).finish())
         } else {
             f.write_str("State(<removed>)")
+        }
+    }
+}
+
+// --- Guards ---
+
+/// A borrowed value, from [`State::read`], [`State::peek`] or [`Computed::read`].
+pub struct ReadRef<T: 'static> {
+    // Declared first, so it's dropped before what it borrows from.
+    value: Ref<'static, T>,
+    _owner: Rc<dyn Any>,
+}
+
+impl<T: 'static> Deref for ReadRef<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T: fmt::Display + 'static> fmt::Display for ReadRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+impl<T: fmt::Debug + 'static> fmt::Debug for ReadRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+/// A mutably borrowed state value, from [`State::write`]. Dropping it re-runs what read the state.
+pub struct WriteRef<T: 'static> {
+    value: Option<RefMut<'static, T>>,
+    node: *mut c_void,
+    _owner: Rc<dyn Any>,
+}
+
+impl<T: 'static> Deref for WriteRef<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.value.as_deref().unwrap()
+    }
+}
+
+impl<T: 'static> DerefMut for WriteRef<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.value.as_deref_mut().unwrap()
+    }
+}
+
+impl<T: 'static> Drop for WriteRef<T> {
+    fn drop(&mut self) {
+        self.value = None;
+        unsafe { sys::elg_node_notify(self.node) };
+        // A second panic while unwinding would abort.
+        if !std::thread::panicking() {
+            crate::error::check();
         }
     }
 }
@@ -350,6 +448,12 @@ impl<T: 'static> Binding<T> {
         Self::new(move || value.clone(), |_| {})
     }
 
+    /// A binding that reads `get` (reactively) and ignores writes: a popover shown while a
+    /// condition holds, `move || todos.read().is_empty()`.
+    pub fn read_only(get: impl Fn() -> T + 'static) -> Self {
+        Self::new(get, |_| {})
+    }
+
     #[track_caller]
     pub fn get(&self) -> T
     where
@@ -396,6 +500,46 @@ impl<T: SubAssign<U> + Clone + 'static, U> SubAssign<U> for Binding<T> {
 impl<T: fmt::Display + Clone + 'static> fmt::Display for Binding<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.get().fmt(f)
+    }
+}
+
+/// What a two-way argument (a popover's `is_presented`, a Toggle's value, ...) can be made from:
+/// a [`State`] or [`Binding`], or, read-only, a [`Computed`] or a closure.
+///
+/// ```ignore
+/// .popover(editing, content)                           // dismissing sets `editing` to false
+/// .popover(move || todos.read().is_empty(), content)    // shown while the list is empty
+/// .popover(todos.map(Vec::is_empty), content)          // the same
+/// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` can't be used as a `Binding<{T}>`",
+    label = "expected a State/Binding of a `{T}`, a Computed, or a closure returning one"
+)]
+pub trait IntoBinding<T: 'static> {
+    fn into_binding(self) -> Binding<T>;
+}
+
+impl<T: 'static> IntoBinding<T> for State<T> {
+    fn into_binding(self) -> Binding<T> {
+        self.binding()
+    }
+}
+
+impl<T: 'static> IntoBinding<T> for Binding<T> {
+    fn into_binding(self) -> Binding<T> {
+        self
+    }
+}
+
+impl<T: Clone + 'static> IntoBinding<T> for Computed<T> {
+    fn into_binding(self) -> Binding<T> {
+        Binding::read_only(move || self.get())
+    }
+}
+
+impl<T: 'static, F: Fn() -> T + 'static> IntoBinding<T> for F {
+    fn into_binding(self) -> Binding<T> {
+        Binding::read_only(self)
     }
 }
 
@@ -499,13 +643,21 @@ impl<T: 'static> Computed<T> {
         self.with(T::clone)
     }
 
-    /// Reads the value by reference, computing it first if a dependency changed.
+    /// Reads the value, computing it first if a dependency changed (a tracked read).
     #[track_caller]
-    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+    pub fn read(&self) -> ReadRef<T> {
         let (cell, node) = lookup::<ComputedCell<T>>(self.handle);
         ffi!(sys::elg_node_track(node));
-        let value = cell.value.borrow();
-        f(value.as_ref().expect(STALE))
+        let value = Ref::map(cell.value.borrow(), |value| value.as_ref().expect(STALE));
+        // SAFETY: the guard keeps `cell` alive and drops this borrow first.
+        let value = unsafe { std::mem::transmute::<Ref<'_, T>, Ref<'static, T>>(value) };
+        ReadRef { value, _owner: cell }
+    }
+
+    /// Reads the value by reference (a tracked read, like `read`).
+    #[track_caller]
+    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        f(&self.read())
     }
 }
 

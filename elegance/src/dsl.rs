@@ -12,6 +12,7 @@
 use std::rc::Rc;
 
 use crate::prop::{IntoProp, Prop};
+use crate::reactive::{Binding, Computed, State};
 use crate::text::Text;
 use crate::view::{IntoView, View};
 use crate::views::{IntoLabel, LabelArg};
@@ -48,6 +49,49 @@ impl<F: Fn() -> String + 'static> IntoLabel for Interpolated<F> {
 impl<F: Fn() -> String> From<Interpolated<F>> for String {
     fn from(text: Interpolated<F>) -> String {
         (text.0)()
+    }
+}
+
+/// `"{size.0}"` in `elg!`: reads `size` by reference, through `with` (a tracked read) when it's
+/// reactive. `(&Reader(&size)).elg_with(...)` picks [`ReadReactive`] for `State`, `Computed` and
+/// `Binding`, and falls back to [`ReadPlain`] for any other value (autoref specialization).
+pub struct Reader<'a, T: ?Sized>(pub &'a T);
+
+pub trait ReadReactive {
+    type Value;
+    fn elg_with<R>(&self, f: impl FnOnce(&Self::Value) -> R) -> R;
+}
+
+impl<T: 'static> ReadReactive for Reader<'_, State<T>> {
+    type Value = T;
+    fn elg_with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        self.0.with(f)
+    }
+}
+
+impl<T: 'static> ReadReactive for Reader<'_, Computed<T>> {
+    type Value = T;
+    fn elg_with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        self.0.with(f)
+    }
+}
+
+impl<T: Clone + 'static> ReadReactive for Reader<'_, Binding<T>> {
+    type Value = T;
+    fn elg_with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        f(&self.0.get())
+    }
+}
+
+pub trait ReadPlain {
+    type Value: ?Sized;
+    fn elg_with<R>(&self, f: impl FnOnce(&Self::Value) -> R) -> R;
+}
+
+impl<T: ?Sized> ReadPlain for &Reader<'_, T> {
+    type Value = T;
+    fn elg_with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        f(self.0)
     }
 }
 

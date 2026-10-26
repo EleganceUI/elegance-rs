@@ -70,10 +70,30 @@ pub fn expand(input: TokenStream) -> TokenStream {
     }
 }
 
+/// The `Dot` type named `name` (`r#move` is `move`): `#dot::Dot<(#dot::chars::m, ...)>`, with
+/// `dot` the path of `elegance::dot`. Spans point at `name`, for errors.
+pub fn name_type(name: &Ident, dot: &TokenStream) -> TokenStream {
+    let text = name.to_string();
+    let text = text.trim_start_matches("r#");
+    let chars = text.chars().map(|c| {
+        let char_name = match c {
+            '_' => "__".to_string(),
+            '0'..='9' => format!("_{c}"),
+            // Identifiers in elg! are ASCII; anything else gets a type that doesn't exist.
+            c if c.is_ascii_alphabetic() => c.to_string(),
+            _ => "unsupported_character".to_string(),
+        };
+        let ident = Ident::new(&char_name, name.span());
+        quote!(#dot::chars::#ident)
+    });
+    quote!(#dot::Dot<(#(#chars,)*)>)
+}
+
 fn generate(dots: Dots) -> syn::Result<TokenStream> {
     let mut targets: BTreeMap<String, (Type, Vec<Ident>)> = BTreeMap::new();
     let markers = dots.entries.iter().map(|entry| {
         let name = &entry.name;
+        let ty = name_type(name, &quote!(self));
         let conversions = entry.conversions.iter().map(|(ty, value)| {
             quote! {
                 impl From<#name> for #ty {
@@ -82,8 +102,7 @@ fn generate(dots: Dots) -> syn::Result<TokenStream> {
             }
         });
         quote! {
-            #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-            pub struct #name;
+            pub type #name = #ty;
             #(#conversions)*
         }
     });
@@ -119,18 +138,35 @@ fn generate(dots: Dots) -> syn::Result<TokenStream> {
     let namespaces = targets
         .values()
         .cloned()
-        .chain(aliases)
-        .map(|(ty, fields)| {
+        .map(|(ty, fields)| (ty, fields, true))
+        .chain(aliases.into_iter().map(|(ty, fields)| (ty, fields, false)))
+        .map(|(ty, fields, direct)| {
             let suffix: String = quote!(#ty)
                 .to_string()
                 .chars()
                 .filter(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
             let name = format_ident!("{}Values", suffix);
-            quote! {
-                #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-                pub struct #name { #(pub #fields: #fields),* }
-                impl DotValues for #ty { type Values = #name; }
+            if direct {
+                // A type with From impls holds its values, so a parameter of exactly that type
+                // works.
+                quote! {
+                    #[derive(Clone)]
+                    pub struct #name { #(pub #fields: #ty),* }
+                    impl Default for #name {
+                        fn default() -> Self {
+                            Self { #(#fields: <#ty as From<#fields>>::from(Dot::NEW)),* }
+                        }
+                    }
+                    impl DotValues for #ty { type Values = #name; }
+                }
+            } else {
+                // The dots themselves, which convert through the parameter's Into/IntoProp.
+                quote! {
+                    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+                    pub struct #name { #(pub #fields: #fields),* }
+                    impl DotValues for #ty { type Values = #name; }
+                }
             }
         });
     let fields = dots.entries.iter().map(|e| &e.name);

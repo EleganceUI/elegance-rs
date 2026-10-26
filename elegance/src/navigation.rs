@@ -9,7 +9,7 @@ use crate::error::ffi;
 use crate::ffi as cffi;
 use crate::geometry::Axis;
 use crate::prop::{IntoProp, Prop};
-use crate::reactive::Binding;
+use crate::reactive::{Binding, IntoBinding};
 use crate::views::{push_items, untracked, ItemKey};
 use crate::view::{raw_views, IntoView, View};
 
@@ -106,8 +106,8 @@ impl NavigationSplitView {
         Self { columns: vec![sidebar.into_view(), content.into_view(), detail.into_view()], ..Default::default() }
     }
     /// Shows and hides the sidebar (and follows the user doing so).
-    pub fn sidebar_visible(mut self, visible: impl Into<Binding<bool>>) -> Self {
-        self.sidebar_visible = Some(visible.into());
+    pub fn sidebar_visible(mut self, visible: impl IntoBinding<bool>) -> Self {
+        self.sidebar_visible = Some(visible.into_binding());
         self
     }
     pub fn sidebar_width(mut self, width: ColumnWidth) -> Self {
@@ -167,7 +167,7 @@ impl IntoView for NavigationSplitView {
 /// the path shows its page; the back button (or Esc) pops it.
 ///
 /// ```ignore
-/// NavigationStack($path, destination: |route| Detail(route: route.clone())) { Home() }
+/// NavigationStack(path,destination: |route| Detail(route: route.clone())) { Home() }
 /// ```
 pub struct NavigationStack<R: 'static> {
     path: Binding<Vec<R>>,
@@ -179,11 +179,11 @@ pub struct NavigationStack<R: 'static> {
 }
 
 impl<R: PartialEq + Clone + 'static> NavigationStack<R> {
-    pub fn new<V: IntoView>(path: impl Into<Binding<Vec<R>>>, root: impl IntoView, destination: impl Fn(&R) -> V + 'static) -> Self {
+    pub fn new<V: IntoView>(path: impl IntoBinding<Vec<R>>, root: impl IntoView, destination: impl Fn(&R) -> V + 'static) -> Self {
         Self::with_path(path).root(root).destination(destination)
     }
-    fn with_path(path: impl Into<Binding<Vec<R>>>) -> Self {
-        Self { path: path.into(), root: View::empty(), destination: None, root_title: Prop::Value(String::new()), title: None, shows_bar: true }
+    fn with_path(path: impl IntoBinding<Vec<R>>) -> Self {
+        Self { path: path.into_binding(), root: View::empty(), destination: None, root_title: Prop::Value(String::new()), title: None, shows_bar: true }
     }
     pub fn root(mut self, root: impl IntoView) -> Self {
         self.root = root.into_view();
@@ -211,7 +211,7 @@ impl<R: PartialEq + Clone + 'static> NavigationStack<R> {
     }
 }
 
-impl<R: PartialEq + Clone + 'static, B: Into<Binding<Vec<R>>>> ElgNew<(B,)> for NavigationStack<R> {
+impl<R: PartialEq + Clone + 'static, B: IntoBinding<Vec<R>>> ElgNew<(B,)> for NavigationStack<R> {
     type Out = NavigationStack<R>;
     fn elg_new((path,): (B,)) -> Self {
         Self::with_path(path)
