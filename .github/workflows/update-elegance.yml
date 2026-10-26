@@ -4,9 +4,10 @@
 # never pins an Elegance whose prebuilt library doesn't exist yet.
 #
 # Users pick it up with `cargo update -p elegance` (git dependencies); a vX.Y.Z release keeps what
-# it pinned. To update right away, run this workflow by hand (optionally with a branch, tag, or
-# commit), or have Elegance's CI send a repository_dispatch event of type "elegance-updated"
-# (that needs a token with access to this repository).
+# it pinned. Elegance's notify-bindings.yml starts it after each push to Elegance's main (a
+# repository_dispatch event of type "elegance-updated" with the commit, once Elegance has the
+# ELEGANCE_RS_TOKEN secret); the schedule catches anything else. It can also be run by hand with a
+# branch, tag, or commit.
 name: Update Elegance
 
 on:
