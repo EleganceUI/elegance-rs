@@ -475,7 +475,8 @@ ELG_EXPORT void elg_effects_set_allows_hit_testing(Effects* e, bool enabled) {
 
 struct ElgEventCall {
     // 0 pointer, 1 hover, 2 scroll, 3 key, 4 focusable (ret bool*), 5 focus, 6 accepts_text_input
-    // (ret bool*), 7 text_input, 8 hover_delay (ret ElgOptHoverDelay*), 9 covers_frame (ret bool*).
+    // (ret bool*), 7 text_input, 8 hover_delay (ret ElgOptHoverDelay*), 9 covers_frame (ret bool*),
+    // 10 pointer_style (ret int32_t*), 11 magnify, 12 rotate, 13 smart_magnify.
     // The others: ret ElgEventResult*.
     int32_t op;
     ElgPointerEvent pointer;
@@ -484,6 +485,9 @@ struct ElgEventCall {
     ElgScrollEvent scroll;
     ElgKeyEvent key;
     ElgTextInputEvent text;
+    ElgPoint location; // pointer_style, smart_magnify
+    ElgMagnifyEvent magnify;
+    ElgRotateEvent rotate;
 };
 
 struct ElgOptHoverDelay {
@@ -515,10 +519,36 @@ public:
         call.flag = inside;
         return result(call);
     }
+    PointerStyle pointer_style(Point location) const override {
+        ElgEventCall call{};
+        call.op = 10;
+        call.location = {location.x, location.y};
+        int32_t style = 0;
+        f_->call(&call, &style);
+        return static_cast<PointerStyle>(style);
+    }
     EventResult scroll(const ScrollEvent& event) override {
         ElgEventCall call{};
         call.op = 2;
-        call.scroll = {{event.location.x, event.location.y}, event.dx, event.dy, event.precise, mods(event.modifiers)};
+        call.scroll = c_scroll_event(event);
+        return result(call);
+    }
+    EventResult magnify(const MagnifyEvent& event) override {
+        ElgEventCall call{};
+        call.op = 11;
+        call.magnify = c_magnify_event(event);
+        return result(call);
+    }
+    EventResult rotate(const RotateEvent& event) override {
+        ElgEventCall call{};
+        call.op = 12;
+        call.rotate = c_rotate_event(event);
+        return result(call);
+    }
+    EventResult smart_magnify(Point location) override {
+        ElgEventCall call{};
+        call.op = 13;
+        call.location = {location.x, location.y};
         return result(call);
     }
     EventResult key(const KeyEvent& event) override {

@@ -13,7 +13,7 @@
 use crate::animation::{Animation, Transition};
 use crate::app::TitleBar;
 use crate::color::{Color, ColorScheme, Material, ShapeStyle, ThemeColor};
-use crate::events::{Cursor, Key};
+use crate::events::{Key, PointerStyle};
 use crate::font::{Font, Weight};
 use crate::geometry::{
     Alignment, Axis, ContentMode, CornerRadii, EdgeInsets, Edges, HorizontalAlignment, Len,
@@ -249,7 +249,7 @@ dots! {
     toggle { AccessibilityRole => AccessibilityRole::Toggle }
     checkbox { AccessibilityRole => AccessibilityRole::Checkbox }
     slider { AccessibilityRole => AccessibilityRole::Slider }
-    progress { AccessibilityRole => AccessibilityRole::Progress }
+    progress { AccessibilityRole => AccessibilityRole::Progress, PointerStyle => PointerStyle::Progress }
     text_field { AccessibilityRole => AccessibilityRole::TextField }
     list { AccessibilityRole => AccessibilityRole::List }
     list_item { AccessibilityRole => AccessibilityRole::ListItem }
@@ -259,22 +259,24 @@ dots! {
     // Windows.
     system { TitleBar => TitleBar::System }
     hidden { TitleBar => TitleBar::Hidden }
-    automatic { WindowControlsStyle => WindowControlsStyle::Automatic }
+    integrated { TitleBar => TitleBar::Integrated }
+    automatic { WindowControlsStyle => WindowControlsStyle::Automatic, PointerStyle => PointerStyle::Automatic }
     traffic_lights { WindowControlsStyle => WindowControlsStyle::TrafficLights }
     root { HotReloadShow => HotReloadShow::Root }
     previews { HotReloadShow => HotReloadShow::Previews }
 
-    // Cursors.
-    arrow { Cursor => Cursor::Arrow }
-    text { Cursor => Cursor::Text }
-    pointer { Cursor => Cursor::Pointer }
-    crosshair { Cursor => Cursor::Crosshair }
-    r#move { Cursor => Cursor::Move }
-    resize_horizontal { Cursor => Cursor::ResizeHorizontal }
-    resize_vertical { Cursor => Cursor::ResizeVertical }
-    resize_nwse { Cursor => Cursor::ResizeNwse }
-    resize_nesw { Cursor => Cursor::ResizeNesw }
-    not_allowed { Cursor => Cursor::NotAllowed }
+    // Pointer styles (`automatic` and `progress` are above).
+    arrow { PointerStyle => PointerStyle::Arrow }
+    text { PointerStyle => PointerStyle::Text }
+    pointer { PointerStyle => PointerStyle::Pointer }
+    crosshair { PointerStyle => PointerStyle::Crosshair }
+    r#move { PointerStyle => PointerStyle::Move }
+    wait { PointerStyle => PointerStyle::Wait }
+    resize_horizontal { PointerStyle => PointerStyle::ResizeHorizontal }
+    resize_vertical { PointerStyle => PointerStyle::ResizeVertical }
+    resize_nwse { PointerStyle => PointerStyle::ResizeNwse }
+    resize_nesw { PointerStyle => PointerStyle::ResizeNesw }
+    not_allowed { PointerStyle => PointerStyle::NotAllowed }
 
     // Video frame formats.
     bgra { VideoFormat => VideoFormat::Bgra }
@@ -310,5 +312,6 @@ dots! {
         Prop<ShapeStyle> => [Color, ThemeColor, Material],
         Prop<Font> => [Font],
         Prop<ColorScheme> => [ColorScheme],
+        Prop<PointerStyle> => [PointerStyle],
     }
 }

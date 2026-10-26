@@ -988,6 +988,40 @@ ELG_EXPORT View* elg_mod_on_size_change(const View* v, ElgClosure on_size_change
     ELG_CATCH(nullptr)
 }
 
+// `on_magnify` args: ElgMagnifyEvent*.
+ELG_EXPORT View* elg_mod_on_magnify(const View* v, ElgClosure on_magnify) {
+    ELG_TRY
+    SharedFn f = share(on_magnify);
+    return out(v->on_magnify([f](const MagnifyEvent& event) {
+        ElgMagnifyEvent arg = c_magnify_event(event);
+        f->call(&arg, nullptr);
+    }));
+    ELG_CATCH(nullptr)
+}
+// `on_rotate` args: ElgRotateEvent*.
+ELG_EXPORT View* elg_mod_on_rotate(const View* v, ElgClosure on_rotate) {
+    ELG_TRY
+    SharedFn f = share(on_rotate);
+    return out(v->on_rotate([f](const RotateEvent& event) {
+        ElgRotateEvent arg = c_rotate_event(event);
+        f->call(&arg, nullptr);
+    }));
+    ELG_CATCH(nullptr)
+}
+// `on_smart_magnify` args: ElgPoint*.
+ELG_EXPORT View* elg_mod_on_smart_magnify(const View* v, ElgClosure on_smart_magnify) {
+    ELG_TRY
+    SharedFn f = share(on_smart_magnify);
+    return out(v->on_smart_magnify([f](Point location) {
+        ElgPoint arg{location.x, location.y};
+        f->call(&arg, nullptr);
+    }));
+    ELG_CATCH(nullptr)
+}
+ELG_EXPORT View* elg_mod_pointer_style(const View* v, ElgProp style) {
+    MOD_TRY(v->pointer_style(prop<PointerStyle>(style)))
+}
+
 // `on_hover` args: bool*.
 ELG_EXPORT View* elg_mod_on_hover(const View* v, ElgClosure on_hover, const ElgHoverDelay* delay) {
     ELG_TRY

@@ -22,7 +22,7 @@ use crate::color::{
 };
 use crate::dot;
 use crate::environment::EnvironmentValues;
-use crate::events::HoverDelay;
+use crate::events::{HoverDelay, PointerStyle};
 use crate::ffi;
 use crate::font::Font;
 use crate::geometry::Size;
@@ -172,7 +172,7 @@ macro_rules! closure_props {
         }
     )*};
 }
-closure_props!(f32, bool, Size, Font, ColorScheme, Theme, HoverDelay);
+closure_props!(f32, bool, Size, Font, ColorScheme, Theme, HoverDelay, PointerStyle);
 
 impl<F: Fn() -> R + 'static, R: Into<String>> IntoProp<String> for F {
     fn into_prop(self) -> Prop<String> {
@@ -388,6 +388,10 @@ macro_rules! value_markers {
 }
 value_markers!(Font: large_title, title, title2, title3, headline, body, callout, subheadline, footnote, caption, caption2);
 value_markers!(ColorScheme: light, dark);
+value_markers!(
+    PointerStyle: automatic, arrow, pointer, text, crosshair, r#move, wait, progress, resize_horizontal,
+    resize_vertical, resize_nwse, resize_nesw, not_allowed
+);
 
 // --- To C ---
 
@@ -420,6 +424,7 @@ pod_value!(bool, bool, |v| *v);
 pod_value!(Color, sys::ElgColor, |v| v.c());
 pod_value!(Size, sys::ElgSize, |v| v.c());
 pod_value!(ColorScheme, i32, |v| *v as i32);
+pod_value!(PointerStyle, i32, |v| *v as i32);
 pod_value!(Theme, sys::ElgTheme, |v| v.c());
 pod_value!(HoverDelay, sys::ElgHoverDelay, |v| v.c());
 

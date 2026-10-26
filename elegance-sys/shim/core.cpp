@@ -476,6 +476,16 @@ ELG_EXPORT bool elg_window_is_active(const WindowHandle* window) {
     return window->is_active();
     ELG_CATCH(false)
 }
+ELG_EXPORT int32_t elg_window_title_bar(const WindowHandle* window) {
+    ELG_TRY
+    return static_cast<int32_t>(window->title_bar());
+    ELG_CATCH(0)
+}
+ELG_EXPORT ElgRect elg_window_system_controls_frame(const WindowHandle* window) {
+    ELG_TRY
+    return c_rect(window->system_controls_frame());
+    ELG_CATCH(ElgRect{})
+}
 
 ELG_EXPORT View* elg_window_controls(int32_t style, bool minimize, bool maximize) {
     ELG_TRY
@@ -495,6 +505,8 @@ struct ElgWindowDesc {
     bool has_background;
     ElgColor background;
     int32_t title_bar;
+    bool has_traffic_lights_position;
+    ElgPoint traffic_lights_position;
     bool transparent;
     float opacity;
     bool fullscreen;
@@ -527,6 +539,9 @@ ELG_EXPORT void elg_app_window(App* app, const ElgWindowDesc* desc, ElgClosure c
         window.background = color(desc->background);
     }
     window.title_bar = static_cast<TitleBar>(desc->title_bar);
+    if (desc->has_traffic_lights_position) {
+        window.traffic_lights_position = point(desc->traffic_lights_position);
+    }
     window.transparent = desc->transparent;
     window.opacity = desc->opacity;
     window.fullscreen = desc->fullscreen;
@@ -560,12 +575,6 @@ ELG_EXPORT void elg_post_to_ui_thread(ElgClosure task) {
 
 ELG_EXPORT const char* elg_version() {
     return version();
-}
-
-ELG_EXPORT void elg_set_cursor(int32_t cursor) {
-    ELG_TRY
-    set_cursor(static_cast<Cursor>(cursor));
-    ELG_CATCH_VOID
 }
 
 // --- Animation ---

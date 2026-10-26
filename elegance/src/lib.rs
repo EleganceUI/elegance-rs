@@ -96,7 +96,7 @@ pub mod window;
 pub use elegance_macros::{component, elg, elg_builder, preview};
 
 pub use animation::{with_animation, Animation, AnimationValue, Pose, Transition};
-pub use app::{post_to_ui_thread, set_cursor, version, App, AppHandle, TitleBar, WindowDesc};
+pub use app::{post_to_ui_thread, version, App, AppHandle, TitleBar, WindowDesc};
 pub use color::{
     AngularGradient, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop,
     LinearGradient, Material, RadialGradient, ShapeStyle, Theme, ThemeColor,
@@ -104,9 +104,9 @@ pub use color::{
 pub use environment::{Environment, EnvironmentKey, EnvironmentValues};
 pub use error::{Error, ErrorKind};
 pub use events::{
-    Cursor, DragEvent, EventResult, HoverDelay, Key, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseButton, PixelSize, PointerEvent, PointerEventKind, ScrollEvent, TextInputEvent,
-    TextInputKind,
+    DragEvent, EventResult, GesturePhase, HoverDelay, Key, KeyEvent, KeyEventKind, KeyModifiers,
+    MagnifyEvent, MouseButton, PixelSize, PointerEvent, PointerEventKind, PointerStyle,
+    RotateEvent, ScrollEvent, TextInputEvent, TextInputKind,
 };
 pub use font::{register_emoji_font, register_font, register_font_data, Font, Weight};
 pub use geometry::{

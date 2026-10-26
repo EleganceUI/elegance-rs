@@ -266,7 +266,7 @@ fn namespaces_preserve_marker_types_and_defaults() {
     let _: dot::leading = horizontal.leading;
     let _: dot::trailing = horizontal.trailing;
     let _: dot::center = horizontal.center;
-    let _: dot::r#move = Cursor::dot_values().r#move;
+    let _: dot::r#move = PointerStyle::dot_values().r#move;
     let all = dot::Values::default();
     let _: dot::accent = all.accent;
     let _: dot::infinity = all.infinity;

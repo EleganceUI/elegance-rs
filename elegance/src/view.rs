@@ -11,7 +11,10 @@ use crate::animation::{Animation, Transition};
 use crate::color::{Color, ColorScheme, ShapeStyle, Theme};
 use crate::environment::EnvironmentKey;
 use crate::error::ffi;
-use crate::events::{DragEvent, HoverDelay, Key, KeyEvent, PixelSize, PointerEvent, ScrollEvent};
+use crate::events::{
+    DragEvent, HoverDelay, Key, KeyEvent, MagnifyEvent, PixelSize, PointerEvent, PointerStyle, RotateEvent,
+    ScrollEvent,
+};
 use crate::ffi as cffi;
 use crate::font::{Font, Weight};
 use crate::geometry::{
@@ -991,6 +994,34 @@ pub trait ViewExt: IntoView + Sized {
         let action = cffi::action(action);
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_tap_gesture(v, action, count) })
+    }
+    /// Pinching on a trackpad over the view (began ... ended). The innermost view handling it
+    /// under the pointer takes the gesture.
+    fn on_magnify(self, action: impl Fn(&MagnifyEvent) + 'static) -> View {
+        let action = cffi::consumer(move |e: sys::ElgMagnifyEvent| action(&MagnifyEvent::from_c(&e)));
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_magnify(v, action) })
+    }
+    /// Turning two fingers on a trackpad over the view (began ... ended).
+    fn on_rotate(self, action: impl Fn(&RotateEvent) + 'static) -> View {
+        let action = cffi::consumer(move |e: sys::ElgRotateEvent| action(&RotateEvent::from_c(&e)));
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_rotate(v, action) })
+    }
+    /// A two-finger double tap over the view (macOS's smart zoom), with its location.
+    fn on_smart_magnify(self, action: impl Fn(Point) + 'static) -> View {
+        let action = cffi::consumer(move |p: sys::ElgPoint| action(Point::from_c(p)));
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_smart_magnify(v, action) })
+    }
+    /// The pointer's shape over the view, like CSS's `cursor`: `.pointer_style(.pointer)` over
+    /// something to click. Views inside can set their own (a text field's I-beam). Reactive:
+    /// `.pointer_style(move || if busy.get() { PointerStyle::Wait } else { PointerStyle::Automatic })`.
+    fn pointer_style(self, style: impl IntoProp<PointerStyle>) -> View {
+        let view = self.into_view();
+        with_prop(style.into_prop(), |p| {
+            view.modify(|v| unsafe { sys::elg_mod_pointer_style(v, p) })
+        })
     }
     /// Observes this view's actual layout size in physical pixels, including display-scale changes.
     ///

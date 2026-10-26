@@ -160,6 +160,23 @@ struct ElgScrollEvent {
     float dx, dy;
     bool precise;
     uint32_t modifiers;
+    int32_t phase;
+    bool momentum;
+    double time;
+};
+
+struct ElgMagnifyEvent {
+    ElgPoint location;
+    float scale;
+    float delta;
+    int32_t phase;
+};
+
+struct ElgRotateEvent {
+    ElgPoint location;
+    float degrees;
+    float delta;
+    int32_t phase;
 };
 
 struct ElgTextInputEvent {
@@ -478,6 +495,19 @@ inline ElgKeyEvent c_key_event(const elg::KeyEvent& e) {
     return {static_cast<int32_t>(e.kind), static_cast<int32_t>(e.key), static_cast<uint32_t>(e.modifiers), e.repeat};
 }
 
+inline ElgScrollEvent c_scroll_event(const elg::ScrollEvent& e) {
+    return {{e.location.x, e.location.y}, e.dx, e.dy, e.precise, static_cast<uint32_t>(e.modifiers),
+            static_cast<int32_t>(e.phase), e.momentum, e.time};
+}
+
+inline ElgMagnifyEvent c_magnify_event(const elg::MagnifyEvent& e) {
+    return {{e.location.x, e.location.y}, e.scale, e.delta, static_cast<int32_t>(e.phase)};
+}
+
+inline ElgRotateEvent c_rotate_event(const elg::RotateEvent& e) {
+    return {{e.location.x, e.location.y}, e.degrees, e.delta, static_cast<int32_t>(e.phase)};
+}
+
 // The C form of each prop value type, for kind 0 (static) props.
 template <class T>
 struct PropValue;
@@ -513,6 +543,10 @@ struct PropValue<elg::ShapeStyle> {
 template <>
 struct PropValue<elg::ColorScheme> {
     static elg::ColorScheme from(const void* v) { return static_cast<elg::ColorScheme>(*static_cast<const int32_t*>(v)); }
+};
+template <>
+struct PropValue<elg::PointerStyle> {
+    static elg::PointerStyle from(const void* v) { return static_cast<elg::PointerStyle>(*static_cast<const int32_t*>(v)); }
 };
 template <>
 struct PropValue<elg::Theme> {

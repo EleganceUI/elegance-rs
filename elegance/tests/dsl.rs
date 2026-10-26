@@ -121,6 +121,9 @@ impl EventHandler for Clicks {
             EventResult::IGNORED
         }
     }
+    fn pointer_style(&self, location: Point) -> PointerStyle {
+        if location.x < 4.0 { PointerStyle::ResizeHorizontal } else { PointerStyle::Automatic }
+    }
 }
 struct ClickModifier;
 impl EventModifier for ClickModifier {
@@ -216,6 +219,12 @@ fn gallery() -> impl IntoView {
                     .popover($showing, || elg! { Text("Popover") }, opens: .above)
                     .help("Turns it up")
                     .on_key_press(.space, move || volume -= 0.1)
+                    .pointer_style(.pointer)
+                Text("Zoom")
+                    .on_magnify(|e| { let _: f32 = e.scale; })
+                    .on_rotate(|e| { let _: GesturePhase = e.phase; })
+                    .on_smart_magnify(|at| { let _: Point = at; })
+                    .pointer_style(move || if on.get() { PointerStyle::Wait } else { PointerStyle::Automatic })
             }
         }
         .environment::<Compact>(true)
@@ -282,6 +291,13 @@ fn grid_tracks() {
 #[test]
 fn dsl_compiles() {
     let _ = gallery as fn() -> _;
+}
+
+#[test]
+fn integrated_title_bar() {
+    let desc = WindowDesc::new("App").title_bar(TitleBar::Integrated).traffic_lights_position(16.0, 18.0);
+    assert_eq!(desc.title_bar, TitleBar::Integrated);
+    assert_eq!(desc.traffic_lights_position, Some(Point::new(16.0, 18.0)));
 }
 
 fn nested_shorthand_keeps_its_own_context() -> impl IntoView {

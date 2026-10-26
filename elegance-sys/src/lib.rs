@@ -303,6 +303,27 @@ pub struct ElgScrollEvent {
     pub dy: f32,
     pub precise: bool,
     pub modifiers: u32,
+    pub phase: i32,
+    pub momentum: bool,
+    pub time: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgMagnifyEvent {
+    pub location: ElgPoint,
+    pub scale: f32,
+    pub delta: f32,
+    pub phase: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgRotateEvent {
+    pub location: ElgPoint,
+    pub degrees: f32,
+    pub delta: f32,
+    pub phase: i32,
 }
 
 #[repr(C)]
@@ -392,6 +413,8 @@ pub struct ElgWindowDesc {
     pub has_background: bool,
     pub background: ElgColor,
     pub title_bar: i32,
+    pub has_traffic_lights_position: bool,
+    pub traffic_lights_position: ElgPoint,
     pub transparent: bool,
     pub opacity: f32,
     pub fullscreen: bool,
@@ -530,6 +553,9 @@ pub struct ElgEventCall {
     pub scroll: ElgScrollEvent,
     pub key: ElgKeyEvent,
     pub text: ElgTextInputEvent,
+    pub location: ElgPoint,
+    pub magnify: ElgMagnifyEvent,
+    pub rotate: ElgRotateEvent,
 }
 
 #[repr(C)]
@@ -733,6 +759,8 @@ extern "C" {
     pub fn elg_window_toggle_maximized(window: *const WindowHandle);
     pub fn elg_window_is_maximized(window: *const WindowHandle) -> bool;
     pub fn elg_window_is_active(window: *const WindowHandle) -> bool;
+    pub fn elg_window_title_bar(window: *const WindowHandle) -> i32;
+    pub fn elg_window_system_controls_frame(window: *const WindowHandle) -> ElgRect;
     pub fn elg_window_controls(style: i32, minimize: bool, maximize: bool) -> *mut View;
 
     pub fn elg_app_new() -> *mut App;
@@ -742,7 +770,6 @@ extern "C" {
     pub fn elg_app_quit(app: *mut App);
     pub fn elg_post_to_ui_thread(task: ElgClosure);
     pub fn elg_version() -> *const c_char;
-    pub fn elg_set_cursor(cursor: i32);
 
     pub fn elg_animation_linear(duration: f64) -> *mut Animation;
     pub fn elg_animation_ease_in(duration: f64) -> *mut Animation;
@@ -1018,6 +1045,10 @@ extern "C" {
     pub fn elg_mod_content_shape(v: *const View, shape: *const Shape) -> *mut View;
     pub fn elg_mod_allows_hit_testing(v: *const View, enabled: bool) -> *mut View;
     pub fn elg_mod_on_tap_gesture(v: *const View, on_tap: ElgClosure, count: i32) -> *mut View;
+    pub fn elg_mod_on_magnify(v: *const View, on_magnify: ElgClosure) -> *mut View;
+    pub fn elg_mod_on_rotate(v: *const View, on_rotate: ElgClosure) -> *mut View;
+    pub fn elg_mod_on_smart_magnify(v: *const View, on_smart_magnify: ElgClosure) -> *mut View;
+    pub fn elg_mod_pointer_style(v: *const View, style: ElgProp) -> *mut View;
     pub fn elg_mod_on_hover(v: *const View, on_hover: ElgClosure, delay: *const ElgHoverDelay) -> *mut View;
     /// `on_size_change` receives `*const ElgPixelSize` as its args; ownership transfers to the view.
     pub fn elg_mod_on_size_change(v: *const View, on_size_change: ElgClosure) -> *mut View;

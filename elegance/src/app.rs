@@ -9,9 +9,8 @@ use elegance_sys as sys;
 
 use crate::color::Color;
 use crate::error::{self, Error};
-use crate::events::Cursor;
 use crate::ffi as cffi;
-use crate::geometry::Size;
+use crate::geometry::{Point, Size};
 use crate::view::IntoView;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -22,6 +21,13 @@ pub enum TitleBar {
     /// None: the content fills the window. Draw your own title bar with `.window_drag_area()`
     /// and `WindowControls()`; edges still resize.
     Hidden,
+    /// The content fills the window, and the system's own window controls stay over it, where
+    /// the platform has them: the traffic lights on macOS (see
+    /// [`WindowDesc::traffic_lights_position`]). Leave room with
+    /// [`WindowHandle::system_controls_frame`](crate::WindowHandle::system_controls_frame) and
+    /// drag with `.window_drag_area()`. Elsewhere the window keeps its system title bar (as
+    /// `System`).
+    Integrated,
 }
 
 /// How a window opens.
@@ -37,6 +43,9 @@ pub struct WindowDesc {
     /// Shown where no view draws. Default: the theme's background (clear for transparent windows).
     pub background: Option<Color>,
     pub title_bar: TitleBar,
+    /// macOS, `TitleBar::Integrated`: where the close button's top-left corner sits, in points
+    /// from the window's top-left corner (the others follow it). Default: where macOS puts them.
+    pub traffic_lights_position: Option<Point>,
     /// The desktop shows through wherever the content isn't opaque (with `TitleBar::Hidden`).
     pub transparent: bool,
     /// The whole window's opacity, 0...1.
@@ -55,6 +64,7 @@ impl Default for WindowDesc {
             min_size: None,
             background: None,
             title_bar: TitleBar::System,
+            traffic_lights_position: None,
             transparent: false,
             opacity: 1.0,
             fullscreen: false,
@@ -86,6 +96,10 @@ impl WindowDesc {
     }
     pub fn title_bar(mut self, title_bar: impl Into<TitleBar>) -> Self {
         self.title_bar = title_bar.into();
+        self
+    }
+    pub fn traffic_lights_position(mut self, x: f32, y: f32) -> Self {
+        self.traffic_lights_position = Some(Point::new(x, y));
         self
     }
     pub fn transparent(mut self, transparent: bool) -> Self {
@@ -159,6 +173,8 @@ impl App {
             has_background: desc.background.is_some(),
             background: desc.background.unwrap_or_default().c(),
             title_bar: desc.title_bar as i32,
+            has_traffic_lights_position: desc.traffic_lights_position.is_some(),
+            traffic_lights_position: desc.traffic_lights_position.unwrap_or_default().c(),
             transparent: desc.transparent,
             opacity: desc.opacity,
             fullscreen: desc.fullscreen,
@@ -223,9 +239,4 @@ pub fn post_to_ui_thread(task: impl FnOnce() + Send + 'static) {
 pub fn version() -> &'static str {
     let ptr = unsafe { sys::elg_version() };
     unsafe { std::ffi::CStr::from_ptr(ptr) }.to_str().unwrap_or("")
-}
-
-/// Sets the mouse pointer's shape until something else sets it. UI thread.
-pub fn set_cursor(cursor: impl Into<Cursor>) {
-    crate::error::ffi!(sys::elg_set_cursor(cursor.into() as i32));
 }

@@ -1,4 +1,4 @@
-//! Input events, keys, and cursors.
+//! Input events, keys, and pointer styles.
 
 use std::ops::BitOr;
 
@@ -128,17 +128,27 @@ impl BitOr for KeyModifiers {
     }
 }
 
-/// The mouse pointer's shape (see [`crate::set_cursor`]).
+/// The mouse pointer's shape over a view, like CSS's `cursor` (see
+/// [`crate::ViewExt::pointer_style`]). The innermost view under the pointer with a style other
+/// than `Automatic` decides; with none, it's the arrow.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Cursor {
+#[repr(i32)]
+pub enum PointerStyle {
+    /// No style of its own: the views around it decide.
     #[default]
+    Automatic,
+    /// CSS's default.
     Arrow,
-    /// The I-beam.
-    Text,
-    /// A hand, over links.
+    /// A hand, over links and other things to click.
     Pointer,
+    /// The I-beam, over text to select or edit.
+    Text,
     Crosshair,
     Move,
+    /// Busy: nothing can be done until it's over.
+    Wait,
+    /// Busy, but it still takes input.
+    Progress,
     ResizeHorizontal,
     ResizeVertical,
     /// Corners: top-left to bottom-right.
@@ -146,6 +156,33 @@ pub enum Cursor {
     /// Corners: top-right to bottom-left.
     ResizeNesw,
     NotAllowed,
+}
+
+/// Where a trackpad gesture is. Mouse wheels have none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum GesturePhase {
+    /// Not part of a gesture (a mouse wheel, or a trackpad the platform doesn't follow).
+    #[default]
+    None,
+    /// Fingers touched down (scrolls: possibly before moving, with no delta).
+    Began,
+    Changed,
+    /// Fingers lifted.
+    Ended,
+    /// The system took the gesture over.
+    Cancelled,
+}
+
+impl GesturePhase {
+    fn from_c(value: i32) -> Self {
+        match value {
+            1 => GesturePhase::Began,
+            2 => GesturePhase::Changed,
+            3 => GesturePhase::Ended,
+            4 => GesturePhase::Cancelled,
+            _ => GesturePhase::None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -157,6 +194,13 @@ pub struct ScrollEvent {
     pub precise: bool,
     /// Held while scrolling (Ctrl+wheel: zoom).
     pub modifiers: KeyModifiers,
+    /// Trackpads on macOS: the fingers' gesture (began ... ended), then, after a flick, the
+    /// system's momentum (`momentum` true, began ... ended) as the scroll coasts to a stop.
+    pub phase: GesturePhase,
+    pub momentum: bool,
+    /// When it happened, in seconds on the event source's clock (for speeds between events);
+    /// 0 if unknown.
+    pub time: f64,
 }
 
 impl ScrollEvent {
@@ -167,6 +211,65 @@ impl ScrollEvent {
             dy: e.dy,
             precise: e.precise,
             modifiers: KeyModifiers(e.modifiers),
+            phase: GesturePhase::from_c(e.phase),
+            momentum: e.momentum,
+            time: e.time,
+        }
+    }
+}
+
+/// Pinching on a trackpad (or a touch screen).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MagnifyEvent {
+    pub location: Point,
+    /// Since the gesture began: 2 = twice as big.
+    pub scale: f32,
+    /// Since the last event, as a factor.
+    pub delta: f32,
+    pub phase: GesturePhase,
+}
+
+impl Default for MagnifyEvent {
+    fn default() -> Self {
+        Self { location: Point::default(), scale: 1.0, delta: 1.0, phase: GesturePhase::Changed }
+    }
+}
+
+impl MagnifyEvent {
+    pub(crate) fn from_c(e: &sys::ElgMagnifyEvent) -> Self {
+        Self {
+            location: Point::from_c(e.location),
+            scale: e.scale,
+            delta: e.delta,
+            phase: GesturePhase::from_c(e.phase),
+        }
+    }
+}
+
+/// Turning two fingers on a trackpad.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RotateEvent {
+    pub location: Point,
+    /// Since the gesture began, clockwise.
+    pub degrees: f32,
+    /// Since the last event.
+    pub delta: f32,
+    pub phase: GesturePhase,
+}
+
+impl Default for RotateEvent {
+    fn default() -> Self {
+        Self { location: Point::default(), degrees: 0.0, delta: 0.0, phase: GesturePhase::Changed }
+    }
+}
+
+impl RotateEvent {
+    pub(crate) fn from_c(e: &sys::ElgRotateEvent) -> Self {
+        Self {
+            location: Point::from_c(e.location),
+            degrees: e.degrees,
+            delta: e.delta,
+            phase: GesturePhase::from_c(e.phase),
         }
     }
 }

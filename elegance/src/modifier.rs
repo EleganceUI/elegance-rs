@@ -18,8 +18,8 @@ use elegance_sys as sys;
 use crate::color::Color;
 use crate::environment::EnvironmentValues;
 use crate::events::{
-    DragEvent, EventResult, HoverDelay, KeyEvent, MouseButton, PointerEvent, PointerEventKind, ScrollEvent,
-    TextInputEvent,
+    DragEvent, EventResult, HoverDelay, KeyEvent, MagnifyEvent, MouseButton, PointerEvent, PointerEventKind,
+    PointerStyle, RotateEvent, ScrollEvent, TextInputEvent,
 };
 use crate::ffi as cffi;
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Point, ProposedSize, Rect, Size, UnitPoint};
@@ -201,7 +201,26 @@ pub trait EventHandler: 'static {
     fn hover(&mut self, inside: bool) -> EventResult {
         EventResult::IGNORED
     }
+    /// The pointer's shape at `location` (window points) over this view. Asked innermost first,
+    /// and of the view a press is captured by while it is; `Automatic` leaves it to the views
+    /// around. For styles that depend on where the pointer is (a canvas's resize handles); a
+    /// fixed one is [`ViewExt::pointer_style`](crate::ViewExt::pointer_style).
+    fn pointer_style(&self, location: Point) -> PointerStyle {
+        PointerStyle::Automatic
+    }
     fn scroll(&mut self, event: &ScrollEvent) -> EventResult {
+        EventResult::IGNORED
+    }
+    /// Trackpad gestures: the handler under the pointer that consumes `Began` gets the rest of
+    /// the gesture, innermost first.
+    fn magnify(&mut self, event: &MagnifyEvent) -> EventResult {
+        EventResult::IGNORED
+    }
+    fn rotate(&mut self, event: &RotateEvent) -> EventResult {
+        EventResult::IGNORED
+    }
+    /// A two-finger double tap (zoom to fit, in Safari).
+    fn smart_magnify(&mut self, location: Point) -> EventResult {
         EventResult::IGNORED
     }
     fn key(&mut self, event: &KeyEvent) -> EventResult {
@@ -473,7 +492,12 @@ fn handle_event(handler: &std::cell::RefCell<Box<dyn EventHandler>>, args: *mut 
                 *(ret as *mut sys::ElgOptHoverDelay) =
                     sys::ElgOptHoverDelay { has: delay.is_some(), delay: delay.unwrap_or_default().c() };
             }
-            _ => *(ret as *mut bool) = h.covers_frame(),
+            9 => *(ret as *mut bool) = h.covers_frame(),
+            10 => *(ret as *mut i32) = h.pointer_style(Point::from_c(call.location)) as i32,
+            11 => result(h.magnify(&MagnifyEvent::from_c(&call.magnify))),
+            12 => result(h.rotate(&RotateEvent::from_c(&call.rotate))),
+            13 => result(h.smart_magnify(Point::from_c(call.location))),
+            _ => {}
         }
     }
 }

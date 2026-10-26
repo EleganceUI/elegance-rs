@@ -4,8 +4,10 @@ use std::ptr::NonNull;
 
 use elegance_sys as sys;
 
+use crate::app::TitleBar;
 use crate::dsl::ElgNew;
 use crate::error::ffi;
+use crate::geometry::Rect;
 use crate::view::{IntoView, View};
 
 /// The window a view is in (`Environment::<WindowKey>`): close, minimize, maximize it.
@@ -73,6 +75,27 @@ impl WindowHandle {
     pub fn is_active(&self) -> bool {
         self.ptr.is_some() && ffi!(sys::elg_window_is_active(self.as_ptr()))
     }
+    /// The window's [`WindowDesc::title_bar`](crate::WindowDesc::title_bar).
+    pub fn title_bar(&self) -> TitleBar {
+        if self.ptr.is_none() {
+            return TitleBar::System;
+        }
+        match ffi!(sys::elg_window_title_bar(self.as_ptr())) {
+            1 => TitleBar::Hidden,
+            2 => TitleBar::Integrated,
+            _ => TitleBar::System,
+        }
+    }
+    /// Where the system draws its window controls over the content (the traffic lights of a
+    /// `TitleBar::Integrated` window on macOS), in the window's points. Empty where it doesn't
+    /// (other title bars and platforms, fullscreen). Keep content clear of it. A tracked read:
+    /// closures that call it rerun when it changes.
+    pub fn system_controls_frame(&self) -> Rect {
+        if self.ptr.is_none() {
+            return Rect::default();
+        }
+        Rect::from_c(ffi!(sys::elg_window_system_controls_frame(self.as_ptr())))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -86,7 +109,10 @@ pub enum WindowControlsStyle {
     TrafficLights,
 }
 
-/// Minimize, maximize, and close buttons for a window with `TitleBar::Hidden`.
+/// Minimize, maximize, and close buttons for a window with `TitleBar::Hidden`. With
+/// `WindowControlsStyle::Automatic` they show only in hidden-title-bar windows: where the system
+/// draws its own controls (`TitleBar::System` and `Integrated`) this is empty, so the same layout
+/// works with either.
 pub struct WindowControls {
     style: WindowControlsStyle,
     minimize: bool,
