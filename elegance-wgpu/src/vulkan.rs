@@ -5,6 +5,7 @@
 //! Before HAL import, allocation performs a native GPU zero-clear and waits up
 //! to five seconds for its fence on the calling thread. No CPU pixels are copied;
 //! an uncertain submission/wait quarantines the allocation rather than freeing it.
+use crate::common::{Counts, Permit};
 use crate::{Config, Error, GpuImage};
 use ash::vk;
 use elegance_sys::gpu_image::{self as raw, Fence, Frame, Release};
@@ -12,10 +13,7 @@ use std::{
     ffi::{c_void, CStr},
     mem::ManuallyDrop,
     os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc, Arc,
-    },
+    sync::{atomic::Ordering, mpsc, Arc},
     time::Duration,
 };
 use wgpu::hal::{self, api::Vulkan};
@@ -37,37 +35,6 @@ const IMAGE_USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::from_raw(
 
 fn device_error(e: impl std::fmt::Display) -> Error {
     Error::Device(e.to_string())
-}
-
-#[derive(Default)]
-struct Counts {
-    active: AtomicUsize,
-    quarantined: AtomicUsize,
-}
-struct Permit(Arc<Counts>);
-impl Permit {
-    fn new(counts: &Arc<Counts>, limit: usize) -> Result<Self, Error> {
-        let mut active = counts.active.load(Ordering::Acquire);
-        loop {
-            if active >= limit {
-                return Err(Error::Busy);
-            }
-            match counts.active.compare_exchange_weak(
-                active,
-                active + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return Ok(Self(counts.clone())),
-                Err(actual) => active = actual,
-            }
-        }
-    }
-}
-impl Drop for Permit {
-    fn drop(&mut self) {
-        self.0.active.fetch_sub(1, Ordering::AcqRel);
-    }
 }
 
 struct Context {
@@ -211,11 +178,8 @@ struct StagedSignal<'a> {
 }
 impl StagedSignal<'_> {
     fn remove(&self) -> bool {
-        match unsafe { self.queue.as_hal::<Vulkan>() } { Some(queue) => {
-            queue.remove_signal_semaphore(self.semaphore)
-        } _ => {
-            false
-        }}
+        unsafe { self.queue.as_hal::<Vulkan>() }
+            .is_some_and(|queue| queue.remove_signal_semaphore(self.semaphore))
     }
 }
 impl Drop for StagedSignal<'_> {
@@ -558,12 +522,12 @@ fn retire_worker(rx: mpsc::Receiver<Retirement>, context: Arc<Context>) {
 /// Native import still requires Elegance's renderer to select that physical GPU.
 /// There is no cross-adapter, DMA-BUF, CPU-copy, or device-loss fallback.
 pub struct Bridge {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    image: GpuImage,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
+    pub(crate) image: GpuImage,
     context: Arc<Context>,
-    config: Config,
-    counts: Arc<Counts>,
+    pub(crate) config: Config,
+    pub(crate) counts: Arc<Counts>,
     tx: mpsc::Sender<Retirement>,
 }
 impl Bridge {
@@ -571,16 +535,7 @@ impl Bridge {
         if adapter.get_info().backend != wgpu::Backend::Vulkan {
             return Err(Error::Unsupported);
         }
-        if config.width == 0
-            || config.height == 0
-            || config.max_frames == 0
-            || !matches!(
-                config.format,
-                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
-            )
-        {
-            return Err(Error::InvalidConfig);
-        }
+        config.validate()?;
         let hal_adapter = unsafe { adapter.as_hal::<Vulkan>() }.ok_or(Error::Unsupported)?;
         let instance = hal_adapter.shared_instance().raw_instance();
         let physical = hal_adapter.raw_physical_device();
@@ -734,16 +689,7 @@ impl Bridge {
         retire_family: u32,
         retire_index: u32,
     ) -> Result<Self, Error> {
-        if config.width == 0
-            || config.height == 0
-            || config.max_frames == 0
-            || !matches!(
-                config.format,
-                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
-            )
-        {
-            return Err(Error::InvalidConfig);
-        }
+        config.validate()?;
         let hal_device = unsafe { device.as_hal::<Vulkan>() }.ok_or(Error::Unsupported)?;
         let hal_queue = unsafe { queue.as_hal::<Vulkan>() }.ok_or(Error::Unsupported)?;
         if hal_device.raw_device().handle() != hal_queue.raw_device().handle()
@@ -793,11 +739,7 @@ impl Bridge {
         }
         drop(hal_queue);
         drop(hal_device);
-        if config.width > device.limits().max_texture_dimension_2d
-            || config.height > device.limits().max_texture_dimension_2d
-        {
-            return Err(Error::InvalidConfig);
-        }
+        config.check_limits(&device)?;
         let image =
             GpuImage::new(config.width, config.height, config.origin).map_err(device_error)?;
         let context = Arc::new(Context {
@@ -827,81 +769,6 @@ impl Bridge {
             counts: Arc::default(),
             tx,
         })
-    }
-    pub fn device(&self) -> &wgpu::Device {
-        &self.device
-    }
-    pub fn image(&self) -> &GpuImage {
-        &self.image
-    }
-    /// Set the physical pixel dimensions for subsequent frames.
-    ///
-    /// Returns `Error::InvalidConfig` for zero dimensions or dimensions exceeding
-    /// the device's 2D texture limit, leaving the previous size unchanged.
-    /// The image handle and displayed frame are preserved until a new publication.
-    /// Outstanding frames retire normally under the same budget, including
-    /// quarantined allocations. This does not allocate, wait, or recreate the device.
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), Error> {
-        self.config
-            .resize(width, height, self.device.limits().max_texture_dimension_2d)
-    }
-    pub fn clear(&self) {
-        self.image.clear();
-    }
-    pub fn in_flight(&self) -> usize {
-        self.counts.active.load(Ordering::Acquire)
-    }
-    pub fn quarantined(&self) -> usize {
-        self.counts.quarantined.load(Ordering::Acquire)
-    }
-    fn extent(&self) -> wgpu::Extent3d {
-        wgpu::Extent3d {
-            width: self.config.width,
-            height: self.config.height,
-            depth_or_array_layers: 1,
-        }
-    }
-    /// Source must belong to device(), be single-sampled, same size/format, and COPY_SRC.
-    /// Device mismatch follows wgpu's validation/error-scope policy.
-    pub fn copy_from(&mut self, source: &wgpu::Texture) -> Result<(), Error> {
-        if source.size() != self.extent()
-            || source.format() != self.config.format
-            || source.dimension() != wgpu::TextureDimension::D2
-            || source.sample_count() != 1
-            || !source.usage().contains(wgpu::TextureUsages::COPY_SRC)
-        {
-            return Err(Error::InvalidConfig);
-        }
-        let size = self.extent();
-        unsafe {
-            self.render_raw(|_, encoder, target| {
-                encoder.copy_texture_to_texture(
-                    source.as_image_copy(),
-                    target.as_image_copy(),
-                    size,
-                );
-            })
-        }
-    }
-    /// RGB values are stored unchanged in UNORM storage (supply sRGB-encoded RGB).
-    pub fn clear_color(&mut self, color: wgpu::Color) -> Result<(), Error> {
-        unsafe {
-            self.render_raw(|_, encoder, target| {
-                let view = target.create_view(&Default::default());
-                let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    ..Default::default()
-                });
-            })
-        }
     }
     /// Encode, submit, release external ownership, and publish a fresh image.
     /// Allocation first zero-clears the native image on the GPU and waits up to
@@ -972,11 +839,7 @@ impl Bridge {
         let info = image_info(self.config).push_next(&mut external);
         let frame = Frame {
             transport: raw::TRANSPORT_VULKAN_OPAQUE_FD,
-            format: if self.config.format == wgpu::TextureFormat::Bgra8Unorm {
-                raw::FORMAT_BGRA8
-            } else {
-                raw::FORMAT_RGBA8
-            },
+            format: self.config.raw_format(),
             width: self.config.width,
             height: self.config.height,
             handle: std::ptr::null_mut(),
@@ -1159,12 +1022,6 @@ impl Bridge {
         })
     }
 }
-impl Drop for Bridge {
-    fn drop(&mut self) {
-        self.image.clear();
-    }
-}
-
 fn secondary_queue_index(producer: u32, physical_count: u32) -> Result<u32, Error> {
     if physical_count < 2 || producer >= physical_count {
         return Err(device_error("two queues in the producer graphics family are required; create a dedicated Bridge::new device instead"));
@@ -1273,39 +1130,7 @@ fn check_capabilities(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn budget_is_held_until_permit_drops() {
-        let counts = Arc::new(Counts::default());
-        let one = Permit::new(&counts, 2).unwrap();
-        let two = Permit::new(&counts, 2).unwrap();
-        assert!(matches!(Permit::new(&counts, 2), Err(Error::Busy)));
-        drop(one);
-        assert!(Permit::new(&counts, 2).is_ok());
-        drop(two);
-        assert_eq!(counts.active.load(Ordering::Acquire), 0);
-    }
-    #[test]
-    fn concurrent_budget_reservations_are_bounded() {
-        let counts = Arc::new(Counts::default());
-        let barrier = Arc::new(std::sync::Barrier::new(16));
-        let workers: Vec<_> = (0..16)
-            .map(|_| {
-                let counts = counts.clone();
-                let barrier = barrier.clone();
-                std::thread::spawn(move || {
-                    let permit = Permit::new(&counts, 3);
-                    barrier.wait();
-                    assert!(counts.active.load(Ordering::Acquire) <= 3);
-                    barrier.wait();
-                    drop(permit);
-                })
-            })
-            .collect();
-        for worker in workers {
-            worker.join().unwrap();
-        }
-        assert_eq!(counts.active.load(Ordering::Acquire), 0);
-    }
+    use std::sync::atomic::AtomicUsize;
     #[test]
     fn borrowed_fence_fd_is_duplicated_and_cloexec() {
         let (source, _peer) = std::os::unix::net::UnixStream::pair().unwrap();

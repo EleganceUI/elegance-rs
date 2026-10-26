@@ -1,3 +1,4 @@
+use crate::common::{Counts, NativeErrors, Permit};
 use crate::{Config, Error, GpuImage};
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained};
@@ -12,58 +13,13 @@ use objc2_metal::{
 };
 use std::{
     ffi::c_void,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc, Arc,
-    },
+    sync::{atomic::Ordering, mpsc, Arc},
     time::Duration,
 };
 use wgpu::hal::{self, api::Metal};
 
 use elegance_sys::gpu_image::{self as raw, Fence, Frame, Release};
 
-// wgpu-core on this pinned native backend returns ready error-scope futures.
-// Do not block or silently treat Pending as success if that implementation changes.
-struct NativeErrors(Vec<wgpu::ErrorScopeGuard>);
-impl NativeErrors {
-    fn new(device: &wgpu::Device) -> Self {
-        Self(vec![
-            device.push_error_scope(wgpu::ErrorFilter::OutOfMemory),
-            device.push_error_scope(wgpu::ErrorFilter::Internal),
-            device.push_error_scope(wgpu::ErrorFilter::Validation),
-        ])
-    }
-    fn finish(mut self) -> Result<(), Error> {
-        use std::{
-            future::Future,
-            task::{Context, Poll, Waker},
-        };
-        let mut error = None;
-        while let Some(scope) = self.0.pop() {
-            let future = scope.pop();
-            let mut future = std::pin::pin!(future);
-            let result = match future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
-            {
-                Poll::Ready(None) => None,
-                Poll::Ready(Some(e)) => Some(e.to_string()),
-                Poll::Pending => Some("native wgpu error scope unexpectedly pending".into()),
-            };
-            if error.is_none() {
-                error = result;
-            }
-        }
-        error.map_or(Ok(()), |e| Err(Error::Device(e)))
-    }
-}
-impl Drop for NativeErrors {
-    fn drop(&mut self) {
-        while let Some(scope) = self.0.pop() {
-            drop(scope);
-        }
-    }
-}
 struct StagedSignal<'a> {
     queue: &'a wgpu::Queue,
     event: Event,
@@ -76,36 +32,7 @@ impl Drop for StagedSignal<'_> {
     }
 }
 
-fn reserve(counts: &Counts, limit: usize) -> Result<(), Error> {
-    let mut active = counts.active.load(Ordering::Acquire);
-    loop {
-        if active >= limit {
-            return Err(Error::Busy);
-        }
-        match counts.active.compare_exchange_weak(
-            active,
-            active + 1,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => return Ok(()),
-            Err(actual) => active = actual,
-        }
-    }
-}
-
 type Event = Retained<ProtocolObject<dyn MTLSharedEvent>>;
-#[derive(Default)]
-struct Counts {
-    active: AtomicUsize,
-    quarantined: AtomicUsize,
-}
-struct Permit(Arc<Counts>);
-impl Drop for Permit {
-    fn drop(&mut self) {
-        self.0.active.fetch_sub(1, Ordering::AcqRel);
-    }
-}
 struct Backing {
     _texture: wgpu::Texture,
     surface: CFRetained<IOSurfaceRef>,
@@ -219,11 +146,11 @@ unsafe fn released_inner(userdata: *mut c_void, release: *const Release) {
 /// never exposed here: HAL event staging and submission must remain atomic with
 /// respect to all other users of that queue.
 pub struct Bridge {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    image: GpuImage,
-    config: Config,
-    counts: Arc<Counts>,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
+    pub(crate) image: GpuImage,
+    pub(crate) config: Config,
+    pub(crate) counts: Arc<Counts>,
     tx: mpsc::Sender<Retirement>,
 }
 impl Bridge {
@@ -233,16 +160,7 @@ impl Bridge {
         if adapter.get_info().backend != wgpu::Backend::Metal {
             return Err(Error::Unsupported);
         }
-        if config.width == 0
-            || config.height == 0
-            || config.max_frames == 0
-            || !matches!(
-                config.format,
-                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
-            )
-        {
-            return Err(Error::InvalidConfig);
-        }
+        config.validate()?;
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
@@ -278,16 +196,7 @@ impl Bridge {
         queue: wgpu::Queue,
         config: Config,
     ) -> Result<Self, Error> {
-        if config.width == 0
-            || config.height == 0
-            || config.max_frames == 0
-            || !matches!(
-                config.format,
-                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
-            )
-        {
-            return Err(Error::InvalidConfig);
-        }
+        config.validate()?;
         {
             let metal_device = unsafe { device.as_hal::<Metal>() }.ok_or(Error::Unsupported)?;
             let metal_queue = unsafe { queue.as_hal::<Metal>() }.ok_or(Error::Unsupported)?;
@@ -298,11 +207,7 @@ impl Bridge {
                 return Err(Error::InvalidConfig);
             }
         }
-        if config.width > device.limits().max_texture_dimension_2d
-            || config.height > device.limits().max_texture_dimension_2d
-        {
-            return Err(Error::InvalidConfig);
-        }
+        config.check_limits(&device)?;
         let image = GpuImage::new(config.width, config.height, config.origin)
             .map_err(|e| Error::Device(e.to_string()))?;
         let (tx, rx) = mpsc::channel::<Retirement>();
@@ -351,80 +256,6 @@ impl Bridge {
             tx,
         })
     }
-    pub fn device(&self) -> &wgpu::Device {
-        &self.device
-    }
-    pub fn image(&self) -> &GpuImage {
-        &self.image
-    }
-    /// Set the physical pixel dimensions for subsequent frames.
-    ///
-    /// Returns `Error::InvalidConfig` for zero dimensions or dimensions exceeding
-    /// the device's 2D texture limit, leaving the previous size unchanged.
-    /// The image handle and displayed frame are preserved until a new publication.
-    /// Outstanding frames retire normally under the same budget, including
-    /// quarantined allocations. This does not allocate, wait, or recreate the device.
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), Error> {
-        self.config
-            .resize(width, height, self.device.limits().max_texture_dimension_2d)
-    }
-    pub fn clear(&self) {
-        self.image.clear();
-    }
-    pub fn in_flight(&self) -> usize {
-        self.counts.active.load(Ordering::Acquire)
-    }
-    pub fn quarantined(&self) -> usize {
-        self.counts.quarantined.load(Ordering::Acquire)
-    }
-
-    /// Copy mip zero of a same-device, same-format, same-size, single-sampled
-    /// COPY_SRC texture into a fresh IOSurface, submit, then publish. No CPU copy.
-    /// wgpu validation errors are returned as Error::Device before publication.
-    /// Pre-submit validation failures return their budget permit immediately.
-    pub fn copy_from(&mut self, source: &wgpu::Texture) -> Result<(), Error> {
-        if source.size() != self.extent()
-            || source.format() != self.config.format
-            || source.sample_count() != 1
-            || !source.usage().contains(wgpu::TextureUsages::COPY_SRC)
-        {
-            return Err(Error::InvalidConfig);
-        }
-        let size = self.extent();
-        // No destination resource is exposed to the caller.
-        unsafe {
-            self.render_raw(|_, encoder, target| {
-                encoder.copy_texture_to_texture(
-                    source.as_image_copy(),
-                    target.as_image_copy(),
-                    size,
-                )
-            })
-        }
-    }
-
-    /// Initialize and publish a solid color using a GPU render pass.
-    /// RGB values are stored as supplied in the UNORM texture (sRGB-encoded).
-    pub fn clear_color(&mut self, color: wgpu::Color) -> Result<(), Error> {
-        unsafe {
-            self.render_raw(|_, encoder, texture| {
-                let view = texture.create_view(&Default::default());
-                let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    ..Default::default()
-                });
-            })
-        }
-    }
-
     /// Encode all writes into the provided encoder, submit once, then publish.
     ///
     /// # Safety
@@ -469,11 +300,7 @@ impl Bridge {
         let backing = guard.0.take().unwrap();
         let frame = Frame {
             transport: raw::TRANSPORT_IOSURFACE,
-            format: if self.config.format == wgpu::TextureFormat::Bgra8Unorm {
-                raw::FORMAT_BGRA8
-            } else {
-                raw::FORMAT_RGBA8
-            },
+            format: self.config.raw_format(),
             width: self.config.width,
             height: self.config.height,
             handle: (&*backing.surface as *const IOSurfaceRef).cast_mut().cast(),
@@ -508,16 +335,8 @@ impl Bridge {
         }
         Ok(())
     }
-    fn extent(&self) -> wgpu::Extent3d {
-        wgpu::Extent3d {
-            width: self.config.width,
-            height: self.config.height,
-            depth_or_array_layers: 1,
-        }
-    }
     fn allocate(&self) -> Result<Backing, Error> {
-        reserve(&self.counts, self.config.max_frames)?;
-        let permit = Permit(self.counts.clone());
+        let permit = Permit::new(&self.counts, self.config.max_frames)?;
         let bgra = self.config.format == wgpu::TextureFormat::Bgra8Unorm;
         let values = [
             CFNumber::new_i64(self.config.width.into()),
@@ -634,52 +453,11 @@ impl Bridge {
         })
     }
 }
-impl Drop for Bridge {
-    fn drop(&mut self) {
-        self.image.clear();
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::block_on;
-
-    #[test]
-    fn budget_is_bounded_and_returned_on_completion() {
-        let counts = Arc::new(Counts::default());
-        reserve(&counts, 1).unwrap();
-        let permit = Permit(counts.clone());
-        assert!(matches!(reserve(&counts, 1), Err(Error::Busy)));
-        assert_eq!(counts.active.load(Ordering::Acquire), 1);
-        drop(permit);
-        assert_eq!(counts.active.load(Ordering::Acquire), 0);
-        reserve(&counts, 1).unwrap();
-        drop(Permit(counts));
-    }
-
-    #[test]
-    fn concurrent_reservations_never_exceed_budget() {
-        let counts = Arc::new(Counts::default());
-        let threads: Vec<_> = (0..8)
-            .map(|_| {
-                let counts = counts.clone();
-                std::thread::spawn(move || {
-                    for _ in 0..1000 {
-                        if reserve(&counts, 3).is_ok() {
-                            let _permit = Permit(counts.clone());
-                            assert!(counts.active.load(Ordering::Acquire) <= 3);
-                            std::thread::yield_now();
-                        }
-                    }
-                })
-            })
-            .collect();
-        for thread in threads {
-            thread.join().unwrap();
-        }
-        assert_eq!(counts.active.load(Ordering::Acquire), 0);
-    }
 
     fn test_config() -> Config {
         Config {
@@ -743,8 +521,7 @@ mod tests {
         assert_eq!(bridge.in_flight(), 0);
 
         // Synthetic quarantine: its permit must continue occupying the same budget.
-        reserve(&counts, 1).unwrap();
-        let permit = Permit(counts.clone());
+        let permit = Permit::new(&counts, 1).unwrap();
         counts.quarantined.store(1, Ordering::Release);
         bridge.resize(8, 8).unwrap();
         assert_eq!(bridge.quarantined(), 1);

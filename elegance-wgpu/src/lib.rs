@@ -73,6 +73,9 @@ impl fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+mod common;
+
 #[cfg(target_os = "macos")]
 mod metal;
 #[cfg(target_os = "macos")]
