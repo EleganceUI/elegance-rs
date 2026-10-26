@@ -33,8 +33,8 @@ fn main() -> Result<std::process::ExitCode, Error> {
   modifiers, effects, animation, media, GPU images, HTTP/WebSocket, desktop, previews.
 - `elegance-macros`: `elg!`, `#[component]`, and `#[preview]`.
 - `cargo-elegance`: `cargo elegance preview`, the preview host runner.
-- `elegance-wgpu`: native Rust wgpu → Elegance GPU-image sharing, with a local pinned
-  wgpu checkout. Metal is hardware-tested here, while DX12/Vulkan still require platform
+- `elegance-wgpu`: native Rust wgpu → Elegance GPU-image sharing, on wgpu 30.0.1 from
+  crates.io. Metal is hardware-tested here, while DX12/Vulkan still require platform
   validation.
 
 ## Using it

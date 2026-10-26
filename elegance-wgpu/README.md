@@ -12,20 +12,9 @@ A bounded, zero-CPU-pixel-copy bridge from native Rust **wgpu 30.0.1** to Elegan
 
 This is **not support for every Dawn backend**. D3D11, OpenGL/GLES, cross-adapter sharing, DMA-BUF, YUV/multi-plane images, and device-loss recovery are not implemented. Unsupported paths fail explicitly, with no CPU-copy fallback. Choose the same physical GPU on both sides; there is no automatic adapter negotiation.
 
-## Local wgpu checkout
+## wgpu version
 
-`wgpu/` is a vendored clone of <https://github.com/gfx-rs/wgpu>, pinned to tag `v30.0.1`, commit `40f4a34ebaf56f9a046231f54125ad046239d3f3`. Its sources, licenses and upstream Cargo workspace are committed directly in this repository, not as a submodule, so fresh checkouts need no additional Git repository. No remote fork was created or pushed. The original local clone metadata was preserved in the parent repository's `.git/elegance-wgpu-upstream.git` (local only, not needed to build).
-
-Inspection found that this release already provides the raw HAL texture import and external queue synchronization hooks needed by these three transports. **No GPU implementation patches to wgpu were necessary.** The local changes to its package manifests explicitly select their nested workspace, allowing the checkout to remain inside this crate. The parent workspace uses glob membership and excludes `elegance-wgpu/wgpu`; parent Cargo builds now work.
-
-Use `elegance_wgpu::wgpu` in the application and renderer, or point their `wgpu` dependencies to the **same local package**. Registry `wgpu` and this path package are different Cargo identities even when their versions match. A top-level application can patch registry dependencies:
-
-```toml
-[patch.crates-io]
-wgpu = { path = "/path/to/elegance-rs/elegance-wgpu/wgpu/wgpu" }
-```
-
-Cargo patches must be set at the consuming workspace root. Rust **1.93+** is required by the pinned wgpu tree. The vendored source is a separate Cargo workspace, but is versioned together with this integration. Preserve its upstream license files and explicit workspace pointers when updating the pinned snapshot.
+The bridge depends on wgpu from crates.io, pinned to exactly `=30.0.1`: it uses wgpu's HAL texture import and external queue synchronization hooks, which aren't covered by semver. Use `elegance_wgpu::wgpu` in the application and renderer, or depend on `wgpu = "=30.0.1"` yourself so Cargo unifies both on one crate; a different wgpu version is a different set of types that the bridge can't accept. Rust **1.93+** is required.
 
 ## Basic usage
 
