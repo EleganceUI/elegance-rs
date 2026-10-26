@@ -50,7 +50,7 @@ fn main() {
     if let Some(native) = (!dynamic).then(|| prebuilt::find(&manifest)).flatten() {
         let library = prebuilt::library(&native);
         let runtime = copy_runtime_files(&[native.join("lib")]);
-        link_lib("lib", &staged_or(&library, &runtime));
+        link_lib("lib", &library.to_string_lossy(), &runtime);
         println!("cargo:native_dir={}", native.display());
         println!("cargo:dynamic=false");
         return;
@@ -127,7 +127,7 @@ fn main() {
 
     let runtime = copy_runtime_files(&link.runtime);
     for (kind, lib) in &link.libs {
-        link_lib(kind, &staged_or(Path::new(lib), &runtime));
+        link_lib(kind, lib, &runtime);
     }
     println!("cargo:root={}", root.display());
     println!("cargo:build_dir={}", build.display());
@@ -253,7 +253,11 @@ fn staged_or(lib: &Path, runtime: &[PathBuf]) -> String {
     let staged = (env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos"))
         .then_some(lib)
         .filter(|path| path.extension().is_some_and(|ext| ext == "dylib"))
-        .and_then(|path| runtime.iter().find(|file| file.file_name() == path.file_name()));
+        .and_then(|path| {
+            runtime
+                .iter()
+                .find(|file| file.file_name() == path.file_name())
+        });
     staged
         .map_or(lib, PathBuf::as_path)
         .to_str()
@@ -262,7 +266,10 @@ fn staged_or(lib: &Path, runtime: &[PathBuf]) -> String {
 }
 
 // A library file becomes a search folder and a name; a bare name is a system library.
-fn link_lib(kind: &str, lib: &str) {
+fn link_lib(kind: &str, lib: &str, runtime: &[PathBuf]) {
+    let original = Path::new(lib);
+    let staged = staged_or(original, runtime);
+    let lib = staged.as_str();
     let path = Path::new(lib);
     let framework = lib
         .strip_prefix("-framework ")
@@ -285,7 +292,8 @@ fn link_lib(kind: &str, lib: &str) {
         return;
     }
     let name = if path.is_absolute() {
-        println!("cargo:rerun-if-changed={lib}");
+        // Watch the source, not the staged dylib rewritten by this build script.
+        println!("cargo:rerun-if-changed={}", original.display());
         println!(
             "cargo:rustc-link-search=native={}",
             path.parent().unwrap().display()
