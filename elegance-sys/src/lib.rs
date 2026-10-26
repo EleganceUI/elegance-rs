@@ -796,6 +796,8 @@ extern "C" {
     pub fn elg_transition_clone(transition: *const Transition) -> *mut Transition;
     pub fn elg_transition_free(transition: *mut Transition);
 
+    pub fn elg_layouts_core(sink: ElgStrSink, ctx: *mut c_void);
+
     // --- views.cpp ---
     pub fn elg_vstack(alignment: i32, spacing: ElgOptLen, children: *mut *mut View, count: usize) -> *mut View;
     pub fn elg_hstack(alignment: i32, spacing: ElgOptLen, children: *mut *mut View, count: usize) -> *mut View;
@@ -1158,6 +1160,8 @@ extern "C" {
         show: i32,
     ) -> *mut View;
 
+    pub fn elg_layouts_views(sink: ElgStrSink, ctx: *mut c_void);
+
     // --- ext.cpp ---
     pub fn elg_button_style_rust(make_body: ElgClosure) -> *mut ButtonStyle;
     pub fn elg_toggle_style_rust(make_body: ElgClosure) -> *mut ToggleStyle;
@@ -1205,6 +1209,8 @@ extern "C" {
     pub fn elg_effects_set_anchor(e: *mut Effects, anchor: ElgPoint);
     pub fn elg_effects_allows_hit_testing(e: *const Effects) -> bool;
     pub fn elg_effects_set_allows_hit_testing(e: *mut Effects, enabled: bool);
+
+    pub fn elg_layouts_ext(sink: ElgStrSink, ctx: *mut c_void);
 
     // --- platform.cpp ---
     pub fn elg_audio_output_devices(each: ElgClosure);
@@ -1357,4 +1363,123 @@ extern "C" {
     pub fn elg_tray_icon_free(icon: *mut TrayIcon);
     pub fn elg_tray_icon_set_tooltip(icon: *const TrayIcon, tooltip: ElgStr);
     pub fn elg_tray_icon_set_menu(icon: *const TrayIcon, menu: *const ElgTrayMenuItem, count: usize);
+
+    pub fn elg_layouts_platform(sink: ElgStrSink, ctx: *mut c_void);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::mem::{align_of, size_of};
+
+    unsafe extern "C" fn append(ctx: *mut c_void, ptr: *const c_char, len: usize) {
+        let text = unsafe { &mut *ctx.cast::<String>() };
+        let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) };
+        text.push_str(std::str::from_utf8(bytes).unwrap());
+    }
+
+    macro_rules! layouts {
+        ($($name:literal => $ty:ty),* $(,)?) => {
+            BTreeMap::from([$(($name, (size_of::<$ty>(), align_of::<$ty>()))),*])
+        };
+    }
+
+    /// Every struct shared with the shim has the C++ side's size and alignment, and every struct
+    /// the shim reports has a Rust declaration.
+    #[test]
+    fn struct_layouts_match_the_shim() {
+        let mut text = String::new();
+        for layouts in [elg_layouts_core, elg_layouts_views, elg_layouts_ext, elg_layouts_platform] {
+            unsafe { layouts(append, (&raw mut text).cast()) };
+        }
+        let native: BTreeMap<&str, (usize, usize)> = text
+            .lines()
+            .map(|line| {
+                let mut parts = line.split(' ');
+                let name = parts.next().unwrap();
+                let mut number = || parts.next().unwrap().parse::<usize>().unwrap();
+                (name, (number(), number()))
+            })
+            .collect();
+
+        use gpu_image::{Fence, Frame, Release};
+        let rust = layouts! {
+            "ElgStr" => ElgStr,
+            "ElgBytes" => ElgBytes,
+            "ElgClosure" => ElgClosure,
+            "ElgColor" => ElgColor,
+            "ElgSize" => ElgSize,
+            "ElgPixelSize" => ElgPixelSize,
+            "ElgPoint" => ElgPoint,
+            "ElgRect" => ElgRect,
+            "ElgFont" => ElgFont,
+            "ElgGradientStop" => ElgGradientStop,
+            "ElgShapeStyle" => ElgShapeStyle,
+            "ElgProp" => ElgProp,
+            "ElgProposedSize" => ElgProposedSize,
+            "ElgOptLen" => ElgOptLen,
+            "ElgAlignment" => ElgAlignment,
+            "ElgKeyEvent" => ElgKeyEvent,
+            "ElgPointerEvent" => ElgPointerEvent,
+            "ElgScrollEvent" => ElgScrollEvent,
+            "ElgMagnifyEvent" => ElgMagnifyEvent,
+            "ElgRotateEvent" => ElgRotateEvent,
+            "ElgTextInputEvent" => ElgTextInputEvent,
+            "ElgEventResult" => ElgEventResult,
+            "ElgHoverDelay" => ElgHoverDelay,
+            "ElgShadow" => ElgShadow,
+            "ElgStrokeStyle" => ElgStrokeStyle,
+            "ElgRunStyle" => ElgRunStyle,
+            "ElgImageSource" => ElgImageSource,
+            "ElgWindowDesc" => ElgWindowDesc,
+            "ElgPose" => ElgPose,
+            "ElgTextFieldOptions" => ElgTextFieldOptions,
+            "ElgForEachItem" => ElgForEachItem,
+            "ElgColumnWidth" => ElgColumnWidth,
+            "ElgTextRun" => ElgTextRun,
+            "ElgPolyline" => ElgPolyline,
+            "ElgAsyncImagePhase" => ElgAsyncImagePhase,
+            "ElgIconFont" => ElgIconFont,
+            "ElgIconWeight" => ElgIconWeight,
+            "ElgIconVariant" => ElgIconVariant,
+            "ElgFrameOptions" => ElgFrameOptions,
+            "ElgDropFiles" => ElgDropFiles,
+            "ElgDropText" => ElgDropText,
+            "ElgPreviewDesc" => ElgPreviewDesc,
+            "ElgGridItem" => ElgGridItem,
+            "ElgGridTrack" => ElgGridTrack,
+            "ElgGridDesc" => ElgGridDesc,
+            "ElgLayoutCall" => ElgLayoutCall,
+            "ElgLayoutModifierCall" => ElgLayoutModifierCall,
+            "ElgEventCall" => ElgEventCall,
+            "ElgOptHoverDelay" => ElgOptHoverDelay,
+            "ElgDevice" => ElgDevice,
+            "ElgRenderBuffer" => ElgRenderBuffer,
+            "ElgSamples" => ElgSamples,
+            "ElgHeader" => ElgHeader,
+            "ElgRequest" => ElgRequest,
+            "ElgResponse" => ElgResponse,
+            "ElgWebSocketEvents" => ElgWebSocketEvents,
+            "ElgWebSocketClose" => ElgWebSocketClose,
+            "ElgFileFilter" => ElgFileFilter,
+            "ElgPaths" => ElgPaths,
+            "ElgTrayMenuItem" => ElgTrayMenuItem,
+            "ElgGpuImageFence" => Fence,
+            "ElgGpuImageRelease" => Release,
+            "ElgGpuImageFrame" => Frame,
+        };
+
+        let mismatches: Vec<String> = native
+            .keys()
+            .chain(rust.keys())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|name| match (native.get(name), rust.get(name)) {
+                (Some(c), Some(r)) if c == r => None,
+                (c, r) => Some(format!("{name}: C++ (size, align) {c:?}, Rust {r:?}")),
+            })
+            .collect();
+        assert!(mismatches.is_empty(), "\n{}", mismatches.join("\n"));
+    }
 }

@@ -634,7 +634,17 @@ struct RustComponent {
 // Records the current exception for elg_take_error().
 void capture_error() noexcept;
 
+// --- ABI layout ---
+
+// One line, "name size align", of an elg_layouts_* function: elegance-sys's layout test compares
+// each C struct with its Rust declaration.
+inline void layout(ElgStrSink out, void* ctx, const char* name, size_t size, size_t align) {
+    sink(out, ctx, std::string(name) + ' ' + std::to_string(size) + ' ' + std::to_string(align) + '\n');
+}
+
 } // namespace elg_shim
+
+#define ELG_LAYOUT(T) ::elg_shim::layout(out, ctx, #T, sizeof(T), alignof(T))
 
 #define ELG_TRY try {
 #define ELG_CATCH(fallback)               \

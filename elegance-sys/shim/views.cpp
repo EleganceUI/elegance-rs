@@ -1499,3 +1499,24 @@ ELG_EXPORT View* elg_mod_grid_cell_alignment(const View* v, ElgAlignment a) {
 ELG_EXPORT View* elg_mod_grid_column_alignment(const View* v, int32_t a) {
     MOD_TRY(v->grid_column_alignment(static_cast<HorizontalAlignment>(a)))
 }
+
+// --- ABI layout ---
+
+ELG_EXPORT void elg_layouts_views(ElgStrSink out, void* ctx) {
+    ELG_LAYOUT(ElgTextFieldOptions);
+    ELG_LAYOUT(ElgForEachItem);
+    ELG_LAYOUT(ElgColumnWidth);
+    ELG_LAYOUT(ElgTextRun);
+    ELG_LAYOUT(ElgPolyline);
+    ELG_LAYOUT(ElgAsyncImagePhase);
+    ELG_LAYOUT(ElgIconFont);
+    ELG_LAYOUT(ElgIconWeight);
+    ELG_LAYOUT(ElgIconVariant);
+    ELG_LAYOUT(ElgFrameOptions);
+    ELG_LAYOUT(ElgDropFiles);
+    ELG_LAYOUT(ElgDropText);
+    ELG_LAYOUT(ElgPreviewDesc);
+    ELG_LAYOUT(ElgGridItem);
+    ELG_LAYOUT(ElgGridTrack);
+    ELG_LAYOUT(ElgGridDesc);
+}

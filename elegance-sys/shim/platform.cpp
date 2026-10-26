@@ -814,3 +814,22 @@ ELG_EXPORT void elg_tray_icon_set_menu(const TrayIcon* icon, const ElgTrayMenuIt
     icon->set_menu(tray_menu(menu, count));
     ELG_CATCH_VOID
 }
+
+// --- ABI layout (this file's structs and elg/gpu_image.h's) ---
+
+ELG_EXPORT void elg_layouts_platform(ElgStrSink out, void* ctx) {
+    ELG_LAYOUT(ElgDevice);
+    ELG_LAYOUT(ElgRenderBuffer);
+    ELG_LAYOUT(ElgSamples);
+    ELG_LAYOUT(ElgHeader);
+    ELG_LAYOUT(ElgRequest);
+    ELG_LAYOUT(ElgResponse);
+    ELG_LAYOUT(ElgWebSocketEvents);
+    ELG_LAYOUT(ElgWebSocketClose);
+    ELG_LAYOUT(ElgFileFilter);
+    ELG_LAYOUT(ElgPaths);
+    ELG_LAYOUT(ElgTrayMenuItem);
+    ELG_LAYOUT(ElgGpuImageFence);
+    ELG_LAYOUT(ElgGpuImageRelease);
+    ELG_LAYOUT(ElgGpuImageFrame);
+}

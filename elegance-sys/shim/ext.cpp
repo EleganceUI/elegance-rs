@@ -621,3 +621,12 @@ ELG_EXPORT View* elg_mod_rust_event_modifier(const View* v, ElgClosure make_hand
     return out(v->modifier(RustEventModifier(std::make_shared<const RustFn>(make_handler))));
     ELG_CATCH(nullptr)
 }
+
+// --- ABI layout ---
+
+ELG_EXPORT void elg_layouts_ext(ElgStrSink out, void* ctx) {
+    ELG_LAYOUT(ElgLayoutCall);
+    ELG_LAYOUT(ElgLayoutModifierCall);
+    ELG_LAYOUT(ElgEventCall);
+    ELG_LAYOUT(ElgOptHoverDelay);
+}

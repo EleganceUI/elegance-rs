@@ -670,3 +670,37 @@ ELG_EXPORT Transition* elg_transition_clone(const Transition* transition) {
 ELG_EXPORT void elg_transition_free(Transition* transition) {
     delete transition;
 }
+
+// --- ABI layout (shim.h's structs and this file's) ---
+
+ELG_EXPORT void elg_layouts_core(ElgStrSink out, void* ctx) {
+    ELG_LAYOUT(ElgStr);
+    ELG_LAYOUT(ElgBytes);
+    ELG_LAYOUT(ElgClosure);
+    ELG_LAYOUT(ElgColor);
+    ELG_LAYOUT(ElgSize);
+    ELG_LAYOUT(ElgPixelSize);
+    ELG_LAYOUT(ElgPoint);
+    ELG_LAYOUT(ElgRect);
+    ELG_LAYOUT(ElgFont);
+    ELG_LAYOUT(ElgGradientStop);
+    ELG_LAYOUT(ElgShapeStyle);
+    ELG_LAYOUT(ElgProp);
+    ELG_LAYOUT(ElgProposedSize);
+    ELG_LAYOUT(ElgOptLen);
+    ELG_LAYOUT(ElgAlignment);
+    ELG_LAYOUT(ElgKeyEvent);
+    ELG_LAYOUT(ElgPointerEvent);
+    ELG_LAYOUT(ElgScrollEvent);
+    ELG_LAYOUT(ElgMagnifyEvent);
+    ELG_LAYOUT(ElgRotateEvent);
+    ELG_LAYOUT(ElgTextInputEvent);
+    ELG_LAYOUT(ElgEventResult);
+    ELG_LAYOUT(ElgHoverDelay);
+    ELG_LAYOUT(ElgShadow);
+    ELG_LAYOUT(ElgStrokeStyle);
+    ELG_LAYOUT(ElgRunStyle);
+    ELG_LAYOUT(ElgImageSource);
+    ELG_LAYOUT(ElgWindowDesc);
+    ELG_LAYOUT(ElgPose);
+}
