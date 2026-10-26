@@ -2,11 +2,14 @@
 # library) for each target, and publishes the archives that elegance-sys's build script downloads
 # (build_prebuilt.rs):
 #
-#   push to main   a prerelease tagged native-<shim hash, 12 hex digits>, its archives replaced by
-#                  each run (Elegance fixes behind an unchanged shim)
-#   tag v*         the release for that tag, whose archives never change
+#   push to main   a prerelease tagged native-<hash, 12 hex digits>
+#   tag v*         the release for that tag
+#   called by update-elegance.yml with a newer Elegance commit: its prerelease, published before
+#                  that workflow moves the pin to it
 #
-# Each archive bundles Elegance's main at build time; BUILDINFO in it records the commit.
+# Each archive bundles the Elegance commit elegance-sys/native/elegance-rev pins, and the hash
+# covers the shim sources and that pin (BUILDINFO in the archive records both repositories'
+# commits).
 name: Native library
 
 on:
@@ -15,14 +18,21 @@ on:
         tags: ["v*"]
         paths: [elegance-sys/shim/**, elegance-sys/native/**, .github/workflows/native.yml]
     workflow_dispatch:
+    workflow_call:
+        inputs:
+            elegance_rev:
+                description: Build this Elegance commit instead of the pinned one (written into elegance-rev first)
+                type: string
+                required: false
 
 permissions:
     contents: write
     actions: write # deleting superseded caches
 
-# One run at a time per branch or tag, so each starts from the previous one's cache.
+# One run at a time per branch or tag (also when update-elegance.yml calls this), so each starts
+# from the previous one's cache.
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
+    group: native-library-${{ github.ref }}
     cancel-in-progress: false
 
 jobs:
@@ -74,10 +84,18 @@ jobs:
             - uses: actions/checkout@v7
               with:
                   path: elegance-rs
+            # The pinned Elegance, or the candidate update-elegance.yml passes (pinned here first, so
+            # the library's hash is the one the pin commit will have).
+            - name: Elegance revision
+              id: rev
+              run: |
+                  pin=elegance-rs/elegance-sys/native/elegance-rev
+                  if [ -n "${{ inputs.elegance_rev }}" ]; then echo "${{ inputs.elegance_rev }}" > "$pin"; fi
+                  echo "rev=$(head -n 1 "$pin" | tr -d '\r[:space:]')" >> "$GITHUB_OUTPUT"
             - uses: actions/checkout@v7
               with:
                   repository: ${{ github.repository_owner }}/elegance
-                  ref: main
+                  ref: ${{ steps.rev.outputs.rev }}
                   path: elegance
 
             - name: Install tools (Linux)
@@ -158,7 +176,7 @@ jobs:
                   cmake -S elegance-rs/elegance-sys/native -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
                     -DELEGANCE_ROOT="$PWD/elegance" -DVCPKG_MANIFEST_DIR="$PWD/elegance" \
                     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-                    -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_OVERLAY_TRIPLETS="$PWD/triplets" \
+                    -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_OVERLAY_TRIPLETS="$PWD/triplets" -DELG_NATIVE_REQUIRE_PIN=ON \
                     "${args[@]}"
 
             # Keep only the archives this build installed (each is named after the SHA-256 of its
@@ -235,14 +253,15 @@ jobs:
                   set -e
                   ls archives
                   first=$(ls archives/*.tar.gz | head -n 1)
-                  hash=$(tar -xzOf "$first" ./shim.sha256 | cut -c1-12)
+                  hash=$(tar -xzOf "$first" ./native.sha256 | cut -c1-12)
+                  elegance=$(tar -xzOf "$first" ./BUILDINFO | sed -n 's/^elegance //p')
                   if [ "${{ github.ref_type }}" = tag ]; then
                     tag="${{ github.ref_name }}"
                     gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --verify-tag --title "$tag" --generate-notes
                   else
                     tag="native-$hash"
                     gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --prerelease --target "${{ github.sha }}" \
-                      --title "Native library for shim $hash" \
-                      --notes "Prebuilt native libraries for elegance-sys, built from shim revision $hash. Updated automatically."
+                      --title "Native library $hash" \
+                      --notes "Prebuilt native libraries for elegance-sys: its shim with Elegance ${elegance:0:12} (EleganceUI/elegance@$elegance). Published automatically."
                   fi
                   gh release upload "$tag" archives/*.tar.gz --clobber

@@ -52,11 +52,17 @@ Ship the library beside your executable; on Linux, also give the executable an r
 (`-C link-args=-Wl,-rpath,$ORIGIN`), or set `LD_LIBRARY_PATH`. The library needs glibc 2.35+ on
 Linux and macOS 13.3+.
 
-Prebuilt libraries are attached to GitHub releases: a `vX.Y.Z` release per version, and a
-`native-<hash>` prerelease for every revision of the shim on `main` (CI builds them; see
-`.github/workflows/native.yml`). Each records the hash of the shim sources it was built from, and the
-build script only uses one that matches its own. When there's none (a target without prebuilts,
-or a shim change CI hasn't built yet), it builds Elegance from source as described below.
+The library contains the Elegance commit pinned in `elegance-sys/native/elegance-rev`, and it's
+named after a hash of that pin and the shim sources. Prebuilt libraries are attached to GitHub
+releases: a `vX.Y.Z` release per version, and a `native-<hash>` prerelease for every pin and shim
+revision on `main` (CI builds them; see `.github/workflows/native.yml`). The build script only uses
+one whose hash matches its own. When there's none (a target without prebuilts, or a change CI
+hasn't built yet), it builds Elegance from source as described below.
+
+Elegance improvements reach the bindings by moving the pin: `.github/workflows/update-elegance.yml`
+checks Elegance's `main` every six hours (or when run by hand), builds and publishes the library
+for a newer commit, and only then commits the new pin. With a git dependency, `cargo update -p
+elegance` picks it up; a release keeps the Elegance it pinned.
 
 | Variable | Effect |
 |---|---|
@@ -87,9 +93,10 @@ source:
 
 1. `ELEGANCE_ROOT`, if set;
 2. a checkout beside this repository (`../elegance`), for working on both;
-3. otherwise a clone of `EleganceUI/elegance` in the user cache folder
-   (`%LOCALAPPDATA%\elegance\src\main`, `~/.cache/elegance/src/main`), made once and shared by
-   every project. `ELEGANCE_GIT_REF` picks another branch or tag; delete the folder to update it.
+3. otherwise a clone of `EleganceUI/elegance` at the pinned commit, in the user cache folder
+   (`%LOCALAPPDATA%\elegance\src\<commit>`, `~/.cache/elegance/src/<commit>`), made once and
+   shared by every project. `ELEGANCE_GIT_REF` picks another commit, branch, or tag (a branch's
+   clone isn't updated: delete its folder to get a newer one).
 
 Then a build of it to link, in this order:
 

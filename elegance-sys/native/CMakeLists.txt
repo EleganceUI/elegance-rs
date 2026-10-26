@@ -1,8 +1,8 @@
 # The prebuilt native library: the shim and a static Elegance, with all of Elegance's dependencies,
 # in one shared library that exports only the C ABI (shim.h and ELG_API's C functions). Rust links
 # it with no C++ compiler, CMake, or vcpkg: CI (.github/workflows/native.yml) builds it per target
-# and attaches it to a prerelease named after the shim's hash, and build.rs downloads it
-# (build_prebuilt.rs).
+# from the Elegance commit elegance-rev pins, attaches it to a prerelease named after the hash of
+# the shim and that pin, and build.rs downloads it (build_prebuilt.rs).
 #
 #   cmake -S elegance-sys/native -B build -G Ninja -DELEGANCE_ROOT=<elegance checkout> \
 #         -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
@@ -82,15 +82,34 @@ if (WIN32)
 endif ()
 install(FILES "${ELEGANCE_ROOT}/LICENSE" DESTINATION . RENAME LICENSE-elegance)
 
-# What build.rs checks before using an archive: SHA-256 of the shim sources (without carriage
-# returns), which build_prebuilt.rs hashes the same way. The release tag is native-<its first 12>.
-set(shim_text "")
-foreach (file IN ITEMS shim.h core.cpp views.cpp ext.cpp platform.cpp)
-    file(READ "${shim}/${file}" text)
+# What build.rs checks before using an archive: SHA-256 of the shim sources and elegance-rev (the
+# pinned Elegance commit), without carriage returns, which build_prebuilt.rs hashes the same way.
+# The prerelease tag is native-<its first 12>.
+set(native_text "")
+foreach (file IN ITEMS ${shim}/shim.h ${shim}/core.cpp ${shim}/views.cpp ${shim}/ext.cpp ${shim}/platform.cpp
+                       ${CMAKE_CURRENT_SOURCE_DIR}/elegance-rev)
+    file(READ "${file}" text)
     string(REPLACE "\r" "" text "${text}")
-    string(APPEND shim_text "${text}")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${shim}/${file}")
+    string(APPEND native_text "${text}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${file}")
 endforeach ()
-string(SHA256 shim_hash "${shim_text}")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/shim.sha256" "${shim_hash}\n")
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/shim.sha256" DESTINATION .)
+string(SHA256 native_hash "${native_text}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/native.sha256" "${native_hash}\n")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/native.sha256" DESTINATION .)
+
+# The hash claims the pinned Elegance, so check ELEGANCE_ROOT is that commit (CI requires it).
+option(ELG_NATIVE_REQUIRE_PIN "Fail unless ELEGANCE_ROOT is the commit elegance-rev pins" OFF)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/elegance-rev" pinned_rev LIMIT_COUNT 1)
+find_package(Git QUIET)
+if (GIT_FOUND)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${ELEGANCE_ROOT}" rev-parse HEAD
+                    OUTPUT_VARIABLE elegance_rev OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif ()
+if (NOT elegance_rev STREQUAL pinned_rev)
+    set(mismatch "ELEGANCE_ROOT is at '${elegance_rev}', but elegance-rev pins ${pinned_rev}")
+    if (ELG_NATIVE_REQUIRE_PIN)
+        message(FATAL_ERROR "${mismatch}")
+    endif ()
+    message(WARNING "${mismatch}: the library's hash will claim the pinned commit. Fine for a local "
+                    "build used through ELEGANCE_NATIVE_DIR; don't publish it.")
+endif ()

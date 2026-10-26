@@ -1,0 +1,94 @@
+# Moves the Elegance commit the bindings pin (elegance-sys/native/elegance-rev) to Elegance's
+# latest main, so backend fixes reach Rust users without a shim change. It builds and publishes the
+# native library for the new commit first (native.yml), and only then commits the pin: a checkout
+# never pins an Elegance whose prebuilt library doesn't exist yet.
+#
+# Users pick it up with `cargo update -p elegance` (git dependencies); a vX.Y.Z release keeps what
+# it pinned. To update right away, run this workflow by hand (optionally with a branch, tag, or
+# commit), or have Elegance's CI send a repository_dispatch event of type "elegance-updated"
+# (that needs a token with access to this repository).
+name: Update Elegance
+
+on:
+    schedule:
+        - cron: "23 */6 * * *"
+    workflow_dispatch:
+        inputs:
+            rev:
+                description: Elegance branch, tag, or full commit hash (default main)
+                type: string
+                required: false
+    repository_dispatch:
+        types: [elegance-updated]
+
+permissions:
+    contents: write
+    actions: write # native.yml deletes superseded caches
+
+# Not native.yml's group: a called workflow in the caller's group would wait on it forever.
+concurrency:
+    group: update-elegance
+    cancel-in-progress: false
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        outputs:
+            rev: ${{ steps.check.outputs.rev }}
+            changed: ${{ steps.check.outputs.changed }}
+        steps:
+            - uses: actions/checkout@v7
+            - id: check
+              env:
+                  WANTED: ${{ inputs.rev || github.event.client_payload.rev || 'main' }}
+              run: |
+                  pinned=$(head -n 1 elegance-sys/native/elegance-rev | tr -d '\r[:space:]')
+                  url=https://github.com/${{ github.repository_owner }}/elegance
+                  if [[ "$WANTED" =~ ^[0-9a-f]{40}$ ]]; then
+                    rev=$WANTED
+                  else
+                    # A branch, else an annotated tag's commit (^{}), else a lightweight tag.
+                    refs=$(git ls-remote "$url" "refs/heads/$WANTED" "refs/tags/$WANTED" "refs/tags/$WANTED^{}")
+                    for ref in "refs/heads/$WANTED" "refs/tags/$WANTED^{}" "refs/tags/$WANTED"; do
+                      rev=$(awk -v r="$ref" '$2 == r { print $1 }' <<< "$refs")
+                      [ -n "$rev" ] && break
+                    done
+                  fi
+                  [ -n "$rev" ] || { echo "::error::$WANTED isn't a branch, tag, or full commit hash of $url"; exit 1; }
+                  echo "Pinned: $pinned. $WANTED: $rev."
+                  echo "rev=$rev" >> "$GITHUB_OUTPUT"
+                  if [ "$rev" = "$pinned" ]; then echo "changed=false"; else echo "changed=true"; fi >> "$GITHUB_OUTPUT"
+
+    build:
+        needs: check
+        if: needs.check.outputs.changed == 'true'
+        uses: ./.github/workflows/native.yml
+        with:
+            elegance_rev: ${{ needs.check.outputs.rev }}
+
+    pin:
+        needs: [check, build]
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  ref: main
+                  fetch-depth: 0
+            # Pushed with the workflow's token, which starts no other workflow: the library for this
+            # pin is already published.
+            - name: Commit the pin
+              env:
+                  REV: ${{ needs.check.outputs.rev }}
+              run: |
+                  # The library's hash covers the shim too: if it changed on main since this run
+                  # started, the new pin with that shim has no library yet. The next run redoes it.
+                  if ! git diff --quiet "${{ github.sha }}" HEAD -- elegance-sys/shim; then
+                    echo "::warning::The shim changed on main during this run; not pinning ${REV:0:12} yet."
+                    exit 0
+                  fi
+                  echo "$REV" > elegance-sys/native/elegance-rev
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git commit -am "Update Elegance to ${REV:0:12}" \
+                    -m "The native library for it is published; see EleganceUI/elegance@$REV."
+                  git push origin HEAD:main

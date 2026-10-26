@@ -23,8 +23,9 @@ use std::process::{Command, Stdio};
 const VCPKG_REPO: &str = "https://github.com/microsoft/vcpkg";
 const ELEGANCE_REPO: &str = "https://github.com/EleganceUI/elegance";
 
-/// Elegance's source, cloned once into the user cache folder (one folder per branch or tag), for
-/// builds with no checkout of their own. Delete the folder to get a newer one.
+/// Elegance's source, cloned once into the user cache folder (one folder per commit, branch, or
+/// tag), for builds with no checkout of their own. A branch's folder isn't updated: delete it to get
+/// a newer one.
 pub fn clone_elegance(reference: &str) -> PathBuf {
     let name: String = reference
         .chars()
@@ -52,18 +53,12 @@ pub fn clone_elegance(reference: &str) -> PathBuf {
         );
         let partial = dir.with_extension("partial");
         let _ = fs::remove_dir_all(&partial);
-        fs::create_dir_all(dir.parent().unwrap()).unwrap();
-        let args = [
-            "clone",
-            "--depth",
-            "1",
-            "--branch",
-            reference,
-            ELEGANCE_REPO,
-        ];
-        let mut args: Vec<OsString> = args.iter().map(OsString::from).collect();
-        args.push(partial.clone().into());
-        git(None, &args);
+        fs::create_dir_all(&partial).unwrap();
+        // Fetching the one revision works for a commit hash too, which `clone --branch` doesn't take.
+        let os = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
+        git(Some(&partial), &os(&["init", "--quiet"]));
+        git(Some(&partial), &os(&["fetch", "--quiet", "--depth", "1", ELEGANCE_REPO, reference]));
+        git(Some(&partial), &os(&["checkout", "--quiet", "--detach", "FETCH_HEAD"]));
         fs::rename(&partial, &dir).unwrap_or_else(|e| {
             panic!(
                 "elegance-sys: couldn't move Elegance to {}: {e}",

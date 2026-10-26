@@ -9,7 +9,8 @@
 //
 // ELEGANCE_ROOT               the Elegance source tree (default: ../../elegance, a checkout beside this
 //                             workspace; without one, a clone of github.com/EleganceUI/elegance, see below)
-// ELEGANCE_GIT_REF            the branch or tag that clone checks out (default: main)
+// ELEGANCE_GIT_REF            the commit, branch, or tag that clone checks out (default: the commit
+//                             native/elegance-rev pins, the one the prebuilt library has)
 // ELEGANCE_CACHE_DIR          where clones go (default: the user cache folder's elegance/)
 // ELEGANCE_BUILD_DIR          a static build (default: $ELEGANCE_ROOT/build/dev-release-static if built)
 // ELEGANCE_SHARED_BUILD_DIR   a shared build, for `dynamic` (default: $ELEGANCE_ROOT/build/dev-release if built)
@@ -147,7 +148,7 @@ fn elegance_root(manifest: &Path) -> PathBuf {
     let reference = env::var("ELEGANCE_GIT_REF")
         .ok()
         .filter(|r| !r.is_empty())
-        .unwrap_or_else(|| "main".to_owned());
+        .unwrap_or_else(|| prebuilt::pinned_elegance(manifest));
     cmake::clone_elegance(&reference)
 }
 
