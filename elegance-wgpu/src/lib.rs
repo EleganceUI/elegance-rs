@@ -6,8 +6,8 @@
 //! `Bridge::new` creates a dedicated producer device/queue. Unsafe
 //! `Bridge::from_device` attaches an existing pair with externally serialized
 //! queue access; Vulkan additionally requires enabled sharing extensions and an
-//! explicitly created/reserved retirement queue. See the README and
-//! `src/bin/wgpu-image.rs` for a runnable platform-neutral Rust UI smoke example.
+//! explicitly created/reserved retirement queue. See the README, and `wgpu-direct-rs`
+//! in elegance-examples for a runnable app.
 
 pub use elegance::{GpuImage, GpuImageOrigin, GpuImageView};
 use std::fmt;
@@ -49,7 +49,26 @@ pub enum Error {
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
+        use elegance_sys::gpu_image as raw;
+        match self {
+            Error::Unsupported => f.write_str("GPU image sharing is not supported here"),
+            Error::InvalidConfig => f.write_str("invalid GPU image configuration"),
+            Error::Busy => f.write_str("every GPU image frame is in use"),
+            Error::Device(message) => write!(f, "GPU device error: {message}"),
+            Error::Allocation => f.write_str("could not allocate a shareable GPU image"),
+            Error::Publish(status) => {
+                let reason = match *status {
+                    raw::STATUS_INVALID_ARGUMENT => "invalid argument",
+                    raw::STATUS_DEVICE_UNAVAILABLE => "Elegance's render device is unavailable",
+                    raw::STATUS_UNSUPPORTED => "unsupported",
+                    raw::STATUS_IMPORT_FAILED => "import failed",
+                    raw::STATUS_SYNC_FAILED => "synchronization failed",
+                    raw::STATUS_INTERNAL_ERROR => "internal error",
+                    _ => "unknown status",
+                };
+                write!(f, "publishing the GPU image failed: {reason} ({status})")
+            }
+        }
     }
 }
 impl std::error::Error for Error {}
