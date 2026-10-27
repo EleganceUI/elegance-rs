@@ -14,7 +14,7 @@
 // if       := `if` cond `{` node `}` (`else` (if | `{` node `}`))?
 // match    := `match` expr `{` (pat (`if` guard)? `=>` (node | `{` node `}`) `,`?)* `}`
 
-use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Spacing, Span, TokenStream, TokenTree};
 use quote::{format_ident, quote, quote_spanned};
 
 use crate::rewrite::{argument, is_group, named, rewrite, split_commas};
@@ -128,6 +128,12 @@ impl Parser {
     // At `=>`.
     fn at_arrow(&self) -> bool {
         self.is_punct(0, '=') && self.is_punct(1, '>')
+    }
+
+    // At `..` written together (a range, as in a `..=5 =>` arm), not a `.` before `.name`.
+    fn at_range(&self) -> bool {
+        matches!(self.peek(), Some(TokenTree::Punct(p)) if p.as_char() == '.' && p.spacing() == Spacing::Joint)
+            && self.is_punct(1, '.')
     }
 
     fn skip_separators(&mut self) {
@@ -340,16 +346,23 @@ impl Parser {
 
     fn modifiers(&mut self) -> Result<Vec<Modifier>> {
         let mut modifiers = Vec::new();
-        while self.is_punct(0, '.') && !self.is_punct(1, '.') {
+        while self.is_punct(0, '.') && !self.at_range() {
             let dot_span = self.span();
             self.pos += 1;
-            let Some(TokenTree::Ident(name)) = self.peek().cloned() else {
-                // A `.` still waiting for its name: report it, keep what came before.
-                self.errors.push(syn::Error::new(
-                    dot_span,
-                    "expected a modifier name after `.`",
-                ));
-                break;
+            // A `.` still waiting for its name: the next token is no name, another modifier's
+            // `.` (typed in front of `.frame(...)`), or a name on a later line (the next view,
+            // after a `.` typed at the end of a line). Report it on the dot alone and carry on
+            // with the chain, so the rest of the view (and rust-analyzer's completions for
+            // this dot) keeps working.
+            let name = match self.peek() {
+                Some(TokenTree::Ident(name)) if same_line(dot_span, name.span()) => name.clone(),
+                _ => {
+                    self.errors.push(syn::Error::new(
+                        dot_span,
+                        "expected a modifier name after `.`",
+                    ));
+                    continue;
+                }
             };
             self.pos += 1;
             let mut generics = TokenStream::new();
@@ -518,6 +531,10 @@ fn is_embedded_struct(tokens: TokenStream) -> bool {
 }
 
 fn same_line(a: Span, b: Span) -> bool {
+    // Outside a macro (unit tests) there are no source locations.
+    if !proc_macro::is_available() {
+        return true;
+    }
     a.unwrap().end().line() == b.unwrap().start().line()
 }
 
@@ -854,13 +871,17 @@ pub fn expand(input: TokenStream) -> TokenStream {
         "elg! takes one root view; wrap several in a stack",
     );
     let body = expand_node(&root);
-    // Errors go next to the expansion rather than replacing it.
+    // Errors go next to the expansion rather than replacing it, and after it: rust-analyzer
+    // finds the cursor by text offset, comparing this expansion with one where what's being
+    // typed is complete (and has no error), so nothing may come before the views that differs.
     let errors = parser.errors.iter().map(syn::Error::to_compile_error);
+    let view = format_ident!("__elg_view", span = Span::mixed_site());
     quote!({
-        #(#errors;)*
         #[allow(unused_imports)]
         use ::elegance::__private::{ElgChildren as _, ElgNew as _, ViewExt as _};
-        #body
+        let #view = #body;
+        #(#errors;)*
+        #view
     })
 }
 
