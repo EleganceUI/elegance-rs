@@ -50,6 +50,8 @@ opaque!(
     BindingI32,
     /// `elg::Binding<std::string>`
     BindingString,
+    /// `elg::Binding<double>`
+    BindingF64,
     /// `elg::ScrollPosition`
     ScrollPosition,
     /// `elg::GraphicsContext`
@@ -58,14 +60,56 @@ opaque!(
     ButtonStyle,
     /// `std::shared_ptr<const elg::ToggleStyle>`
     ToggleStyle,
+    /// `std::shared_ptr<const elg::CheckboxStyle>`
+    CheckboxStyle,
+    /// `std::shared_ptr<const elg::NumberInputStyle>`
+    NumberInputStyle,
+    /// `std::shared_ptr<const elg::ProgressStyle>`
+    ProgressStyle,
     /// `std::shared_ptr<const elg::TextFieldStyle>`
     TextFieldStyle,
+    /// `std::shared_ptr<const elg::PickerStyle>`
+    PickerStyle,
+    /// `std::shared_ptr<const elg::SliderStyle>`
+    SliderStyle,
+    /// `std::shared_ptr<const elg::NavigationStackStyle>`
+    NavigationStackStyle,
+    /// `std::shared_ptr<const elg::PopoverStyle>`
+    PopoverStyle,
+    /// `std::shared_ptr<const elg::TooltipStyle>`
+    TooltipStyle,
+    /// `std::shared_ptr<const elg::MenuStyle>`
+    MenuStyle,
+    /// `std::shared_ptr<const elg::RowStyle>`
+    RowStyle,
     /// `elg::ButtonConfiguration`
     ButtonConfiguration,
     /// `elg::ToggleConfiguration`
     ToggleConfiguration,
+    /// `elg::CheckboxConfiguration`
+    CheckboxConfiguration,
+    /// `elg::NumberInputConfiguration`
+    NumberInputConfiguration,
+    /// `elg::ProgressConfiguration`
+    ProgressConfiguration,
     /// `elg::TextFieldConfiguration`
     TextFieldConfiguration,
+    /// `elg::PickerConfiguration`
+    PickerConfiguration,
+    /// `elg::SliderConfiguration`
+    SliderConfiguration,
+    /// `elg::NavigationStackConfiguration`
+    NavigationStackConfiguration,
+    /// `elg::PopoverConfiguration`
+    PopoverConfiguration,
+    /// `elg::TooltipConfiguration`
+    TooltipConfiguration,
+    /// `elg::MenuConfiguration`
+    MenuConfiguration,
+    /// `elg::MenuItemConfiguration`
+    MenuItemConfiguration,
+    /// `elg::RowConfiguration`
+    RowConfiguration,
     /// `elg::LayoutCache`
     LayoutCache,
     /// `elg::Effects`
@@ -84,12 +128,6 @@ opaque!(
     VideoPlayer,
     /// `elg::VideoFeed`
     VideoFeed,
-    /// `elg::http::Task`
-    HttpTask,
-    /// `elg::http::Fetch`
-    HttpFetch,
-    /// `elg::http::WebSocket`
-    WebSocket,
     /// `elg::TrayIcon`
     TrayIcon,
     /// `std::string` (a closure's string result)
@@ -104,6 +142,10 @@ opaque!(
     Font,
     /// `elg::ShapeStyle` (a closure's style result)
     ShapeStyle,
+    /// `std::optional<float>` (a closure's result)
+    OptFloat,
+    /// `std::vector<elg::ItemKey>`
+    ItemKeys,
 );
 
 /// `elg::LayoutChild`: one pointer, so a C++ `span<const LayoutChild>` is a slice of these.
@@ -259,11 +301,15 @@ pub struct ElgShapeStyle {
     pub y1: f32,
     pub r0: f32,
     pub r1: f32,
-    pub blur: f32,
-    pub saturation: f32,
-    pub noise: f32,
-    pub has_dark_tint: bool,
-    pub dark_tint: ElgColor,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgEdgeInsets {
+    pub top: f32,
+    pub leading: f32,
+    pub bottom: f32,
+    pub trailing: f32,
 }
 
 #[repr(C)]
@@ -314,12 +360,14 @@ pub struct ElgPointerEvent {
     pub button: i32,
     pub click_count: i32,
     pub modifiers: u32,
+    pub window_location: ElgPoint,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct ElgScrollEvent {
     pub location: ElgPoint,
+    pub window_location: ElgPoint,
     pub dx: f32,
     pub dy: f32,
     pub precise: bool,
@@ -327,6 +375,27 @@ pub struct ElgScrollEvent {
     pub phase: i32,
     pub momentum: bool,
     pub time: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgClickEvent {
+    pub location: ElgPoint,
+    pub window_location: ElgPoint,
+    pub button: i32,
+    pub modifiers: u32,
+    pub click_count: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgDragEvent {
+    pub location: ElgPoint,
+    pub start_location: ElgPoint,
+    pub translation: ElgPoint,
+    pub velocity: ElgPoint,
+    pub button: i32,
+    pub modifiers: u32,
 }
 
 #[repr(C)]
@@ -360,6 +429,27 @@ pub struct ElgTextInputEvent {
 pub struct ElgEventResult {
     pub consumed: bool,
     pub redraw: bool,
+    pub cancellable: bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgFloatingPlacement {
+    pub edge: i32,
+    pub alignment: i32,
+    pub spacing: f32,
+    pub offset: ElgPoint,
+    pub has_position: bool,
+    pub position: ElgPoint,
+}
+
+/// `has` false: the style's motion; null transition or animation: none. Borrowed.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ElgPopupMotion {
+    pub has: bool,
+    pub transition: *const Transition,
+    pub animation: *const Animation,
 }
 
 #[repr(C)]
@@ -434,8 +524,8 @@ pub struct ElgWindowDesc {
     pub has_background: bool,
     pub background: ElgColor,
     pub title_bar: i32,
-    pub has_traffic_lights_position: bool,
-    pub traffic_lights_position: ElgPoint,
+    pub has_system_controls_position: bool,
+    pub system_controls_position: ElgPoint,
     pub transparent: bool,
     pub opacity: f32,
     pub fullscreen: bool,
@@ -453,9 +543,184 @@ pub struct ElgPose {
 #[repr(C)]
 pub struct ElgTextFieldOptions {
     pub on_submit: ElgClosure,
-    pub max_lines: i32,
+    pub secure: ElgProp,
+    pub line_limit: ElgProp,
     pub styler: ElgClosure,
     pub on_key: ElgClosure,
+}
+
+#[repr(C)]
+pub struct ElgNumberInputOptions {
+    pub min: ElgProp,
+    pub max: ElgProp,
+    pub step: ElgProp,
+    pub decimals: ElgProp,
+    pub format: ElgClosure,
+    pub parse: ElgClosure,
+    pub live: ElgProp,
+    pub shows_buttons: ElgProp,
+    pub scrubs: ElgProp,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgOptNumber {
+    pub has: bool,
+    pub value: f64,
+}
+
+#[repr(C)]
+pub struct ElgStackSeparators {
+    pub color: ElgProp,
+    pub inset: f32,
+    pub thickness: f32,
+}
+
+#[repr(C)]
+pub struct ElgSplitViewOptions {
+    pub divider: ElgProp,
+    pub active_divider: *const ElgProp,
+    pub thickness: f32,
+    pub active_thickness: f32,
+}
+
+#[repr(C)]
+pub struct ElgNavigationSplitViewOptions {
+    pub take_sidebar_visible: *mut BindingBool,
+    pub sidebar_transition: *const Transition,
+    pub sidebar_background: ElgProp,
+    pub sidebar_width: ElgColumnWidth,
+    pub content_width: ElgColumnWidth,
+    pub detail_width: ElgColumnWidth,
+    pub dividers: ElgSplitViewOptions,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgGestureOptions {
+    pub priority: i32,
+    pub simultaneous: bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgDragOptions {
+    pub minimum_distance: f32,
+    pub button: i32,
+    pub hold: f64,
+    pub hold_tolerance: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ElgLongPressOptions {
+    pub duration: f64,
+    pub maximum_distance: f32,
+    pub button: i32,
+}
+
+#[repr(C)]
+pub struct ElgFloatingOptions {
+    pub placement: ElgFloatingPlacement,
+    pub boundary: i32,
+    pub outside_click: bool,
+    pub escape: bool,
+    pub motion: ElgPopupMotion,
+}
+
+#[repr(C)]
+pub struct ElgTooltipOptions {
+    pub placement: ElgFloatingPlacement,
+    pub boundary: i32,
+    pub delay: f64,
+    pub motion: ElgPopupMotion,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ElgItemKey {
+    pub is_string: bool,
+    pub int_key: i64,
+    pub string_key: ElgStr,
+}
+
+#[repr(C)]
+pub struct ElgItemKeys {
+    pub keys: *const ElgItemKey,
+    pub count: usize,
+}
+
+#[repr(C)]
+pub struct ElgSwitchToggleStyleOptions {
+    pub on: *const ElgProp,
+    pub off: ElgProp,
+    pub knob: ElgProp,
+    pub width: f32,
+    pub height: f32,
+    pub knob_inset: f32,
+    pub spacing: f32,
+    pub fills_width: bool,
+    pub animation: *const Animation,
+}
+
+#[repr(C)]
+pub struct ElgBoxCheckboxStyleOptions {
+    pub size: f32,
+    pub corner_radius: f32,
+    pub fill: *const ElgProp,
+    pub empty: ElgProp,
+    pub border: ElgProp,
+    pub border_width: f32,
+    pub mark: ElgProp,
+    pub take_check: *mut View,
+    pub take_dash: *mut View,
+    pub spacing: f32,
+    pub animation: *const Animation,
+}
+
+#[repr(C)]
+pub struct ElgBoxNumberInputStyleOptions {
+    pub background: ElgProp,
+    pub border: ElgProp,
+    pub focused_border: *const ElgProp,
+    pub border_width: f32,
+    pub corner_radius: f32,
+    pub padding: ElgEdgeInsets,
+    pub arrow_size: f32,
+}
+
+#[repr(C)]
+pub struct ElgProgressStyleOptions {
+    pub track: ElgProp,
+    pub fill: *const ElgProp,
+    pub a: f32,
+    pub b: f32,
+}
+
+#[repr(C)]
+pub struct ElgKnobSliderStyleOptions {
+    pub track: ElgProp,
+    pub fill: *const ElgProp,
+    pub track_thickness: f32,
+    pub knob_size: f32,
+}
+
+#[repr(C)]
+pub struct ElgBarNavigationStackStyleOptions {
+    pub height: f32,
+    pub background: ElgProp,
+    pub title_font: ElgFont,
+    pub back_color: *const ElgProp,
+    pub shows_divider: bool,
+}
+
+#[repr(C)]
+pub struct ElgHighlightRowStyleOptions {
+    pub selected: *const ElgProp,
+    pub on_selected: ElgProp,
+    pub hovered: ElgProp,
+    pub corner_radius: f32,
+    pub padding: ElgEdgeInsets,
 }
 
 #[repr(C)]
@@ -599,46 +864,6 @@ pub struct ElgSamples {
 }
 
 #[repr(C)]
-pub struct ElgHeader {
-    pub name: ElgStr,
-    pub value: ElgStr,
-}
-
-#[repr(C)]
-pub struct ElgRequest {
-    pub url: ElgStr,
-    pub method: ElgStr,
-    pub headers: *const ElgHeader,
-    pub header_count: usize,
-    pub body: ElgBytes,
-    pub timeout_ms: i64,
-}
-
-#[repr(C)]
-pub struct ElgResponse {
-    pub ok: bool,
-    pub status: i32,
-    pub headers: *const ElgHeader,
-    pub header_count: usize,
-    pub body: ElgBytes,
-    pub error: ElgStr,
-}
-
-#[repr(C)]
-pub struct ElgWebSocketEvents {
-    pub on_open: ElgClosure,
-    pub on_message: ElgClosure,
-    pub on_binary: ElgClosure,
-    pub on_close: ElgClosure,
-}
-
-#[repr(C)]
-pub struct ElgWebSocketClose {
-    pub code: i32,
-    pub reason: ElgStr,
-}
-
-#[repr(C)]
 pub struct ElgFileFilter {
     pub name: ElgStr,
     pub extensions: *const ElgStr,
@@ -716,6 +941,7 @@ unsafe extern "C" {
     pub fn elg_view_clone(view: *const View) -> *mut View;
     pub fn elg_view_free(view: *mut View);
     pub fn elg_view_move_into(target: *mut View, take_view: *mut View);
+    pub fn elg_view_is_empty(view: *const View) -> bool;
     pub fn elg_view_component(body: ElgClosure) -> *mut View;
 
     pub fn elg_signal_new(owner: ElgClosure) -> *mut c_void;
@@ -732,6 +958,8 @@ unsafe extern "C" {
     pub fn elg_binding_f32(get: ElgClosure, set: ElgClosure) -> *mut BindingF32;
     pub fn elg_binding_i32(get: ElgClosure, set: ElgClosure) -> *mut BindingI32;
     pub fn elg_binding_string(get: ElgClosure, set: ElgClosure) -> *mut BindingString;
+    pub fn elg_binding_f64(get: ElgClosure, set: ElgClosure) -> *mut BindingF64;
+    pub fn elg_opt_float_assign(target: *mut OptFloat, value: ElgOptLen);
     pub fn elg_binding_f32_get(binding: *const BindingF32) -> f32;
     pub fn elg_binding_f32_set(binding: *const BindingF32, value: f32);
     pub fn elg_binding_f32_free(binding: *mut BindingF32);
@@ -758,6 +986,7 @@ unsafe extern "C" {
     pub fn elg_env_button_style(env: *const EnvironmentValues) -> *mut ButtonStyle;
     pub fn elg_env_toggle_style(env: *const EnvironmentValues) -> *mut ToggleStyle;
     pub fn elg_env_text_field_style(env: *const EnvironmentValues) -> *mut TextFieldStyle;
+    pub fn elg_env_row_selected(env: *const EnvironmentValues) -> bool;
     pub fn elg_env_rust_values(env: *const EnvironmentValues) -> *mut c_void;
     pub fn elg_env_set_font(env: *mut EnvironmentValues, value: ElgProp);
     pub fn elg_env_set_color_scheme(env: *mut EnvironmentValues, value: ElgProp);
@@ -766,6 +995,7 @@ unsafe extern "C" {
     pub fn elg_env_set_tint(env: *mut EnvironmentValues, value: ElgProp);
     pub fn elg_env_set_disabled(env: *mut EnvironmentValues, value: ElgProp);
     pub fn elg_env_set_hover_delay(env: *mut EnvironmentValues, value: ElgProp);
+    pub fn elg_env_set_row_selected(env: *mut EnvironmentValues, value: ElgProp);
     pub fn elg_env_set_window(env: *mut EnvironmentValues, window: *const WindowHandle);
     pub fn elg_env_set_button_style(env: *mut EnvironmentValues, style: *const ButtonStyle);
     pub fn elg_env_set_toggle_style(env: *mut EnvironmentValues, style: *const ToggleStyle);
@@ -807,7 +1037,7 @@ unsafe extern "C" {
 
     pub fn elg_transition_opacity() -> *mut Transition;
     pub fn elg_transition_identity() -> *mut Transition;
-    pub fn elg_transition_scale(from: f32) -> *mut Transition;
+    pub fn elg_transition_scale(from: f32, anchor: ElgAlignment) -> *mut Transition;
     pub fn elg_transition_offset(x: f32, y: f32) -> *mut Transition;
     pub fn elg_transition_move(edge: u32) -> *mut Transition;
     pub fn elg_transition_slide() -> *mut Transition;
@@ -868,7 +1098,7 @@ unsafe extern "C" {
     );
 
     pub fn elg_button(take_label: *mut View, on_click: ElgClosure) -> *mut View;
-    pub fn elg_button_title(title: ElgStr, on_click: ElgClosure) -> *mut View;
+    pub fn elg_button_title(title: ElgProp, on_click: ElgClosure) -> *mut View;
     pub fn elg_text_spans_push(
         spans: *mut TextSpans,
         begin: usize,
@@ -877,43 +1107,47 @@ unsafe extern "C" {
         label: *const ElgStr,
     );
     pub fn elg_text_field(
-        placeholder: ElgStr,
+        placeholder: ElgProp,
         take_text: *mut BindingString,
         options: *const ElgTextFieldOptions,
-        secure: bool,
+    ) -> *mut View;
+    pub fn elg_text_area(
+        placeholder: ElgProp,
+        take_text: *mut BindingString,
+        options: *const ElgTextFieldOptions,
     ) -> *mut View;
     pub fn elg_slider(
         take_value: *mut BindingF32,
-        min: f32,
-        max: f32,
-        step: f32,
+        min: ElgProp,
+        max: ElgProp,
+        step: ElgProp,
         on_editing_changed: ElgClosure,
     ) -> *mut View;
-    pub fn elg_stepper(
-        take_label: *mut View,
-        take_value: *mut BindingI32,
-        min: i32,
-        max: i32,
-        step: i32,
-    ) -> *mut View;
-    pub fn elg_stepper_title(
-        title: ElgStr,
-        take_value: *mut BindingI32,
-        min: i32,
-        max: i32,
-        step: i32,
+    pub fn elg_number_input(
+        take_value: *mut BindingF64,
+        integer: bool,
+        options: *const ElgNumberInputOptions,
     ) -> *mut View;
     pub fn elg_progress(fraction: ElgProp) -> *mut View;
-    pub fn elg_progress_indeterminate() -> *mut View;
     pub fn elg_picker(
         labels: *const ElgStr,
         count: usize,
         selected: ElgClosure,
         select: ElgClosure,
-        style: i32,
     ) -> *mut View;
     pub fn elg_toggle(take_label: *mut View, take_is_on: *mut BindingBool) -> *mut View;
-    pub fn elg_toggle_title(title: ElgStr, take_is_on: *mut BindingBool) -> *mut View;
+    pub fn elg_toggle_title(title: ElgProp, take_is_on: *mut BindingBool) -> *mut View;
+    pub fn elg_checkbox(
+        take_label: *mut View,
+        take_is_checked: *mut BindingBool,
+        mixed: ElgProp,
+    ) -> *mut View;
+    pub fn elg_checkbox_title(
+        title: ElgProp,
+        take_is_checked: *mut BindingBool,
+        mixed: ElgProp,
+    ) -> *mut View;
+    pub fn elg_separator(axis: i32, color: ElgProp, thickness: f32, inset: f32) -> *mut View;
 
     pub fn elg_if(condition: ElgProp, take_then: *mut View, take_else: *mut View) -> *mut View;
     pub fn elg_for_each(items: ElgClosure) -> *mut View;
@@ -933,51 +1167,57 @@ unsafe extern "C" {
     pub fn elg_scroll_view(
         take_content: *mut View,
         axes: i32,
-        shows_indicators: bool,
+        shows_indicators: ElgProp,
         position: *const ScrollPosition,
-        sticks_to_end: bool,
+        sticks_to_end: ElgProp,
     ) -> *mut View;
     pub fn elg_lazy_stack(
         vertical: bool,
         alignment: i32,
         spacing: ElgOptLen,
+        separators: *const ElgStackSeparators,
         take_for_each: *mut View,
     ) -> *mut View;
-    pub fn elg_list(take_for_each: *mut View, position: *const ScrollPosition) -> *mut View;
 
-    pub fn elg_divider() -> *mut View;
     pub fn elg_menu_item(
-        title: ElgStr,
+        title: ElgProp,
         on_choose: ElgClosure,
-        shortcut: ElgStr,
-        destructive: bool,
+        shortcut: ElgProp,
+        destructive: ElgProp,
         checked: *const ElgProp,
         image: *const ElgImageSource,
     ) -> *mut View;
-    pub fn elg_submenu(title: ElgStr, menu: ElgClosure) -> *mut View;
+    pub fn elg_submenu(title: ElgProp, menu: ElgClosure) -> *mut View;
     pub fn elg_menu(items: *mut *mut View, count: usize) -> *mut View;
     pub fn elg_menu_button(
         take_label: *mut View,
+        title: *const ElgProp,
         menu: ElgClosure,
-        opens: i32,
-        shows_indicator: bool,
+        placement: *const ElgFloatingPlacement,
+        shows_indicator: ElgProp,
+        motion: ElgPopupMotion,
     ) -> *mut View;
 
-    pub fn elg_split_view(axis: i32, panes: *mut *mut View, count: usize) -> *mut View;
+    pub fn elg_split_view(
+        axis: i32,
+        panes: *mut *mut View,
+        count: usize,
+        options: *const ElgSplitViewOptions,
+    ) -> *mut View;
     pub fn elg_navigation_split_view(
         take_sidebar: *mut View,
         take_content: *mut View,
         take_detail: *mut View,
-        take_sidebar_visible: *mut BindingBool,
-        sidebar_width: ElgColumnWidth,
-        content_width: ElgColumnWidth,
+        options: *const ElgNavigationSplitViewOptions,
     ) -> *mut View;
     pub fn elg_navigation_stack(
         take_root: *mut View,
         pages: ElgClosure,
         titles: ElgClosure,
         pop: ElgClosure,
-        shows_bar: bool,
+        transition: i32,
+        animation: *const Animation,
+        back_gestures: bool,
     ) -> *mut View;
     pub fn elg_strings_push(target: *mut Strings, value: ElgStr);
 
@@ -985,8 +1225,8 @@ unsafe extern "C" {
     pub fn elg_text_clone(text: *const Text) -> *mut Text;
     pub fn elg_text_free(text: *mut Text);
     pub fn elg_text_to_view(text: *const Text) -> *mut View;
-    pub fn elg_text_font(text: *const Text, font: *const ElgFont) -> *mut Text;
-    pub fn elg_text_font_weight(text: *const Text, weight: i32) -> *mut Text;
+    pub fn elg_text_font(text: *const Text, font: ElgProp) -> *mut Text;
+    pub fn elg_text_font_weight(text: *const Text, weight: ElgProp) -> *mut Text;
     pub fn elg_text_bold(text: *const Text) -> *mut Text;
     pub fn elg_text_foreground_style(text: *const Text, color: ElgProp) -> *mut Text;
     pub fn elg_text_line_limit(text: *const Text, lines: i32) -> *mut Text;
@@ -1108,9 +1348,16 @@ unsafe extern "C" {
 
     pub fn elg_image(source: *const ElgImageSource) -> *mut View;
     pub fn elg_image_named(system_name: ElgStr) -> *mut View;
-    pub fn elg_async_image(url: ElgStr, scale: f32, content_mode: i32) -> *mut View;
-    pub fn elg_async_image_content(url: ElgStr, content: ElgClosure, scale: f32) -> *mut View;
-    pub fn elg_label(title: ElgStr, icon: *const ElgImageSource) -> *mut View;
+    pub fn elg_async_image(url: ElgStr, scale: f32, content_mode: i32, disk_cache: bool) -> *mut View;
+    pub fn elg_async_image_content(
+        url: ElgStr,
+        content: ElgClosure,
+        scale: f32,
+        disk_cache: bool,
+    ) -> *mut View;
+    pub fn elg_set_image_cache(disk: bool, disk_limit: u64, directory: ElgStr);
+    pub fn elg_clear_image_cache();
+    pub fn elg_label(title: ElgProp, icon: *const ElgImageSource) -> *mut View;
     pub fn elg_register_icon_set(
         name: ElgStr,
         font: ElgIconFont,
@@ -1129,13 +1376,8 @@ unsafe extern "C" {
     pub fn elg_font_assign(target: *mut Font, value: *const ElgFont);
     pub fn elg_shape_style_assign(target: *mut ShapeStyle, value: *const ElgShapeStyle);
 
-    pub fn elg_mod_padding(
-        v: *const View,
-        top: f32,
-        leading: f32,
-        bottom: f32,
-        trailing: f32,
-    ) -> *mut View;
+    pub fn elg_mod_padding(v: *const View, insets: ElgProp) -> *mut View;
+    pub fn elg_mod_padding_edges(v: *const View, edges: u32, length: ElgProp) -> *mut View;
     pub fn elg_mod_frame(v: *const View, options: *const ElgFrameOptions) -> *mut View;
     pub fn elg_mod_frame_size(v: *const View, size: ElgProp, alignment: ElgAlignment) -> *mut View;
     pub fn elg_mod_fixed_size(v: *const View, horizontal: bool, vertical: bool) -> *mut View;
@@ -1165,7 +1407,12 @@ unsafe extern "C" {
         take_overlay: *mut View,
         alignment: ElgAlignment,
     ) -> *mut View;
-    pub fn elg_mod_border(v: *const View, color: ElgColor, width: f32) -> *mut View;
+    pub fn elg_mod_border(
+        v: *const View,
+        color: ElgProp,
+        width: f32,
+        shape: *const Shape,
+    ) -> *mut View;
     pub fn elg_mod_clipped(v: *const View) -> *mut View;
     pub fn elg_mod_clip_shape(v: *const View, shape: *const Shape) -> *mut View;
     pub fn elg_mod_corner_radius(v: *const View, radius: f32) -> *mut View;
@@ -1173,6 +1420,14 @@ unsafe extern "C" {
     pub fn elg_mod_shadow(v: *const View, shadow: ElgShadow) -> *mut View;
     pub fn elg_mod_inner_shadow(v: *const View, shadow: ElgShadow) -> *mut View;
     pub fn elg_mod_blur(v: *const View, radius: ElgProp, opaque: bool) -> *mut View;
+    pub fn elg_mod_backdrop_blur(
+        v: *const View,
+        radius: ElgProp,
+        shape: *const Shape,
+        saturation: ElgProp,
+        brightness: ElgProp,
+        noise: ElgProp,
+    ) -> *mut View;
     pub fn elg_mod_color_filter(
         v: *const View,
         kind: i32,
@@ -1194,16 +1449,50 @@ unsafe extern "C" {
     pub fn elg_mod_mask_style(v: *const View, style: ElgProp) -> *mut View;
     pub fn elg_mod_content_shape(v: *const View, shape: *const Shape) -> *mut View;
     pub fn elg_mod_allows_hit_testing(v: *const View, enabled: bool) -> *mut View;
-    pub fn elg_mod_on_tap_gesture(v: *const View, on_tap: ElgClosure, count: i32) -> *mut View;
-    pub fn elg_mod_on_magnify(v: *const View, on_magnify: ElgClosure) -> *mut View;
-    pub fn elg_mod_on_rotate(v: *const View, on_rotate: ElgClosure) -> *mut View;
-    pub fn elg_mod_on_smart_magnify(v: *const View, on_smart_magnify: ElgClosure) -> *mut View;
-    pub fn elg_mod_pointer_style(v: *const View, style: ElgProp) -> *mut View;
-    pub fn elg_mod_on_hover(
+    pub fn elg_mod_on_click(
         v: *const View,
-        on_hover: ElgClosure,
-        delay: *const ElgHoverDelay,
+        on_click: ElgClosure,
+        button: i32,
+        count: i32,
     ) -> *mut View;
+    pub fn elg_mod_on_activate(v: *const View, on_activate: ElgClosure) -> *mut View;
+    pub fn elg_mod_drag_gesture(
+        v: *const View,
+        options: ElgDragOptions,
+        began: ElgClosure,
+        changed: ElgClosure,
+        ended: ElgClosure,
+        cancelled: ElgClosure,
+        gesture: ElgGestureOptions,
+    ) -> *mut View;
+    pub fn elg_mod_long_press_gesture(
+        v: *const View,
+        on_press: ElgClosure,
+        options: ElgLongPressOptions,
+        pressing: ElgClosure,
+        gesture: ElgGestureOptions,
+    ) -> *mut View;
+    pub fn elg_mod_magnify_gesture(
+        v: *const View,
+        began: ElgClosure,
+        changed: ElgClosure,
+        ended: ElgClosure,
+        cancelled: ElgClosure,
+    ) -> *mut View;
+    pub fn elg_mod_rotate_gesture(
+        v: *const View,
+        began: ElgClosure,
+        changed: ElgClosure,
+        ended: ElgClosure,
+        cancelled: ElgClosure,
+    ) -> *mut View;
+    pub fn elg_mod_on_two_finger_double_tap(v: *const View, on_tap: ElgClosure) -> *mut View;
+    pub fn elg_mod_pointer_style(v: *const View, style: ElgProp) -> *mut View;
+    pub fn elg_mod_on_pointer_boundary(v: *const View, leave: bool, on_cross: ElgClosure) -> *mut View;
+    pub fn elg_mod_on_hover_change(v: *const View, on_hover: ElgClosure) -> *mut View;
+    pub fn elg_mod_on_pointer(v: *const View, on_pointer: ElgClosure) -> *mut View;
+    pub fn elg_mod_on_scroll(v: *const View, on_scroll: ElgClosure) -> *mut View;
+    pub fn elg_mod_on_text_input(v: *const View, on_text_input: ElgClosure) -> *mut View;
     /// `on_size_change` receives `*const ElgPixelSize` as its args; ownership transfers to the view.
     pub fn elg_mod_on_size_change(v: *const View, on_size_change: ElgClosure) -> *mut View;
     pub fn elg_mod_on_drop(
@@ -1222,28 +1511,48 @@ unsafe extern "C" {
     pub fn elg_mod_hover_delay(v: *const View, delay: ElgHoverDelay) -> *mut View;
     pub fn elg_mod_window_drag_area(v: *const View, enabled: bool) -> *mut View;
     pub fn elg_mod_context_menu(v: *const View, menu: ElgClosure) -> *mut View;
-    pub fn elg_mod_help(v: *const View, text: ElgStr) -> *mut View;
+    pub fn elg_mod_floating(
+        v: *const View,
+        take_is_presented: *mut BindingBool,
+        content: ElgClosure,
+        options: *const ElgFloatingOptions,
+    ) -> *mut View;
+    pub fn elg_mod_floating_container(v: *const View) -> *mut View;
+    pub fn elg_mod_tooltip(
+        v: *const View,
+        content: ElgClosure,
+        text: *const ElgProp,
+        options: *const ElgTooltipOptions,
+    ) -> *mut View;
     pub fn elg_mod_popover(
         v: *const View,
         take_is_presented: *mut BindingBool,
         content: ElgClosure,
-        opens: i32,
-        padded: bool,
+        placement: *const ElgFloatingPlacement,
+        boundary: i32,
+        padded: ElgProp,
+        motion: ElgPopupMotion,
     ) -> *mut View;
     pub fn elg_mod_focusable(v: *const View, focusable: bool) -> *mut View;
     pub fn elg_mod_focused(v: *const View, take_is_focused: *mut BindingBool) -> *mut View;
     pub fn elg_mod_on_key_press(v: *const View, key: i32, on_press: ElgClosure) -> *mut View;
-    pub fn elg_mod_on_key_event(v: *const View, on_key: ElgClosure) -> *mut View;
-    pub fn elg_mod_font_weight(v: *const View, weight: i32) -> *mut View;
+    pub fn elg_mod_on_key(v: *const View, on_key: ElgClosure) -> *mut View;
+    pub fn elg_item_keys_push(target: *mut ItemKeys, key: ElgItemKey);
+    pub fn elg_mod_selection(
+        v: *const View,
+        multiple: bool,
+        string_keys: bool,
+        get: ElgClosure,
+        set: ElgClosure,
+        activate: ElgClosure,
+    ) -> *mut View;
+    pub fn elg_mod_font_weight(v: *const View, weight: ElgProp) -> *mut View;
     pub fn elg_mod_font(v: *const View, font: ElgProp) -> *mut View;
     pub fn elg_mod_foreground_style(v: *const View, color: ElgProp) -> *mut View;
     pub fn elg_mod_tint(v: *const View, color: ElgProp) -> *mut View;
     pub fn elg_mod_color_scheme(v: *const View, scheme: ElgProp) -> *mut View;
     pub fn elg_mod_theme(v: *const View, theme: *const ElgTheme) -> *mut View;
     pub fn elg_mod_disabled(v: *const View, disabled: ElgProp) -> *mut View;
-    pub fn elg_mod_button_style(v: *const View, style: *const ButtonStyle) -> *mut View;
-    pub fn elg_mod_toggle_style(v: *const View, style: *const ToggleStyle) -> *mut View;
-    pub fn elg_mod_text_field_style(v: *const View, style: *const TextFieldStyle) -> *mut View;
     pub fn elg_mod_animation(
         v: *const View,
         animation: *const Animation,
@@ -1251,43 +1560,6 @@ unsafe extern "C" {
     ) -> *mut View;
     pub fn elg_mod_transition(v: *const View, transition: *const Transition) -> *mut View;
     pub fn elg_mod_animates_layout(v: *const View, enabled: bool) -> *mut View;
-
-    pub fn elg_button_style_builtin(kind: i32) -> *mut ButtonStyle;
-    pub fn elg_toggle_style_builtin(kind: i32) -> *mut ToggleStyle;
-    pub fn elg_text_field_style_builtin(kind: i32) -> *mut TextFieldStyle;
-    pub fn elg_button_style_clone(s: *const ButtonStyle) -> *mut ButtonStyle;
-    pub fn elg_button_style_free(s: *mut ButtonStyle);
-    pub fn elg_toggle_style_clone(s: *const ToggleStyle) -> *mut ToggleStyle;
-    pub fn elg_toggle_style_free(s: *mut ToggleStyle);
-    pub fn elg_text_field_style_clone(s: *const TextFieldStyle) -> *mut TextFieldStyle;
-    pub fn elg_text_field_style_free(s: *mut TextFieldStyle);
-    pub fn elg_button_config_free(c: *mut ButtonConfiguration);
-    pub fn elg_button_config_clone(c: *const ButtonConfiguration) -> *mut ButtonConfiguration;
-    pub fn elg_button_config_label(c: *const ButtonConfiguration) -> *mut View;
-    pub fn elg_button_config_state(c: *const ButtonConfiguration, which: i32) -> bool;
-    pub fn elg_button_style_make_body(
-        style: *const ButtonStyle,
-        c: *const ButtonConfiguration,
-    ) -> *mut View;
-    pub fn elg_toggle_config_free(c: *mut ToggleConfiguration);
-    pub fn elg_toggle_config_clone(c: *const ToggleConfiguration) -> *mut ToggleConfiguration;
-    pub fn elg_toggle_config_label(c: *const ToggleConfiguration) -> *mut View;
-    pub fn elg_toggle_config_state(c: *const ToggleConfiguration, which: i32) -> bool;
-    pub fn elg_toggle_config_toggle(c: *const ToggleConfiguration);
-    pub fn elg_toggle_style_make_body(
-        style: *const ToggleStyle,
-        c: *const ToggleConfiguration,
-    ) -> *mut View;
-    pub fn elg_text_field_config_free(c: *mut TextFieldConfiguration);
-    pub fn elg_text_field_config_clone(
-        c: *const TextFieldConfiguration,
-    ) -> *mut TextFieldConfiguration;
-    pub fn elg_text_field_config_field(c: *const TextFieldConfiguration) -> *mut View;
-    pub fn elg_text_field_config_state(c: *const TextFieldConfiguration, which: i32) -> bool;
-    pub fn elg_text_field_style_make_body(
-        style: *const TextFieldStyle,
-        c: *const TextFieldConfiguration,
-    ) -> *mut View;
 
     /// The `elg::ModuleEntry` of a Rust views module (one per loaded module; built once).
     pub fn elg_rust_module_entry(
@@ -1335,9 +1607,6 @@ unsafe extern "C" {
     pub fn elg_layouts_views(sink: ElgStrSink, ctx: *mut c_void);
 
     // --- ext.cpp ---
-    pub fn elg_button_style_rust(make_body: ElgClosure) -> *mut ButtonStyle;
-    pub fn elg_toggle_style_rust(make_body: ElgClosure) -> *mut ToggleStyle;
-    pub fn elg_text_field_style_rust(make_body: ElgClosure) -> *mut TextFieldStyle;
     pub fn elg_rust_layout_view(
         layout: ElgClosure,
         children: *mut *mut View,
@@ -1371,8 +1640,6 @@ unsafe extern "C" {
     pub fn elg_mod_rust_environment_modifier(v: *const View, apply: ElgClosure) -> *mut View;
     pub fn elg_mod_rust_effect_modifier(v: *const View, apply: ElgClosure) -> *mut View;
     pub fn elg_mod_rust_event_modifier(v: *const View, make_handler: ElgClosure) -> *mut View;
-    pub fn elg_effects_clip_to_bounds(e: *const Effects) -> bool;
-    pub fn elg_effects_set_clip_to_bounds(e: *mut Effects, clip: bool);
     pub fn elg_effects_set_clip_shape(e: *mut Effects, shape: *const Shape);
     pub fn elg_effects_set_opacity(e: *mut Effects, opacity: ElgProp);
     pub fn elg_effects_set_shadow(e: *mut Effects, shadow: *const ElgShadow);
@@ -1510,30 +1777,6 @@ unsafe extern "C" {
     pub fn elg_video_feed_has_frame(feed: *const VideoFeed) -> bool;
     pub fn elg_video_feed_view(feed: *const VideoFeed, mode: i32, mirrored: bool) -> *mut View;
 
-    pub fn elg_http_fetch(request: *const ElgRequest, done: ElgClosure) -> *mut HttpTask;
-    pub fn elg_http_task_clone(task: *const HttpTask) -> *mut HttpTask;
-    pub fn elg_http_task_free(task: *mut HttpTask);
-    pub fn elg_http_task_cancel(task: *const HttpTask);
-    pub fn elg_http_fetch_state(request: *const ElgRequest) -> *mut HttpFetch;
-    pub fn elg_http_fetch_state_clone(fetch: *const HttpFetch) -> *mut HttpFetch;
-    pub fn elg_http_fetch_state_free(fetch: *mut HttpFetch);
-    pub fn elg_http_fetch_state_flag(fetch: *const HttpFetch, which: i32) -> bool;
-    pub fn elg_http_fetch_state_result(fetch: *const HttpFetch, use_: ElgClosure);
-    pub fn elg_http_fetch_state_reload(fetch: *const HttpFetch);
-
-    pub fn elg_websocket_connect(
-        url: ElgStr,
-        headers: *const ElgHeader,
-        header_count: usize,
-        timeout_ms: i64,
-        events: ElgWebSocketEvents,
-    ) -> *mut WebSocket;
-    pub fn elg_websocket_clone(socket: *const WebSocket) -> *mut WebSocket;
-    pub fn elg_websocket_free(socket: *mut WebSocket);
-    pub fn elg_websocket_send(socket: *const WebSocket, text: ElgStr, binary: bool);
-    pub fn elg_websocket_close(socket: *const WebSocket, code: i32, reason: ElgStr);
-    pub fn elg_websocket_is_open(socket: *const WebSocket) -> bool;
-
     pub fn elg_choose_files(
         filters: *const ElgFileFilter,
         filter_count: usize,
@@ -1568,6 +1811,184 @@ unsafe extern "C" {
     pub fn elg_layouts_platform(sink: ElgStrSink, ctx: *mut c_void);
 }
 
+// --- styles.cpp ---
+//
+// Every family has `elg_<family>_style_clone/free`, `elg_mod_<family>_style` and
+// `elg_<family>_config_clone/free`; most have `elg_<family>_style_make_body`.
+unsafe extern "C" {
+    pub fn elg_button_style_clone(s: *const ButtonStyle) -> *mut ButtonStyle;
+    pub fn elg_button_style_free(s: *mut ButtonStyle);
+    pub fn elg_mod_button_style(v: *const View, style: *const ButtonStyle) -> *mut View;
+    pub fn elg_button_config_clone(c: *const ButtonConfiguration) -> *mut ButtonConfiguration;
+    pub fn elg_button_config_free(c: *mut ButtonConfiguration);
+    pub fn elg_button_style_make_body(s: *const ButtonStyle, c: *const ButtonConfiguration) -> *mut View;
+    pub fn elg_button_style_rust(make_body: ElgClosure) -> *mut ButtonStyle;
+    pub fn elg_button_style_builtin(kind: i32) -> *mut ButtonStyle;
+    pub fn elg_button_config_label(c: *const ButtonConfiguration) -> *mut View;
+    pub fn elg_button_config_state(c: *const ButtonConfiguration, which: i32) -> bool;
+
+    pub fn elg_toggle_style_clone(s: *const ToggleStyle) -> *mut ToggleStyle;
+    pub fn elg_toggle_style_free(s: *mut ToggleStyle);
+    pub fn elg_mod_toggle_style(v: *const View, style: *const ToggleStyle) -> *mut View;
+    pub fn elg_toggle_config_clone(c: *const ToggleConfiguration) -> *mut ToggleConfiguration;
+    pub fn elg_toggle_config_free(c: *mut ToggleConfiguration);
+    pub fn elg_toggle_style_make_body(s: *const ToggleStyle, c: *const ToggleConfiguration) -> *mut View;
+    pub fn elg_toggle_style_rust(make_body: ElgClosure, animation: *const Animation) -> *mut ToggleStyle;
+    pub fn elg_switch_toggle_style(options: *const ElgSwitchToggleStyleOptions) -> *mut ToggleStyle;
+    pub fn elg_toggle_config_label(c: *const ToggleConfiguration) -> *mut View;
+    pub fn elg_toggle_config_state(c: *const ToggleConfiguration, which: i32) -> bool;
+    pub fn elg_toggle_config_toggle(c: *const ToggleConfiguration);
+
+    pub fn elg_checkbox_style_clone(s: *const CheckboxStyle) -> *mut CheckboxStyle;
+    pub fn elg_checkbox_style_free(s: *mut CheckboxStyle);
+    pub fn elg_mod_checkbox_style(v: *const View, style: *const CheckboxStyle) -> *mut View;
+    pub fn elg_checkbox_config_clone(c: *const CheckboxConfiguration) -> *mut CheckboxConfiguration;
+    pub fn elg_checkbox_config_free(c: *mut CheckboxConfiguration);
+    pub fn elg_checkbox_style_make_body(s: *const CheckboxStyle, c: *const CheckboxConfiguration) -> *mut View;
+    pub fn elg_checkbox_style_rust(make_body: ElgClosure, animation: *const Animation) -> *mut CheckboxStyle;
+    pub fn elg_box_checkbox_style(options: *const ElgBoxCheckboxStyleOptions) -> *mut CheckboxStyle;
+    pub fn elg_checkbox_config_label(c: *const CheckboxConfiguration) -> *mut View;
+    pub fn elg_checkbox_config_state(c: *const CheckboxConfiguration, which: i32) -> bool;
+    pub fn elg_checkbox_config_toggle(c: *const CheckboxConfiguration);
+
+    pub fn elg_number_input_style_clone(s: *const NumberInputStyle) -> *mut NumberInputStyle;
+    pub fn elg_number_input_style_free(s: *mut NumberInputStyle);
+    pub fn elg_mod_number_input_style(v: *const View, style: *const NumberInputStyle) -> *mut View;
+    pub fn elg_number_input_config_clone(c: *const NumberInputConfiguration) -> *mut NumberInputConfiguration;
+    pub fn elg_number_input_config_free(c: *mut NumberInputConfiguration);
+    pub fn elg_number_input_style_make_body(
+        s: *const NumberInputStyle,
+        c: *const NumberInputConfiguration,
+    ) -> *mut View;
+    pub fn elg_number_input_style_rust(make_body: ElgClosure) -> *mut NumberInputStyle;
+    pub fn elg_number_input_style_builtin(options: *const ElgBoxNumberInputStyleOptions) -> *mut NumberInputStyle;
+    pub fn elg_number_input_config_field(c: *const NumberInputConfiguration) -> *mut View;
+    pub fn elg_number_input_config_state(c: *const NumberInputConfiguration, which: i32) -> bool;
+    pub fn elg_number_input_config_action(c: *const NumberInputConfiguration, which: i32);
+
+    pub fn elg_progress_style_clone(s: *const ProgressStyle) -> *mut ProgressStyle;
+    pub fn elg_progress_style_free(s: *mut ProgressStyle);
+    pub fn elg_mod_progress_style(v: *const View, style: *const ProgressStyle) -> *mut View;
+    pub fn elg_progress_config_clone(c: *const ProgressConfiguration) -> *mut ProgressConfiguration;
+    pub fn elg_progress_config_free(c: *mut ProgressConfiguration);
+    pub fn elg_progress_style_make_body(s: *const ProgressStyle, c: *const ProgressConfiguration) -> *mut View;
+    pub fn elg_progress_style_rust(make_body: ElgClosure) -> *mut ProgressStyle;
+    pub fn elg_progress_style_builtin(kind: i32, options: *const ElgProgressStyleOptions) -> *mut ProgressStyle;
+    pub fn elg_progress_config_fraction(c: *const ProgressConfiguration) -> ElgOptLen;
+
+    pub fn elg_text_field_style_clone(s: *const TextFieldStyle) -> *mut TextFieldStyle;
+    pub fn elg_text_field_style_free(s: *mut TextFieldStyle);
+    pub fn elg_mod_text_field_style(v: *const View, style: *const TextFieldStyle) -> *mut View;
+    pub fn elg_text_field_config_clone(c: *const TextFieldConfiguration) -> *mut TextFieldConfiguration;
+    pub fn elg_text_field_config_free(c: *mut TextFieldConfiguration);
+    pub fn elg_text_field_style_make_body(
+        s: *const TextFieldStyle,
+        c: *const TextFieldConfiguration,
+    ) -> *mut View;
+    pub fn elg_text_field_style_rust(make_body: ElgClosure) -> *mut TextFieldStyle;
+    pub fn elg_text_field_style_builtin(kind: i32) -> *mut TextFieldStyle;
+    pub fn elg_text_field_config_field(c: *const TextFieldConfiguration) -> *mut View;
+    pub fn elg_text_field_config_state(c: *const TextFieldConfiguration, which: i32) -> bool;
+
+    pub fn elg_picker_style_clone(s: *const PickerStyle) -> *mut PickerStyle;
+    pub fn elg_picker_style_free(s: *mut PickerStyle);
+    pub fn elg_mod_picker_style(v: *const View, style: *const PickerStyle) -> *mut View;
+    pub fn elg_picker_config_clone(c: *const PickerConfiguration) -> *mut PickerConfiguration;
+    pub fn elg_picker_config_free(c: *mut PickerConfiguration);
+    pub fn elg_picker_style_make_body(s: *const PickerStyle, c: *const PickerConfiguration) -> *mut View;
+    pub fn elg_picker_style_rust(make_body: ElgClosure) -> *mut PickerStyle;
+    pub fn elg_picker_style_builtin(kind: i32) -> *mut PickerStyle;
+    pub fn elg_picker_config_count(c: *const PickerConfiguration) -> usize;
+    pub fn elg_picker_config_label(c: *const PickerConfiguration, index: usize) -> ElgStr;
+    pub fn elg_picker_config_selected(c: *const PickerConfiguration) -> usize;
+    pub fn elg_picker_config_select(c: *const PickerConfiguration, index: usize);
+
+    pub fn elg_slider_style_clone(s: *const SliderStyle) -> *mut SliderStyle;
+    pub fn elg_slider_style_free(s: *mut SliderStyle);
+    pub fn elg_mod_slider_style(v: *const View, style: *const SliderStyle) -> *mut View;
+    pub fn elg_slider_config_clone(c: *const SliderConfiguration) -> *mut SliderConfiguration;
+    pub fn elg_slider_config_free(c: *mut SliderConfiguration);
+    pub fn elg_slider_style_make_part(s: *const SliderStyle, c: *const SliderConfiguration, part: i32) -> *mut View;
+    pub fn elg_slider_style_rust(track: ElgClosure, fill: ElgClosure, thumb: ElgClosure) -> *mut SliderStyle;
+    pub fn elg_knob_slider_style(options: *const ElgKnobSliderStyleOptions) -> *mut SliderStyle;
+    pub fn elg_slider_config_fraction(c: *const SliderConfiguration) -> f32;
+    pub fn elg_slider_config_state(c: *const SliderConfiguration, which: i32) -> bool;
+
+    pub fn elg_navigation_stack_style_clone(s: *const NavigationStackStyle) -> *mut NavigationStackStyle;
+    pub fn elg_navigation_stack_style_free(s: *mut NavigationStackStyle);
+    pub fn elg_mod_navigation_stack_style(v: *const View, style: *const NavigationStackStyle) -> *mut View;
+    pub fn elg_navigation_stack_config_clone(
+        c: *const NavigationStackConfiguration,
+    ) -> *mut NavigationStackConfiguration;
+    pub fn elg_navigation_stack_config_free(c: *mut NavigationStackConfiguration);
+    pub fn elg_navigation_stack_style_make_body(
+        s: *const NavigationStackStyle,
+        c: *const NavigationStackConfiguration,
+    ) -> *mut View;
+    pub fn elg_navigation_stack_style_rust(make_body: ElgClosure) -> *mut NavigationStackStyle;
+    pub fn elg_navigation_stack_style_builtin(
+        options: *const ElgBarNavigationStackStyleOptions,
+    ) -> *mut NavigationStackStyle;
+    pub fn elg_navigation_stack_config_pages(c: *const NavigationStackConfiguration) -> *mut View;
+    pub fn elg_navigation_stack_config_titles(
+        c: *const NavigationStackConfiguration,
+        each: ElgStrSink,
+        ctx: *mut c_void,
+    );
+    pub fn elg_navigation_stack_config_can_go_back(c: *const NavigationStackConfiguration) -> bool;
+    pub fn elg_navigation_stack_config_back(c: *const NavigationStackConfiguration);
+
+    pub fn elg_popover_style_clone(s: *const PopoverStyle) -> *mut PopoverStyle;
+    pub fn elg_popover_style_free(s: *mut PopoverStyle);
+    pub fn elg_mod_popover_style(v: *const View, style: *const PopoverStyle) -> *mut View;
+    pub fn elg_popover_config_clone(c: *const PopoverConfiguration) -> *mut PopoverConfiguration;
+    pub fn elg_popover_config_free(c: *mut PopoverConfiguration);
+    pub fn elg_popover_style_make_body(s: *const PopoverStyle, c: *const PopoverConfiguration) -> *mut View;
+    pub fn elg_popover_style_rust(make_body: ElgClosure, motion: ElgPopupMotion) -> *mut PopoverStyle;
+    pub fn elg_popover_style_builtin(kind: i32) -> *mut PopoverStyle;
+    pub fn elg_popover_config_content(c: *const PopoverConfiguration) -> *mut View;
+    pub fn elg_popover_config_is_padded(c: *const PopoverConfiguration) -> bool;
+
+    pub fn elg_tooltip_style_clone(s: *const TooltipStyle) -> *mut TooltipStyle;
+    pub fn elg_tooltip_style_free(s: *mut TooltipStyle);
+    pub fn elg_mod_tooltip_style(v: *const View, style: *const TooltipStyle) -> *mut View;
+    pub fn elg_tooltip_config_clone(c: *const TooltipConfiguration) -> *mut TooltipConfiguration;
+    pub fn elg_tooltip_config_free(c: *mut TooltipConfiguration);
+    pub fn elg_tooltip_style_make_body(s: *const TooltipStyle, c: *const TooltipConfiguration) -> *mut View;
+    pub fn elg_tooltip_style_rust(make_body: ElgClosure, motion: ElgPopupMotion) -> *mut TooltipStyle;
+    pub fn elg_tooltip_style_builtin(kind: i32) -> *mut TooltipStyle;
+    pub fn elg_tooltip_config_content(c: *const TooltipConfiguration) -> *mut View;
+
+    pub fn elg_menu_style_clone(s: *const MenuStyle) -> *mut MenuStyle;
+    pub fn elg_menu_style_free(s: *mut MenuStyle);
+    pub fn elg_mod_menu_style(v: *const View, style: *const MenuStyle) -> *mut View;
+    pub fn elg_menu_config_clone(c: *const MenuConfiguration) -> *mut MenuConfiguration;
+    pub fn elg_menu_config_free(c: *mut MenuConfiguration);
+    pub fn elg_menu_item_config_clone(c: *const MenuItemConfiguration) -> *mut MenuItemConfiguration;
+    pub fn elg_menu_item_config_free(c: *mut MenuItemConfiguration);
+    pub fn elg_menu_style_make_body(s: *const MenuStyle, c: *const MenuConfiguration) -> *mut View;
+    pub fn elg_menu_style_rust(make_body: ElgClosure, make_item: ElgClosure, motion: ElgPopupMotion) -> *mut MenuStyle;
+    pub fn elg_menu_style_builtin(kind: i32) -> *mut MenuStyle;
+    pub fn elg_menu_style_make_item(s: *const MenuStyle, c: *const MenuItemConfiguration) -> *mut View;
+    pub fn elg_menu_config_items(c: *const MenuConfiguration) -> *mut View;
+    pub fn elg_menu_item_config_view(c: *const MenuItemConfiguration, which: i32) -> *mut View;
+    pub fn elg_menu_item_config_state(c: *const MenuItemConfiguration, which: i32) -> bool;
+
+    pub fn elg_row_style_clone(s: *const RowStyle) -> *mut RowStyle;
+    pub fn elg_row_style_free(s: *mut RowStyle);
+    pub fn elg_mod_row_style(v: *const View, style: *const RowStyle) -> *mut View;
+    pub fn elg_row_config_clone(c: *const RowConfiguration) -> *mut RowConfiguration;
+    pub fn elg_row_config_free(c: *mut RowConfiguration);
+    pub fn elg_row_style_make_body(s: *const RowStyle, c: *const RowConfiguration) -> *mut View;
+    pub fn elg_row_style_rust(make_body: ElgClosure) -> *mut RowStyle;
+    pub fn elg_row_style_builtin(options: *const ElgHighlightRowStyleOptions) -> *mut RowStyle;
+    pub fn elg_row_config_content(c: *const RowConfiguration) -> *mut View;
+    pub fn elg_row_config_axis(c: *const RowConfiguration) -> i32;
+    pub fn elg_row_config_state(c: *const RowConfiguration, which: i32) -> bool;
+
+    pub fn elg_layouts_styles(sink: ElgStrSink, ctx: *mut c_void);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1596,6 +2017,7 @@ mod tests {
             elg_layouts_views,
             elg_layouts_ext,
             elg_layouts_platform,
+            elg_layouts_styles,
         ] {
             unsafe { layouts(append, (&raw mut text).cast()) };
         }
@@ -1622,6 +2044,7 @@ mod tests {
             "ElgFont" => ElgFont,
             "ElgGradientStop" => ElgGradientStop,
             "ElgShapeStyle" => ElgShapeStyle,
+            "ElgEdgeInsets" => ElgEdgeInsets,
             "ElgProp" => ElgProp,
             "ElgProposedSize" => ElgProposedSize,
             "ElgOptLen" => ElgOptLen,
@@ -1629,10 +2052,14 @@ mod tests {
             "ElgKeyEvent" => ElgKeyEvent,
             "ElgPointerEvent" => ElgPointerEvent,
             "ElgScrollEvent" => ElgScrollEvent,
+            "ElgClickEvent" => ElgClickEvent,
+            "ElgDragEvent" => ElgDragEvent,
             "ElgMagnifyEvent" => ElgMagnifyEvent,
             "ElgRotateEvent" => ElgRotateEvent,
             "ElgTextInputEvent" => ElgTextInputEvent,
             "ElgEventResult" => ElgEventResult,
+            "ElgFloatingPlacement" => ElgFloatingPlacement,
+            "ElgPopupMotion" => ElgPopupMotion,
             "ElgHoverDelay" => ElgHoverDelay,
             "ElgShadow" => ElgShadow,
             "ElgStrokeStyle" => ElgStrokeStyle,
@@ -1641,8 +2068,27 @@ mod tests {
             "ElgWindowDesc" => ElgWindowDesc,
             "ElgPose" => ElgPose,
             "ElgTextFieldOptions" => ElgTextFieldOptions,
+            "ElgNumberInputOptions" => ElgNumberInputOptions,
+            "ElgOptNumber" => ElgOptNumber,
             "ElgForEachItem" => ElgForEachItem,
+            "ElgStackSeparators" => ElgStackSeparators,
+            "ElgSplitViewOptions" => ElgSplitViewOptions,
             "ElgColumnWidth" => ElgColumnWidth,
+            "ElgNavigationSplitViewOptions" => ElgNavigationSplitViewOptions,
+            "ElgGestureOptions" => ElgGestureOptions,
+            "ElgDragOptions" => ElgDragOptions,
+            "ElgLongPressOptions" => ElgLongPressOptions,
+            "ElgFloatingOptions" => ElgFloatingOptions,
+            "ElgTooltipOptions" => ElgTooltipOptions,
+            "ElgItemKey" => ElgItemKey,
+            "ElgItemKeys" => ElgItemKeys,
+            "ElgSwitchToggleStyleOptions" => ElgSwitchToggleStyleOptions,
+            "ElgBoxCheckboxStyleOptions" => ElgBoxCheckboxStyleOptions,
+            "ElgBoxNumberInputStyleOptions" => ElgBoxNumberInputStyleOptions,
+            "ElgProgressStyleOptions" => ElgProgressStyleOptions,
+            "ElgKnobSliderStyleOptions" => ElgKnobSliderStyleOptions,
+            "ElgBarNavigationStackStyleOptions" => ElgBarNavigationStackStyleOptions,
+            "ElgHighlightRowStyleOptions" => ElgHighlightRowStyleOptions,
             "ElgTextRun" => ElgTextRun,
             "ElgPolyline" => ElgPolyline,
             "ElgAsyncImagePhase" => ElgAsyncImagePhase,
@@ -1663,11 +2109,6 @@ mod tests {
             "ElgDevice" => ElgDevice,
             "ElgRenderBuffer" => ElgRenderBuffer,
             "ElgSamples" => ElgSamples,
-            "ElgHeader" => ElgHeader,
-            "ElgRequest" => ElgRequest,
-            "ElgResponse" => ElgResponse,
-            "ElgWebSocketEvents" => ElgWebSocketEvents,
-            "ElgWebSocketClose" => ElgWebSocketClose,
             "ElgFileFilter" => ElgFileFilter,
             "ElgPaths" => ElgPaths,
             "ElgTrayMenuItem" => ElgTrayMenuItem,

@@ -7,7 +7,7 @@ use elegance_sys as sys;
 
 use crate::error::ffi;
 use crate::ffi as cffi;
-use crate::geometry::{Edges, Size};
+use crate::geometry::{Alignment, Edges, Size};
 use crate::reactive::{run_borrowed, Binding, Computed, State};
 
 /// A timing curve: how an animated change progresses over time.
@@ -174,8 +174,15 @@ impl Transition {
     pub fn identity() -> Self {
         Self::from_raw(unsafe { sys::elg_transition_identity() })
     }
+    /// Grows from (and shrinks to) `from` times its size, around its center.
     pub fn scale(from: f32) -> Self {
-        Self::from_raw(unsafe { sys::elg_transition_scale(from) })
+        Self::scale_anchored(from, Alignment::CENTER)
+    }
+    /// Grows around the point of its frame `anchor` names: `scale_anchored(0.9, Alignment::TOP)`
+    /// grows down from its top edge.
+    pub fn scale_anchored(from: f32, anchor: impl Into<Alignment>) -> Self {
+        let anchor = anchor.into().c();
+        Self::from_raw(unsafe { sys::elg_transition_scale(from, anchor) })
     }
     pub fn offset(x: f32, y: f32) -> Self {
         Self::from_raw(unsafe { sys::elg_transition_offset(x, y) })

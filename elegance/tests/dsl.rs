@@ -116,7 +116,7 @@ struct Clicks;
 impl EventHandler for Clicks {
     fn pointer(&mut self, event: &PointerEvent, _: Rect) -> EventResult {
         if event.kind == PointerEventKind::Down {
-            EventResult::CONSUMED
+            EventResult::CONSUMED.cancellable()
         } else {
             EventResult::IGNORED
         }
@@ -135,6 +135,8 @@ impl EventModifier for ClickModifier {
 fn gallery() -> impl IntoView {
     let mut volume = State::new(0.5_f32);
     let guests = State::new(2);
+    let selected = State::new(None::<i32>);
+    let picked = State::new(std::collections::BTreeSet::<i32>::new());
     let size = State::new(Size3::M);
     let name = State::new(String::new());
     let on = State::new(false);
@@ -154,13 +156,18 @@ fn gallery() -> impl IntoView {
                 Badge(title: "Mail".to_string(), count: 3, note: "unread".to_string())
                 { Card { title: "Card".into() } }
                 Text(move || if compact.get() { "S" } else { "Small" })
-                Slider(volume, min: 0, max: 1, step: 0.1)
-                Stepper("Guests: {guests}", guests, min: 1, max: 10)
-                Picker(size, [(Size3::S, "S"), (Size3::M, "M"), (Size3::L, "L")], style: .menu)
-                SecureField("Password", name, max_lines: 1)
-                Toggle(Label("Wi-Fi", "wifi-high"), on).toggle_style(SwitchToggleStyle)
-                ProgressView(volume)
-                ProgressView()
+                Slider(volume, min: 0, max: move || volume.get() + 1.0, step: 0.1)
+                NumberInput(guests, min: 1, max: 10)
+                Picker(size, [(Size3::S, "S"), (Size3::M, "M"), (Size3::L, "L")]).picker_style(MenuPickerStyle)
+                TextField("Password", name, secure: move || !on.get(), line_limit: 1)
+                TextArea("Notes", name, on_submit: || {})
+                Toggle(Label("Wi-Fi", "wifi-high"), on).toggle_style(SwitchToggleStyle::new().fills_width(true))
+                Toggle(on).accessibility_label("Wi-Fi")
+                Checkbox("All", on, mixed: move || volume.get() > 0.5)
+                    .checkbox_style(BoxCheckboxStyle::new().size(16).fill(.success))
+                Progress(move || Some(volume.get())).progress_style(CircularProgressStyle::new().size(14))
+                Progress()
+                Separator(.vertical, inset: 4)
                 if on.get() {
                     Text("on")
                 } else if volume.get() > 0.5 {
@@ -186,7 +193,7 @@ fn gallery() -> impl IntoView {
                         Text("Name").grid_column_alignment(.leading)
                         Text("Size").grid_cell_alignment(.bottom_trailing)
                     }
-                    Divider()
+                    Separator()
                     ForEach(0..3) { i in GridRow { Text(format!("{i}")) Text("x") } }
                     GridRow { Text("note").grid_cell_columns(2) }
                 }
@@ -201,29 +208,46 @@ fn gallery() -> impl IntoView {
                     Canvas(|gc| gc.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::WHITE, 2))
                 }
                 .frame(40, 40)
-                LazyVStack(spacing: 2) {
+                LazyVStack(spacing: 2, separators: StackSeparators::default().inset(16)) {
                     ForEach(0..100) { i in Text(format!("Row {i}")) }
                 }
-                AsyncImage("https://example.com/a.png", scale: 2.0) { phase in
-                    { match phase { AsyncImagePhase::Success(image) => image.clone().resizable(), _ => ProgressView::new().into_view() } }
+                .selection(selected)
+                .row_style(HighlightRowStyle::new().corner_radius(0))
+                VStack { ForEach(0..3) { i in Text(format!("{i}")) } }
+                    .selection_with(picked, |key: &i32| { let _ = key; })
+                AsyncImage("https://example.com/a.png", scale: 2.0, disk_cache: false) { phase in
+                    { match phase { AsyncImagePhase::Success(image) => image.clone().resizable(), _ => Progress::new().into_view() } }
                 }
                 MenuButton("Actions", || elg! {
                     Menu {
                         MenuItem("Rename", || {}, shortcut: "F2")
-                        Divider()
+                        Separator()
                         Submenu("More", || elg! { Menu { MenuItem("Delete", || {}, destructive: true) } })
                     }
-                })
+                }, edge: .top)
+                .menu_style(PlainMenuStyle)
                 Button(action: move || volume += 0.1) { Label("Louder", "speaker-high") }
                     .button_style(Pill)
-                    .popover(showing,|| elg! { Text("Popover") }, opens: .above)
-                    .help("Turns it up")
+                    .popover(showing,|| elg! { Text("Popover") }, edge: .top, padded: false)
+                    .tooltip("Turns it up")
                     .on_key_press(.space, move || volume -= 0.1)
                     .pointer_style(.pointer)
                 Text("Zoom")
                     .on_magnify(|e| { let _: f32 = e.scale; })
                     .on_rotate(|e| { let _: GesturePhase = e.phase; })
-                    .on_smart_magnify(|at| { let _: Point = at; })
+                    .on_two_finger_double_tap(|at| { let _: Point = at; })
+                    .recognize(DragGesture::with(|o| o.minimum_distance(8)).on_changed(|e| { let _: Point = e.translation; }))
+                    .recognize_with(LongPressGesture::new(|| {}), |o| o.priority(GesturePriority::High))
+                    .on_click(|e| { let _: Point = e.location; }, count: 2)
+                    .on_activate(|| {})
+                    .on_hover_change(|_| {})
+                    .on_pointer_enter(|| {})
+                    .on_pointer(|e| e.window_location.x > 0.0)
+                    .on_key(|e| e.kind == KeyEventKind::Up)
+                    .floating(showing, || Text("Card"), |o| o.boundary(FloatingBoundary::Window).outside_click(false))
+                    .backdrop_blur(30, saturation: 1.8)
+                    .border_in(.outline, 1, Capsule())
+                    .font_weight(move || if on.get() { Weight::Bold } else { Weight::Regular })
                     .pointer_style(move || if on.get() { PointerStyle::Wait } else { PointerStyle::Automatic })
             }
         }
@@ -232,7 +256,8 @@ fn gallery() -> impl IntoView {
         .modifier(AsEffect(Dim))
         .modifier(AsEvent(ClickModifier))
         .shadow(radius: 4, y: 2)
-        .on_tap_gesture(|| {}, count: 2)
+        .on_double_click(|_| {})
+        .navigation_stack_style(BarNavigationStackStyle::new().height(38))
         .overlay(Text("!"), alignment: .top_leading)
         .animation(.smooth, move || on.get())
         .transition(Transition::slide().combined(Transition::opacity()))
@@ -293,17 +318,94 @@ fn dsl_compiles() {
     let _ = gallery as fn() -> _;
 }
 
+struct Track;
+impl SliderStyle for Track {
+    fn make_track(&self, slider: SliderConfiguration) -> View {
+        let state = slider.clone();
+        Capsule().fill(move || if state.is_hovered() { ThemeColor::Accent } else { ThemeColor::Outline }).into_view()
+    }
+    fn make_thumb(&self, _: SliderConfiguration) -> View {
+        Circle().frame(12, 12)
+    }
+}
+
+struct Rows;
+impl MenuStyle for Rows {
+    fn make_body(&self, menu: MenuConfiguration) -> View {
+        menu.items().padding(4)
+    }
+}
+
+/// The new controls, styles and modifiers, built for real (nothing reads the environment).
+fn controls() -> View {
+    let value = State::new(0.5_f32);
+    let count = State::new(3);
+    let on = State::new(true);
+    let text = State::new(String::new());
+    let one = State::new(Some("b".to_string()));
+    let many = State::new(std::collections::BTreeSet::from([1_i64]));
+    elg! {
+        VStack {
+            NumberInput(count, min: 0, max: 10, format: |v| format!("{v} x")).number_input_style(BoxNumberInputStyle::new().corner_radius(2))
+            NumberInput(value, step: 0.05, decimals: 2).number_input_style(PlainNumberInputStyle)
+            Slider(value).slider_style(Track)
+            Slider(value).slider_style(KnobSliderStyle::new().fill(.success).knob_size(14))
+            TextField("Password", text, secure: true).text_field_style(PlainTextFieldStyle)
+            TextArea("Notes", text)
+            Toggle(on).toggle_style(SwitchToggleStyle::new().on(Color::hex(0x00AA00)).animation(None))
+            Checkbox("Mixed", on, mixed: true)
+            Checkbox(on)
+            Progress(0.4).progress_style(LinearProgressStyle::new().thickness(3))
+            Picker(count, [(1, "One"), (2, "Two")]).picker_style(SegmentedPickerStyle)
+            Separator()
+            LazyVStack(separators: StackSeparators::default()) { ForEach(vec!["a".to_string(), "b".to_string()]) { s in Text(s.clone()) } }
+                .selection(one)
+                .row_style(PlainRowStyle)
+            VStack { ForEach(vec![1_i64, 2]) { i in Text(format!("{i}")) } }
+                .selection_with(many, |_: &i64| {})
+                .row_style(HighlightRowStyle::new())
+            MenuButton("Menu", || elg! { Menu { MenuItem("A", || {}) } }).menu_style(Rows)
+            Text("Popups")
+                .popover(on, || Text("Popover"))
+                .tooltip_view(|| Text("Tip"), |o| o.delay(0.1).motion(PopupMotion::new(Transition::opacity(), Animation::ease_out(0.15))))
+                .floating(on, || Text("Float"), |o| o.boundary(FloatingBoundary::Container))
+                .floating_container()
+                .popover_style(PlainPopoverStyle)
+                .tooltip_style(DefaultTooltipStyle)
+            Text("Effects")
+                .backdrop_blur_in(20, RoundedRectangle(8), |o| o.noise(0.02))
+                .border(.outline, 1)
+                .padding(move || if on.get() { 4.0 } else { 8.0 })
+                .recognize(DragGesture::new().on_began(|_| {}).on_ended(|_| {}).on_cancelled(|| {}))
+                .recognize(MagnifyGesture::new().on_changed(|_| {}))
+                .on_scroll(|_| false)
+                .on_text_input(|_| false)
+                .on_pointer_leave(|| {})
+        }
+        .navigation_stack_style(PlainNavigationStackStyle)
+        .transition(Transition::scale_anchored(0.9, Alignment::TOP))
+    }
+    .into_view()
+}
+
+#[test]
+fn controls_build() {
+    // Each crosses into Elegance; a C++ exception would panic here.
+    assert!(!controls().is_empty());
+    assert!(EmptyView().is_empty());
+}
+
 #[test]
 fn integrated_title_bar() {
-    let desc = WindowDesc::new("App").title_bar(TitleBar::Integrated).traffic_lights_position(16.0, 18.0);
+    let desc = WindowDesc::new("App").title_bar(TitleBar::Integrated).system_controls_position(16.0, 18.0);
     assert_eq!(desc.title_bar, TitleBar::Integrated);
-    assert_eq!(desc.traffic_lights_position, Some(Point::new(16.0, 18.0)));
+    assert_eq!(desc.system_controls_position, Some(Point::new(16.0, 18.0)));
 }
 
 fn nested_shorthand_keeps_its_own_context() -> impl IntoView {
     elg! {
         VStack().background(LinearGradient::new(vec![], .top.into(), .bottom.into()))
-            .on_tap_gesture(|| { let _: Alignment = .center.into(); })
+            .on_activate(|| { let _: Alignment = .center.into(); })
     }
 }
 

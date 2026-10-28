@@ -30,7 +30,9 @@ fn main() -> Result<std::process::ExitCode, Error> {
 
 - `elegance-sys`: a C++ shim (`shim/*.cpp`) giving Elegance's C++23 API a C ABI, and the raw FFI.
 - `elegance`: the safe API: views, modifiers, reactive state, environment, styles, layouts, custom
-  modifiers, effects, animation, media, GPU images, HTTP/WebSocket, desktop, previews.
+  modifiers, effects, gestures, animation, media, GPU images, desktop, previews. Elegance has no
+  network API: use a Rust HTTP or WebSocket crate and hand results to the UI with
+  `post_to_ui_thread`.
 - `elegance-macros`: `elg!`, `#[component]`, and `#[preview]`.
 - `cargo-elegance`: `cargo elegance preview`, the preview host runner.
 - `elegance-wgpu`: native Rust wgpu → Elegance GPU-image sharing, on wgpu 30.0.1 from
@@ -178,9 +180,8 @@ error at that name.
 
 On an element, `Name(a, key: v)` calls the builder method `.key(v)`: `#[component]` makes one
 per prop. On a modifier, `.m(a, key: v)` calls `.m_with(a, |o| o.key(v))`, so the names are the
-builder methods of the options struct `m_with` takes: `.popover(editing, content, opens: .above)`
-is `.popover_with(editing, content, |o| o.opens(.above))`, and `opens` is
-`PopoverOptions::opens`. Your own modifiers get named arguments the same way: add a `name_with`
+builder methods of the options struct `m_with` takes: `.popover(editing, content, edge: .top)`
+is `.popover_with(editing, content, |o| o.edge(.top))`, and `edge` is `PopoverOptions::edge`. Your own modifiers get named arguments the same way: add a `name_with`
 method taking `impl FnOnce(Options) -> Options`.
 
 ### Custom components and completion
@@ -258,11 +259,14 @@ is set up this way.
 
 ## Effects
 
-Materials, blur, color adjustments, blend modes, inner shadows and spread, elliptical and angular
-gradients, rotation/scale effects, and masks (see `effects-rs` in elegance-examples):
+Backdrop blur (frosted glass), blur, color adjustments, blend modes, inner shadows and spread,
+elliptical and angular gradients, rotation/scale effects, and masks (see `effects-rs` in
+elegance-examples):
 
 ```rust
-Text("Hi").padding(12).background_in(Material::THIN, RoundedRectangle(12))
+Text("Hi").padding(12)
+    .background_in(Color::WHITE.opacity(0.5), RoundedRectangle(12))
+    .backdrop_blur_in(30, RoundedRectangle(12), |o| o.saturation(1.8).noise(0.02))
 tile().grayscale(1).blend_mode(.multiply).rotation_effect(15.0)
 backdrop().mask(LinearGradient::colors([Color::BLACK, Color::CLEAR]))
 ```
@@ -310,7 +314,8 @@ derived value instead (`.popover` doesn't accept a plain `bool` at all):
 .popover(todos.map(Vec::is_empty), content)
 ```
 
-Two-way arguments (Toggle, TextField, Slider, Stepper, Picker, `.popover`, `.focused`, ...) take
+Two-way arguments (Toggle, Checkbox, TextField, Slider, NumberInput, Picker, `.popover`,
+`.selection`, `.focused`, ...) take
 `impl IntoBinding<T>`: a `State` or `Binding` (two-way: `Toggle("Wi-Fi", wifi)`), or, read-only,
 a `Computed` or a closure.
 Reactive one-way arguments take `impl IntoProp<T>`: a value, a `State`/`Binding`/`Computed`, or a

@@ -4,9 +4,10 @@ use std::path::PathBuf;
 
 use elegance_sys as sys;
 
+use crate::animation::{Animation, Transition};
 use crate::color::Color;
 use crate::geometry::{Alignment, ContentMode, Len, Number, Point, UnitPoint};
-use crate::prop::{with_prop, Prop};
+use crate::prop::{with_prop, IntoProp, Prop};
 
 /// What a view is to screen readers, when the automatic choice isn't right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -28,40 +29,289 @@ pub enum AccessibilityRole {
     MenuItem,
 }
 
-/// Which side of its view a popover opens on (it flips if there isn't room).
+/// The side of its anchor (the view it's attached to) floating content opens on. It flips to the
+/// opposite side when there isn't room.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum PopoverEdge {
+pub enum FloatingEdge {
     #[default]
-    Below,
-    Above,
+    Bottom,
+    Top,
     Trailing,
     Leading,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Across that edge: lined up with the anchor's start (leading or top), center, or end.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FloatingAlignment {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+/// Where floating content may go.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FloatingBoundary {
+    /// In a popup window of its own: it can extend past the app's window, and stays on the
+    /// display.
+    #[default]
+    Screen,
+    /// Drawn inside the app's window, above its content, and kept within it.
+    Window,
+    /// Drawn inside the nearest view around it marked `.floating_container()` (else the window):
+    /// clipped to it, under views outside it, moving with it as it scrolls.
+    Container,
+}
+
+/// Where floating content goes, by its anchor.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FloatingPlacement {
+    pub edge: FloatingEdge,
+    pub alignment: FloatingAlignment,
+    /// Between the anchor and the content (negative: overlapping).
+    pub spacing: f32,
+    /// Then moved by this.
+    pub offset: Point,
+    /// Instead of an edge: the content's top-leading corner here, in the anchor's coordinates.
+    pub position: Option<Point>,
+}
+
+#[elegance_macros::elg_builder]
+impl FloatingPlacement {
+    pub fn edge(mut self, edge: impl Into<FloatingEdge>) -> Self {
+        self.edge = edge.into();
+        self
+    }
+    pub fn alignment(mut self, alignment: impl Into<FloatingAlignment>) -> Self {
+        self.alignment = alignment.into();
+        self
+    }
+    pub fn spacing(mut self, spacing: impl Number) -> Self {
+        self.spacing = spacing.to_f32();
+        self
+    }
+    pub fn offset(mut self, offset: impl Into<Point>) -> Self {
+        self.offset = offset.into();
+        self
+    }
+    pub fn position(mut self, position: impl Into<Point>) -> Self {
+        self.position = Some(position.into());
+        self
+    }
+    pub(crate) fn c(&self) -> sys::ElgFloatingPlacement {
+        sys::ElgFloatingPlacement {
+            edge: self.edge as i32,
+            alignment: self.alignment as i32,
+            spacing: self.spacing,
+            offset: self.offset.c(),
+            has_position: self.position.is_some(),
+            position: self.position.unwrap_or_default().c(),
+        }
+    }
+}
+
+/// How popup content opens and closes: a transition run with an animation.
+///
+/// ```ignore
+/// PopupMotion::new(Transition::opacity().combined(Transition::scale_anchored(0.96, Alignment::TOP)),
+///                  Animation::ease_out(0.15))
+/// ```
+#[derive(Clone)]
+pub struct PopupMotion {
+    parts: Option<(Transition, Animation)>,
+}
+
+impl PopupMotion {
+    pub fn new(transition: impl Into<Transition>, animation: impl Into<Animation>) -> Self {
+        Self { parts: Some((transition.into(), animation.into())) }
+    }
+    /// At once, with no animation (the built-in styles' default).
+    pub fn none() -> Self {
+        Self { parts: None }
+    }
+}
+
+/// The C form of an optional motion (None: the style's); borrows `motion`.
+pub(crate) fn c_motion(motion: Option<&PopupMotion>) -> sys::ElgPopupMotion {
+    let parts = motion.and_then(|m| m.parts.as_ref());
+    sys::ElgPopupMotion {
+        has: motion.is_some(),
+        transition: parts.map_or(std::ptr::null(), |(t, _)| t.as_ptr()),
+        animation: parts.map_or(std::ptr::null(), |(_, a)| a.as_ptr()),
+    }
+}
+
+/// What closes floating content (and sets its binding back to false).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FloatingDismiss {
+    /// A press anywhere outside it. While open, it then takes the pointer: presses elsewhere only
+    /// close it. false: the rest of the window stays usable.
+    pub outside_click: bool,
+    /// Esc, unless something focused handles it first.
+    pub escape: bool,
+}
+
+impl Default for FloatingDismiss {
+    fn default() -> Self {
+        Self { outside_click: true, escape: true }
+    }
+}
+
+/// `.floating(...)`'s options.
+#[derive(Clone, Default)]
+pub struct FloatingOptions {
+    pub placement: FloatingPlacement,
+    pub boundary: FloatingBoundary,
+    pub dismiss: FloatingDismiss,
+    /// None: none.
+    pub motion: Option<PopupMotion>,
+}
+
+#[elegance_macros::elg_builder]
+impl FloatingOptions {
+    pub fn placement(mut self, placement: impl FnOnce(FloatingPlacement) -> FloatingPlacement) -> Self {
+        self.placement = placement(self.placement);
+        self
+    }
+    pub fn boundary(mut self, boundary: impl Into<FloatingBoundary>) -> Self {
+        self.boundary = boundary.into();
+        self
+    }
+    pub fn outside_click(mut self, closes: bool) -> Self {
+        self.dismiss.outside_click = closes;
+        self
+    }
+    pub fn escape(mut self, closes: bool) -> Self {
+        self.dismiss.escape = closes;
+        self
+    }
+    pub fn motion(mut self, motion: PopupMotion) -> Self {
+        self.motion = Some(motion);
+        self
+    }
+}
+
+/// `.tooltip(...)`'s options.
+#[derive(Clone)]
+pub struct TooltipOptions {
+    /// Below the view by default.
+    pub placement: FloatingPlacement,
+    pub boundary: FloatingBoundary,
+    /// Seconds the pointer rests on the view before it shows.
+    pub delay: f64,
+    /// None: the TooltipStyle's.
+    pub motion: Option<PopupMotion>,
+}
+
+impl Default for TooltipOptions {
+    fn default() -> Self {
+        Self {
+            placement: FloatingPlacement { spacing: 4.0, ..Default::default() },
+            boundary: FloatingBoundary::Screen,
+            delay: 0.6,
+            motion: None,
+        }
+    }
+}
+
+#[elegance_macros::elg_builder]
+impl TooltipOptions {
+    pub fn placement(mut self, placement: impl FnOnce(FloatingPlacement) -> FloatingPlacement) -> Self {
+        self.placement = placement(self.placement);
+        self
+    }
+    pub fn boundary(mut self, boundary: impl Into<FloatingBoundary>) -> Self {
+        self.boundary = boundary.into();
+        self
+    }
+    pub fn delay(mut self, seconds: f64) -> Self {
+        self.delay = seconds;
+        self
+    }
+    pub fn motion(mut self, motion: PopupMotion) -> Self {
+        self.motion = Some(motion);
+        self
+    }
+}
+
+/// `.popover(...)`'s options.
+#[derive(Clone)]
 pub struct PopoverOptions {
-    pub opens: PopoverEdge,
+    /// Centered below the view by default.
+    pub placement: FloatingPlacement,
+    pub boundary: FloatingBoundary,
     /// false: the content reaches the panel's edges (images, lists).
-    pub padded: bool,
+    pub padded: Prop<bool>,
+    /// None: the PopoverStyle's.
+    pub motion: Option<PopupMotion>,
 }
 
 impl Default for PopoverOptions {
     fn default() -> Self {
         Self {
-            opens: PopoverEdge::Below,
-            padded: true,
+            placement: FloatingPlacement { alignment: FloatingAlignment::Center, spacing: 4.0, ..Default::default() },
+            boundary: FloatingBoundary::Screen,
+            padded: Prop::Value(true),
+            motion: None,
         }
     }
 }
 
 #[elegance_macros::elg_builder]
 impl PopoverOptions {
-    pub fn opens(mut self, edge: impl Into<PopoverEdge>) -> Self {
-        self.opens = edge.into();
+    pub fn placement(mut self, placement: impl FnOnce(FloatingPlacement) -> FloatingPlacement) -> Self {
+        self.placement = placement(self.placement);
         self
     }
-    pub fn padded(mut self, padded: bool) -> Self {
-        self.padded = padded;
+    /// The side it opens on: `.popover(shown, content, edge: .trailing)` in `elg!`.
+    pub fn edge(mut self, edge: impl Into<FloatingEdge>) -> Self {
+        self.placement.edge = edge.into();
+        self
+    }
+    pub fn boundary(mut self, boundary: impl Into<FloatingBoundary>) -> Self {
+        self.boundary = boundary.into();
+        self
+    }
+    pub fn padded(mut self, padded: impl IntoProp<bool>) -> Self {
+        self.padded = padded.into_prop();
+        self
+    }
+    pub fn motion(mut self, motion: PopupMotion) -> Self {
+        self.motion = Some(motion);
+        self
+    }
+}
+
+/// Adjustments to what `.backdrop_blur()` shows through, after the blur. Each is reactive and
+/// animatable.
+#[derive(Clone)]
+pub struct BackdropOptions {
+    /// 0 gray, 1 unchanged, above 1 more vivid.
+    pub saturation: Prop<f32>,
+    /// Added to each channel: -1 black ... 0 unchanged ... 1 white.
+    pub brightness: Prop<f32>,
+    /// Grain, 0...1, so smooth gradients don't band.
+    pub noise: Prop<f32>,
+}
+
+impl Default for BackdropOptions {
+    fn default() -> Self {
+        Self { saturation: Prop::Value(1.0), brightness: Prop::Value(0.0), noise: Prop::Value(0.0) }
+    }
+}
+
+#[elegance_macros::elg_builder]
+impl BackdropOptions {
+    pub fn saturation(mut self, saturation: impl IntoProp<f32>) -> Self {
+        self.saturation = saturation.into_prop();
+        self
+    }
+    pub fn brightness(mut self, brightness: impl IntoProp<f32>) -> Self {
+        self.brightness = brightness.into_prop();
+        self
+    }
+    pub fn noise(mut self, noise: impl IntoProp<f32>) -> Self {
+        self.noise = noise.into_prop();
         self
     }
 }
@@ -322,25 +572,6 @@ pub struct DecorationOptions {
 impl DecorationOptions {
     pub fn alignment(mut self, alignment: impl Into<Alignment>) -> Self {
         self.alignment = alignment.into();
-        self
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TapOptions {
-    /// 2: a double tap.
-    pub count: i32,
-}
-
-impl Default for TapOptions {
-    fn default() -> Self {
-        Self { count: 1 }
-    }
-}
-
-impl TapOptions {
-    pub fn count(mut self, count: i32) -> Self {
-        self.count = count;
         self
     }
 }

@@ -80,40 +80,45 @@ ELG_EXPORT View* elg_button(View* take_label, ElgClosure on_click) {
     VIEW_TRY(Button(take(take_label), action(on_click)))
 }
 
-ELG_EXPORT View* elg_button_title(ElgStr title, ElgClosure on_click) {
-    VIEW_TRY(Button(str(title), action(on_click)))
+ELG_EXPORT View* elg_button_title(ElgProp title, ElgClosure on_click) {
+    VIEW_TRY(Button(prop<std::string>(title), action(on_click)))
 }
 
+// For TextField and TextArea (which has no `secure` or `line_limit`).
 struct ElgTextFieldOptions {
     ElgClosure on_submit;
-    int32_t max_lines;
+    ElgProp secure;
+    ElgProp line_limit;
     // args: ElgStr* text, ret: std::vector<TextSpan>* (filled with elg_text_spans_push).
     ElgClosure styler;
     // args: ElgKeyEvent*, ret: bool*.
     ElgClosure on_key;
 };
 
-static TextFieldOptions text_field_options(const ElgTextFieldOptions& o) {
-    TextFieldOptions result;
-    result.on_submit = action(o.on_submit);
-    result.max_lines = o.max_lines;
-    if (SharedFn f = share(o.styler)) {
-        result.styler = [f](std::string_view text) {
-            std::vector<TextSpan> spans;
-            ElgStr arg{text.data(), text.size()};
-            f->call(&arg, &spans);
-            return spans;
-        };
+static std::function<std::vector<TextSpan>(std::string_view)> text_styler(ElgClosure styler) {
+    SharedFn f = share(styler);
+    if (!f) {
+        return {};
     }
-    if (SharedFn f = share(o.on_key)) {
-        result.on_key = [f](const KeyEvent& event) {
-            ElgKeyEvent arg = c_key_event(event);
-            bool handled = false;
-            f->call(&arg, &handled);
-            return handled;
-        };
+    return [f](std::string_view text) {
+        std::vector<TextSpan> spans;
+        ElgStr arg{text.data(), text.size()};
+        f->call(&arg, &spans);
+        return spans;
+    };
+}
+
+static std::function<bool(const KeyEvent&)> key_handler(ElgClosure on_key) {
+    SharedFn f = share(on_key);
+    if (!f) {
+        return {};
     }
-    return result;
+    return [f](const KeyEvent& event) {
+        ElgKeyEvent arg = c_key_event(event);
+        bool handled = false;
+        f->call(&arg, &handled);
+        return handled;
+    };
 }
 
 ELG_EXPORT void elg_text_spans_push(std::vector<TextSpan>* spans, size_t begin, size_t end, const ElgRunStyle* style,
@@ -130,77 +135,142 @@ ELG_EXPORT void elg_text_spans_push(std::vector<TextSpan>* spans, size_t begin, 
     ELG_CATCH_VOID
 }
 
-ELG_EXPORT View* elg_text_field(ElgStr placeholder, Binding<std::string>* take_text, const ElgTextFieldOptions* options,
-                                bool secure) {
+ELG_EXPORT View* elg_text_field(ElgProp placeholder, Binding<std::string>* take_text, const ElgTextFieldOptions* o) {
     ELG_TRY
     std::unique_ptr<Binding<std::string>> text(take_text);
-    if (secure) {
-        return out(SecureField(str(placeholder), *text, text_field_options(*options)));
-    }
-    return out(TextField(str(placeholder), *text, text_field_options(*options)));
+    TextFieldOptions options;
+    options.on_submit = action(o->on_submit);
+    options.secure = prop<bool>(o->secure);
+    options.line_limit = prop<int>(o->line_limit);
+    options.styler = text_styler(o->styler);
+    options.on_key = key_handler(o->on_key);
+    return out(TextField(prop<std::string>(placeholder), *text, std::move(options)));
     ELG_CATCH(nullptr)
 }
 
-ELG_EXPORT View* elg_slider(Binding<float>* take_value, float min, float max, float step, ElgClosure on_editing_changed) {
+ELG_EXPORT View* elg_text_area(ElgProp placeholder, Binding<std::string>* take_text, const ElgTextFieldOptions* o) {
+    ELG_TRY
+    std::unique_ptr<Binding<std::string>> text(take_text);
+    TextAreaOptions options;
+    options.on_submit = action(o->on_submit);
+    options.styler = text_styler(o->styler);
+    options.on_key = key_handler(o->on_key);
+    return out(TextArea(prop<std::string>(placeholder), *text, std::move(options)));
+    ELG_CATCH(nullptr)
+}
+
+ELG_EXPORT View* elg_slider(Binding<float>* take_value, ElgProp min, ElgProp max, ElgProp step, ElgClosure on_editing_changed) {
     ELG_TRY
     std::unique_ptr<Binding<float>> value(take_value);
     SliderOptions options;
-    options.min = min;
-    options.max = max;
-    options.step = step;
+    options.min = prop<float>(min);
+    options.max = prop<float>(max);
+    options.step = prop<float>(step);
     options.on_editing_changed = consumer<bool>(on_editing_changed);
     return out(Slider(*value, std::move(options)));
     ELG_CATCH(nullptr)
 }
 
-ELG_EXPORT View* elg_stepper(View* take_label, Binding<int>* take_value, int32_t min, int32_t max, int32_t step) {
-    ELG_TRY
-    std::unique_ptr<Binding<int>> value(take_value);
-    return out(Stepper(take(take_label), *value, {min, max, step}));
-    ELG_CATCH(nullptr)
-}
+struct ElgNumberInputOptions {
+    ElgProp min, max, step;
+    ElgProp decimals;
+    ElgClosure format; // args: double*, ret: std::string*
+    ElgClosure parse;  // args: ElgStr*, ret: ElgOptNumber*
+    ElgProp live;
+    ElgProp shows_buttons;
+    ElgProp scrubs;
+};
 
-ELG_EXPORT View* elg_stepper_title(ElgStr title, Binding<int>* take_value, int32_t min, int32_t max, int32_t step) {
+struct ElgOptNumber {
+    bool has;
+    double value;
+};
+
+ELG_EXPORT View* elg_number_input(Binding<double>* take_value, bool integer, const ElgNumberInputOptions* o) {
     ELG_TRY
-    std::unique_ptr<Binding<int>> value(take_value);
-    return out(Stepper(str(title), *value, {min, max, step}));
+    std::unique_ptr<Binding<double>> value(take_value);
+    NumberInputOptions options;
+    options.min = prop<double>(o->min);
+    options.max = prop<double>(o->max);
+    options.step = prop<double>(o->step);
+    options.decimals = prop<int>(o->decimals);
+    if (SharedFn f = share(o->format)) {
+        options.format = [f](double v) {
+            std::string result;
+            f->call(&v, &result);
+            return result;
+        };
+    }
+    if (SharedFn f = share(o->parse)) {
+        options.parse = [f](std::string_view text) {
+            ElgStr arg{text.data(), text.size()};
+            ElgOptNumber result{};
+            f->call(&arg, &result);
+            return result.has ? std::optional<double>(result.value) : std::nullopt;
+        };
+    }
+    options.live = prop<bool>(o->live);
+    options.shows_buttons = prop<bool>(o->shows_buttons);
+    options.scrubs = prop<bool>(o->scrubs);
+    return out(detail::make_number_input(*value, integer, std::move(options)));
     ELG_CATCH(nullptr)
 }
 
 ELG_EXPORT View* elg_progress(ElgProp fraction) {
-    VIEW_TRY(ProgressView(prop<float>(fraction)))
-}
-
-ELG_EXPORT View* elg_progress_indeterminate() {
-    VIEW_TRY(ProgressView())
+    VIEW_TRY(Progress(prop<std::optional<float>>(fraction)))
 }
 
 // `selected` (ret: size_t*) is the chosen option's index (count: none); `select` (args: size_t*).
-ELG_EXPORT View* elg_picker(const ElgStr* labels, size_t count, ElgClosure selected, ElgClosure select, int32_t style) {
+ELG_EXPORT View* elg_picker(const ElgStr* labels, size_t count, ElgClosure selected, ElgClosure select) {
     ELG_TRY
     std::vector<std::string> names;
     names.reserve(count);
     for (size_t i = 0; i < count; ++i) {
         names.push_back(str(labels[i]));
     }
-    auto make = static_cast<PickerStyle>(style) == PickerStyle::menu ? &detail::make_menu_picker
-                                                                     : &detail::make_segmented_picker;
-    return out(make(std::move(names), producer<std::size_t>(selected), consumer<std::size_t>(select)));
+    return out(detail::make_picker(std::move(names), producer<std::size_t>(selected), consumer<std::size_t>(select)));
     ELG_CATCH(nullptr)
 }
 
+// take_label null: no label.
 ELG_EXPORT View* elg_toggle(View* take_label, Binding<bool>* take_is_on) {
     ELG_TRY
     std::unique_ptr<Binding<bool>> is_on(take_is_on);
+    if (!take_label) {
+        return out(Toggle(*is_on));
+    }
     return out(Toggle(take(take_label), *is_on));
     ELG_CATCH(nullptr)
 }
 
-ELG_EXPORT View* elg_toggle_title(ElgStr title, Binding<bool>* take_is_on) {
+ELG_EXPORT View* elg_toggle_title(ElgProp title, Binding<bool>* take_is_on) {
     ELG_TRY
     std::unique_ptr<Binding<bool>> is_on(take_is_on);
-    return out(Toggle(str(title), *is_on));
+    return out(Toggle(prop<std::string>(title), *is_on));
     ELG_CATCH(nullptr)
+}
+
+// take_label null: no label.
+ELG_EXPORT View* elg_checkbox(View* take_label, Binding<bool>* take_is_checked, ElgProp mixed) {
+    ELG_TRY
+    std::unique_ptr<Binding<bool>> is_checked(take_is_checked);
+    CheckboxOptions options{prop<bool>(mixed)};
+    if (!take_label) {
+        return out(Checkbox(*is_checked, std::move(options)));
+    }
+    return out(Checkbox(take(take_label), *is_checked, std::move(options)));
+    ELG_CATCH(nullptr)
+}
+
+ELG_EXPORT View* elg_checkbox_title(ElgProp title, Binding<bool>* take_is_checked, ElgProp mixed) {
+    ELG_TRY
+    std::unique_ptr<Binding<bool>> is_checked(take_is_checked);
+    return out(Checkbox(prop<std::string>(title), *is_checked, CheckboxOptions{prop<bool>(mixed)}));
+    ELG_CATCH(nullptr)
+}
+
+ELG_EXPORT View* elg_separator(int32_t axis, ElgProp color, float thickness, float inset) {
+    VIEW_TRY(Separator(static_cast<Axis>(axis), {prop<Color>(color), thickness, inset}))
 }
 
 // --- Structure ---
@@ -300,94 +370,140 @@ ELG_EXPORT void elg_scroll_position_to_string(const ScrollPosition* position, El
     ELG_CATCH_VOID
 }
 
-ELG_EXPORT View* elg_scroll_view(View* take_content, int32_t axes, bool shows_indicators, const ScrollPosition* position,
-                                 bool sticks_to_end) {
+ELG_EXPORT View* elg_scroll_view(View* take_content, int32_t axes, ElgProp shows_indicators, const ScrollPosition* position,
+                                 ElgProp sticks_to_end) {
     ELG_TRY
     ScrollViewOptions options;
     options.axes = static_cast<ScrollAxes>(axes);
-    options.shows_indicators = shows_indicators;
+    options.shows_indicators = prop<bool>(shows_indicators);
     if (position) {
         options.position = *position;
     }
-    options.sticks_to_end = sticks_to_end;
+    options.sticks_to_end = prop<bool>(sticks_to_end);
     return out(ScrollView(std::move(options), take(take_content)));
     ELG_CATCH(nullptr)
 }
 
-ELG_EXPORT View* elg_lazy_stack(bool vertical, int32_t alignment, ElgOptLen spacing, View* take_for_each) {
-    ELG_TRY
-    if (vertical) {
-        return out(LazyVStack({static_cast<HorizontalAlignment>(alignment), length(spacing)}, take(take_for_each)));
+struct ElgStackSeparators {
+    ElgProp color;
+    float inset;
+    float thickness;
+};
+
+static std::optional<StackSeparators> stack_separators(const ElgStackSeparators* s) {
+    if (!s) {
+        return std::nullopt;
     }
-    return out(LazyHStack({static_cast<VerticalAlignment>(alignment), length(spacing)}, take(take_for_each)));
-    ELG_CATCH(nullptr)
+    return StackSeparators{prop<Color>(s->color), s->inset, s->thickness};
 }
 
-ELG_EXPORT View* elg_list(View* take_for_each, const ScrollPosition* position) {
+// separators null: none.
+ELG_EXPORT View* elg_lazy_stack(bool vertical, int32_t alignment, ElgOptLen spacing, const ElgStackSeparators* separators,
+                                View* take_for_each) {
     ELG_TRY
-    ListOptions options;
-    if (position) {
-        options.position = *position;
+    if (vertical) {
+        return out(LazyVStack({static_cast<HorizontalAlignment>(alignment), length(spacing), stack_separators(separators)},
+                              take(take_for_each)));
     }
-    return out(List(std::move(options), take(take_for_each)));
+    return out(LazyHStack({static_cast<VerticalAlignment>(alignment), length(spacing), stack_separators(separators)},
+                          take(take_for_each)));
     ELG_CATCH(nullptr)
 }
 
 // --- Menus ---
 
-ELG_EXPORT View* elg_divider() {
-    VIEW_TRY(Divider())
-}
-
-ELG_EXPORT View* elg_menu_item(ElgStr title, ElgClosure on_choose, ElgStr shortcut, bool destructive, const ElgProp* checked,
-                               const ElgImageSource* image) {
+ELG_EXPORT View* elg_menu_item(ElgProp title, ElgClosure on_choose, ElgProp shortcut, ElgProp destructive,
+                               const ElgProp* checked, const ElgImageSource* image) {
     ELG_TRY
     MenuItemOptions options;
-    options.shortcut = str(shortcut);
-    options.destructive = destructive;
+    options.shortcut = prop<std::string>(shortcut);
+    options.destructive = prop<bool>(destructive);
     if (checked) {
         options.checked = prop<bool>(*checked);
     }
     if (image) {
         options.image = image_source(*image);
     }
-    return out(MenuItem(str(title), action(on_choose), std::move(options)));
+    return out(MenuItem(prop<std::string>(title), action(on_choose), std::move(options)));
     ELG_CATCH(nullptr)
 }
 
-ELG_EXPORT View* elg_submenu(ElgStr title, ElgClosure menu) {
-    VIEW_TRY(Submenu(str(title), view_builder(menu)))
+ELG_EXPORT View* elg_submenu(ElgProp title, ElgClosure menu) {
+    VIEW_TRY(Submenu(prop<std::string>(title), view_builder(menu)))
 }
 
 ELG_EXPORT View* elg_menu(View** items, size_t count) {
     VIEW_TRY(detail::make_menu(take_all(items, count)))
 }
 
-ELG_EXPORT View* elg_menu_button(View* take_label, ElgClosure menu, int32_t opens, bool shows_indicator) {
-    VIEW_TRY(MenuButton(take(take_label), view_builder(menu), {static_cast<MenuEdge>(opens), shows_indicator}))
+// One of take_label and title: a View label, else the title.
+ELG_EXPORT View* elg_menu_button(View* take_label, const ElgProp* title, ElgClosure menu, const ElgFloatingPlacement* placement,
+                                 ElgProp shows_indicator, ElgPopupMotion popup_motion) {
+    ELG_TRY
+    MenuButtonOptions options;
+    options.placement = elg_shim::placement(*placement);
+    options.shows_indicator = prop<bool>(shows_indicator);
+    options.motion = motion(popup_motion);
+    if (take_label) {
+        return out(MenuButton(take(take_label), view_builder(menu), std::move(options)));
+    }
+    return out(MenuButton(prop<std::string>(*title), view_builder(menu), std::move(options)));
+    ELG_CATCH(nullptr)
 }
 
 // --- Navigation ---
 
-ELG_EXPORT View* elg_split_view(int32_t axis, View** panes, size_t count) {
-    VIEW_TRY(detail::make_split_view(static_cast<Axis>(axis), take_all(panes, count)))
+struct ElgSplitViewOptions {
+    ElgProp divider;
+    const ElgProp* active_divider; // null: the tint
+    float thickness;
+    float active_thickness;
+};
+
+static SplitViewOptions split_view_options(const ElgSplitViewOptions& o) {
+    SplitViewOptions result;
+    result.divider = prop<Color>(o.divider);
+    if (o.active_divider) {
+        result.active_divider = prop<Color>(*o.active_divider);
+    }
+    result.thickness = o.thickness;
+    result.active_thickness = o.active_thickness;
+    return result;
+}
+
+ELG_EXPORT View* elg_split_view(int32_t axis, View** panes, size_t count, const ElgSplitViewOptions* options) {
+    VIEW_TRY(detail::make_split_view(static_cast<Axis>(axis), take_all(panes, count), split_view_options(*options)))
 }
 
 struct ElgColumnWidth {
     float min, ideal, max;
 };
 
+struct ElgNavigationSplitViewOptions {
+    Binding<bool>* take_sidebar_visible; // null: always shown
+    const Transition* sidebar_transition;
+    ElgProp sidebar_background;
+    ElgColumnWidth sidebar_width;
+    ElgColumnWidth content_width;
+    ElgColumnWidth detail_width;
+    ElgSplitViewOptions dividers;
+};
+
 ELG_EXPORT View* elg_navigation_split_view(View* take_sidebar, View* take_content, View* take_detail,
-                                           Binding<bool>* take_sidebar_visible, ElgColumnWidth sidebar_width,
-                                           ElgColumnWidth content_width) {
+                                           const ElgNavigationSplitViewOptions* o) {
     ELG_TRY
     NavigationSplitViewOptions options;
-    if (take_sidebar_visible) {
-        std::unique_ptr<Binding<bool>> visible(take_sidebar_visible);
+    if (o->take_sidebar_visible) {
+        std::unique_ptr<Binding<bool>> visible(o->take_sidebar_visible);
         options.sidebar_visible = *visible;
     }
-    options.sidebar_width = {sidebar_width.min, sidebar_width.ideal, sidebar_width.max};
-    options.content_width = {content_width.min, content_width.ideal, content_width.max};
+    options.sidebar_transition = *o->sidebar_transition;
+    options.sidebar_background = prop<Color>(o->sidebar_background);
+    const auto width = [](ElgColumnWidth w) { return ColumnWidth{w.min, w.ideal, w.max}; };
+    options.sidebar_width = width(o->sidebar_width);
+    options.content_width = width(o->content_width);
+    options.detail_width = width(o->detail_width);
+    options.dividers = split_view_options(o->dividers);
     if (take_content) {
         return out(NavigationSplitView(take(take_sidebar), take(take_content), take(take_detail), std::move(options)));
     }
@@ -397,7 +513,9 @@ ELG_EXPORT View* elg_navigation_split_view(View* take_sidebar, View* take_conten
 
 // pages (ret: std::vector<ForEachItem>*), titles (ret: std::vector<std::string>*, filled with
 // elg_strings_push), pop: tracked reads of the Rust path, as NavigationStack does.
-ELG_EXPORT View* elg_navigation_stack(View* take_root, ElgClosure pages, ElgClosure titles, ElgClosure pop, bool shows_bar) {
+// transition: PageTransition; animation null: pushes and pops not animated themselves change at once.
+ELG_EXPORT View* elg_navigation_stack(View* take_root, ElgClosure pages, ElgClosure titles, ElgClosure pop,
+                                      int32_t transition, const Animation* animation, bool back_gestures) {
     ELG_TRY
     SharedFn p = std::make_shared<const RustFn>(pages);
     SharedFn t = std::make_shared<const RustFn>(titles);
@@ -413,7 +531,7 @@ ELG_EXPORT View* elg_navigation_stack(View* take_root, ElgClosure pages, ElgClos
             t->call(nullptr, &result);
             return result;
         },
-        action(pop), shows_bar));
+        action(pop), {static_cast<PageTransition>(transition), elg_shim::animation(animation), back_gestures}));
     ELG_CATCH(nullptr)
 }
 
@@ -437,14 +555,14 @@ ELG_EXPORT void elg_text_free(Text* text) {
 ELG_EXPORT View* elg_text_to_view(const Text* text) {
     return new View(*text);
 }
-ELG_EXPORT Text* elg_text_font(const Text* text, const ElgFont* f) {
+ELG_EXPORT Text* elg_text_font(const Text* text, ElgProp f) {
     ELG_TRY
-    return new Text(text->font(font(*f)));
+    return new Text(text->font(prop<Font>(f)));
     ELG_CATCH(nullptr)
 }
-ELG_EXPORT Text* elg_text_font_weight(const Text* text, int32_t weight) {
+ELG_EXPORT Text* elg_text_font_weight(const Text* text, ElgProp weight) {
     ELG_TRY
-    return new Text(text->font_weight(static_cast<Weight>(weight)));
+    return new Text(text->font_weight(prop<Weight>(weight)));
     ELG_CATCH(nullptr)
 }
 ELG_EXPORT Text* elg_text_bold(const Text* text) {
@@ -717,15 +835,32 @@ ELG_EXPORT View* elg_image_named(ElgStr system_name) {
     VIEW_TRY(Image(view(system_name)))
 }
 
-ELG_EXPORT View* elg_async_image(ElgStr url, float scale, int32_t content_mode) {
-    ELG_TRY
+// content_mode < 0: none.
+static AsyncImageOptions async_image_options(float scale, int32_t content_mode, bool disk_cache) {
     AsyncImageOptions options;
     options.scale = scale;
     if (content_mode >= 0) {
         options.content_mode = static_cast<ContentMode>(content_mode);
     }
-    return out(AsyncImage(str(url), options));
-    ELG_CATCH(nullptr)
+    options.disk_cache = disk_cache;
+    return options;
+}
+
+ELG_EXPORT View* elg_async_image(ElgStr url, float scale, int32_t content_mode, bool disk_cache) {
+    VIEW_TRY(AsyncImage(str(url), async_image_options(scale, content_mode, disk_cache)))
+}
+
+// directory empty: the default.
+ELG_EXPORT void elg_set_image_cache(bool disk, uint64_t disk_limit, ElgStr directory) {
+    ELG_TRY
+    set_image_cache({disk, disk_limit, path(directory)});
+    ELG_CATCH_VOID
+}
+
+ELG_EXPORT void elg_clear_image_cache() {
+    ELG_TRY
+    clear_image_cache();
+    ELG_CATCH_VOID
 }
 
 struct ElgAsyncImagePhase {
@@ -735,7 +870,7 @@ struct ElgAsyncImagePhase {
 };
 
 // `content` (args: ElgAsyncImagePhase*, ret: View*) builds the view for each phase.
-ELG_EXPORT View* elg_async_image_content(ElgStr url, ElgClosure content, float scale) {
+ELG_EXPORT View* elg_async_image_content(ElgStr url, ElgClosure content, float scale, bool disk_cache) {
     ELG_TRY
     SharedFn f = std::make_shared<const RustFn>(content);
     return out(AsyncImage(
@@ -746,12 +881,12 @@ ELG_EXPORT View* elg_async_image_content(ElgStr url, ElgClosure content, float s
             f->call(&arg, &result);
             return result;
         },
-        scale));
+        async_image_options(scale, -1, disk_cache)));
     ELG_CATCH(nullptr)
 }
 
-ELG_EXPORT View* elg_label(ElgStr title, const ElgImageSource* icon) {
-    VIEW_TRY(Label(str(title), image_source(*icon)))
+ELG_EXPORT View* elg_label(ElgProp title, const ElgImageSource* icon) {
+    VIEW_TRY(Label(prop<std::string>(title), image_source(*icon)))
 }
 
 struct ElgIconFont {
@@ -842,8 +977,12 @@ ELG_EXPORT void elg_shape_style_assign(ShapeStyle* target, const ElgShapeStyle* 
     ELG_TRY return out(__VA_ARGS__); \
     ELG_CATCH(nullptr)
 
-ELG_EXPORT View* elg_mod_padding(const View* v, float top, float leading, float bottom, float trailing) {
-    MOD_TRY(v->padding(EdgeInsets{top, leading, bottom, trailing}))
+ELG_EXPORT View* elg_mod_padding(const View* v, ElgProp insets) {
+    MOD_TRY(v->padding(prop<EdgeInsets>(insets)))
+}
+// edges: Edges.
+ELG_EXPORT View* elg_mod_padding_edges(const View* v, uint32_t edges, ElgProp length) {
+    MOD_TRY(v->padding(static_cast<Edges>(edges), prop<float>(length)))
 }
 
 struct ElgFrameOptions {
@@ -911,8 +1050,14 @@ ELG_EXPORT View* elg_mod_background_shape(const View* v, ElgProp style, const Sh
 ELG_EXPORT View* elg_mod_overlay(const View* v, View* take_overlay, ElgAlignment a) {
     MOD_TRY(v->overlay(take(take_overlay), alignment(a)))
 }
-ELG_EXPORT View* elg_mod_border(const View* v, ElgColor c, float width) {
-    MOD_TRY(v->border(color(c), width))
+// shape null: the view's bounds.
+ELG_EXPORT View* elg_mod_border(const View* v, ElgProp c, float width, const Shape* shape) {
+    ELG_TRY
+    if (shape) {
+        return out(v->border(prop<Color>(c), width, *shape));
+    }
+    return out(v->border(prop<Color>(c), width));
+    ELG_CATCH(nullptr)
 }
 ELG_EXPORT View* elg_mod_clipped(const View* v) {
     MOD_TRY(v->clipped())
@@ -934,6 +1079,17 @@ ELG_EXPORT View* elg_mod_inner_shadow(const View* v, ElgShadow s) {
 }
 ELG_EXPORT View* elg_mod_blur(const View* v, ElgProp radius, bool opaque) {
     MOD_TRY(v->blur(prop<float>(radius), opaque))
+}
+// shape null: the view's bounds.
+ELG_EXPORT View* elg_mod_backdrop_blur(const View* v, ElgProp radius, const Shape* shape, ElgProp saturation,
+                                       ElgProp brightness, ElgProp noise) {
+    ELG_TRY
+    BackdropOptions options{prop<float>(saturation), prop<float>(brightness), prop<float>(noise)};
+    if (shape) {
+        return out(v->backdrop_blur(prop<float>(radius), *shape, std::move(options)));
+    }
+    return out(v->backdrop_blur(prop<float>(radius), std::move(options)));
+    ELG_CATCH(nullptr)
 }
 // kind: ColorFilter::Kind. `amount` (unused for multiply, luminance_to_alpha), `color` (multiply only).
 ELG_EXPORT View* elg_mod_color_filter(const View* v, int32_t kind, ElgProp amount, ElgProp c) {
@@ -975,8 +1131,20 @@ ELG_EXPORT View* elg_mod_content_shape(const View* v, const Shape* shape) {
 ELG_EXPORT View* elg_mod_allows_hit_testing(const View* v, bool enabled) {
     MOD_TRY(v->allows_hit_testing(enabled))
 }
-ELG_EXPORT View* elg_mod_on_tap_gesture(const View* v, ElgClosure on_tap, int32_t count) {
-    MOD_TRY(v->on_tap_gesture(action(on_tap), count))
+// `on_click` args: ElgClickEvent*.
+ELG_EXPORT View* elg_mod_on_click(const View* v, ElgClosure on_click, int32_t button, int32_t count) {
+    ELG_TRY
+    SharedFn f = std::make_shared<const RustFn>(on_click);
+    return out(v->on_click(
+        [f](const ClickEvent& event) {
+            ElgClickEvent arg = c_click_event(event);
+            f->call(&arg, nullptr);
+        },
+        ClickOptions{static_cast<MouseButton>(button), count}));
+    ELG_CATCH(nullptr)
+}
+ELG_EXPORT View* elg_mod_on_activate(const View* v, ElgClosure on_activate) {
+    MOD_TRY(v->on_activate(action(on_activate)))
 }
 ELG_EXPORT View* elg_mod_on_size_change(const View* v, ElgClosure on_size_change) {
     ELG_TRY
@@ -988,47 +1156,165 @@ ELG_EXPORT View* elg_mod_on_size_change(const View* v, ElgClosure on_size_change
     ELG_CATCH(nullptr)
 }
 
-// `on_magnify` args: ElgMagnifyEvent*.
-ELG_EXPORT View* elg_mod_on_magnify(const View* v, ElgClosure on_magnify) {
+// --- Gestures ---
+
+// A callback taking a C event `C` made from the C++ event `E` by `convert`; empty if none.
+template <class E, class C>
+static std::function<void(const E&)> event_callback(ElgClosure closure, C (*convert)(const E&)) {
+    SharedFn f = share(closure);
+    if (!f) {
+        return {};
+    }
+    return [f, convert](const E& event) {
+        C arg = convert(event);
+        f->call(&arg, nullptr);
+    };
+}
+
+struct ElgGestureOptions {
+    int32_t priority; // GesturePriority
+    bool simultaneous;
+};
+
+static GestureOptions gesture_options(ElgGestureOptions o) {
+    return {static_cast<GesturePriority>(o.priority), o.simultaneous};
+}
+
+struct ElgDragOptions {
+    float minimum_distance;
+    int32_t button;
+    double hold;
+    float hold_tolerance;
+};
+
+// began, changed, ended: args ElgDragEvent*; cancelled: no args. Any may be none.
+ELG_EXPORT View* elg_mod_drag_gesture(const View* v, ElgDragOptions o, ElgClosure began, ElgClosure changed,
+                                      ElgClosure ended, ElgClosure cancelled, ElgGestureOptions options) {
     ELG_TRY
-    SharedFn f = share(on_magnify);
-    return out(v->on_magnify([f](const MagnifyEvent& event) {
-        ElgMagnifyEvent arg = c_magnify_event(event);
+    DragGesture gesture({o.minimum_distance, static_cast<MouseButton>(o.button), o.hold, o.hold_tolerance});
+    if (auto f = event_callback(began, &c_drag_event)) {
+        gesture = gesture.on_began(std::move(f));
+    }
+    if (auto f = event_callback(changed, &c_drag_event)) {
+        gesture = gesture.on_changed(std::move(f));
+    }
+    if (auto f = event_callback(ended, &c_drag_event)) {
+        gesture = gesture.on_ended(std::move(f));
+    }
+    if (auto f = action(cancelled)) {
+        gesture = gesture.on_cancelled(std::move(f));
+    }
+    return out(v->recognize(std::move(gesture), gesture_options(options)));
+    ELG_CATCH(nullptr)
+}
+
+struct ElgLongPressOptions {
+    double duration;
+    float maximum_distance;
+    int32_t button;
+};
+
+// pressing: args bool*, may be none.
+ELG_EXPORT View* elg_mod_long_press_gesture(const View* v, ElgClosure on_press, ElgLongPressOptions o, ElgClosure pressing,
+                                           ElgGestureOptions options) {
+    ELG_TRY
+    LongPressOptions long_press{o.duration, o.maximum_distance, static_cast<MouseButton>(o.button), consumer<bool>(pressing)};
+    return out(v->recognize(LongPressGesture(action(on_press), std::move(long_press)), gesture_options(options)));
+    ELG_CATCH(nullptr)
+}
+
+template <class Event, class C>
+static PhasedGesture<Event> phased_gesture(ElgClosure began, ElgClosure changed, ElgClosure ended, ElgClosure cancelled,
+                                           C (*convert)(const Event&)) {
+    PhasedGesture<Event> gesture;
+    if (auto f = event_callback(began, convert)) {
+        gesture = gesture.on_began(std::move(f));
+    }
+    if (auto f = event_callback(changed, convert)) {
+        gesture = gesture.on_changed(std::move(f));
+    }
+    if (auto f = event_callback(ended, convert)) {
+        gesture = gesture.on_ended(std::move(f));
+    }
+    if (auto f = action(cancelled)) {
+        gesture = gesture.on_cancelled(std::move(f));
+    }
+    return gesture;
+}
+
+// began, changed, ended: args ElgMagnifyEvent*; cancelled: no args.
+ELG_EXPORT View* elg_mod_magnify_gesture(const View* v, ElgClosure began, ElgClosure changed, ElgClosure ended,
+                                         ElgClosure cancelled) {
+    MOD_TRY(v->recognize(phased_gesture(began, changed, ended, cancelled, &c_magnify_event)))
+}
+// began, changed, ended: args ElgRotateEvent*; cancelled: no args.
+ELG_EXPORT View* elg_mod_rotate_gesture(const View* v, ElgClosure began, ElgClosure changed, ElgClosure ended,
+                                        ElgClosure cancelled) {
+    MOD_TRY(v->recognize(phased_gesture(began, changed, ended, cancelled, &c_rotate_event)))
+}
+// `action` args: ElgPoint* (window coordinates).
+ELG_EXPORT View* elg_mod_on_two_finger_double_tap(const View* v, ElgClosure on_tap) {
+    ELG_TRY
+    SharedFn f = std::make_shared<const RustFn>(on_tap);
+    return out(v->on_two_finger_double_tap([f](Point location) {
+        ElgPoint arg = c_point(location);
         f->call(&arg, nullptr);
     }));
     ELG_CATCH(nullptr)
 }
-// `on_rotate` args: ElgRotateEvent*.
-ELG_EXPORT View* elg_mod_on_rotate(const View* v, ElgClosure on_rotate) {
-    ELG_TRY
-    SharedFn f = share(on_rotate);
-    return out(v->on_rotate([f](const RotateEvent& event) {
-        ElgRotateEvent arg = c_rotate_event(event);
-        f->call(&arg, nullptr);
-    }));
-    ELG_CATCH(nullptr)
-}
-// `on_smart_magnify` args: ElgPoint*.
-ELG_EXPORT View* elg_mod_on_smart_magnify(const View* v, ElgClosure on_smart_magnify) {
-    ELG_TRY
-    SharedFn f = share(on_smart_magnify);
-    return out(v->on_smart_magnify([f](Point location) {
-        ElgPoint arg{location.x, location.y};
-        f->call(&arg, nullptr);
-    }));
-    ELG_CATCH(nullptr)
-}
+
+// --- Pointer, scrolling, keys, text ---
+
 ELG_EXPORT View* elg_mod_pointer_style(const View* v, ElgProp style) {
     MOD_TRY(v->pointer_style(prop<PointerStyle>(style)))
 }
-
-// `on_hover` args: bool*.
-ELG_EXPORT View* elg_mod_on_hover(const View* v, ElgClosure on_hover, const ElgHoverDelay* delay) {
+// leave: on_pointer_leave, else on_pointer_enter.
+ELG_EXPORT View* elg_mod_on_pointer_boundary(const View* v, bool leave, ElgClosure on_cross) {
     ELG_TRY
-    if (delay) {
-        return out(v->on_hover(consumer<bool>(on_hover), hover_delay(*delay)));
+    if (leave) {
+        return out(v->on_pointer_leave(action(on_cross)));
     }
-    return out(v->on_hover(consumer<bool>(on_hover)));
+    return out(v->on_pointer_enter(action(on_cross)));
+    ELG_CATCH(nullptr)
+}
+// `on_hover` args: bool*.
+ELG_EXPORT View* elg_mod_on_hover_change(const View* v, ElgClosure on_hover) {
+    MOD_TRY(v->on_hover_change(consumer<bool>(on_hover)))
+}
+// `on_pointer` args: ElgPointerEvent* (view-local), ret: bool* (consumed).
+ELG_EXPORT View* elg_mod_on_pointer(const View* v, ElgClosure on_pointer) {
+    ELG_TRY
+    SharedFn f = std::make_shared<const RustFn>(on_pointer);
+    return out(v->on_pointer([f](const PointerEvent& event) {
+        ElgPointerEvent arg = c_pointer_event(event);
+        bool consumed = false;
+        f->call(&arg, &consumed);
+        return consumed;
+    }));
+    ELG_CATCH(nullptr)
+}
+// `on_scroll` args: ElgScrollEvent* (view-local), ret: bool* (consumed).
+ELG_EXPORT View* elg_mod_on_scroll(const View* v, ElgClosure on_scroll) {
+    ELG_TRY
+    SharedFn f = std::make_shared<const RustFn>(on_scroll);
+    return out(v->on_scroll([f](const ScrollEvent& event) {
+        ElgScrollEvent arg = c_scroll_event(event);
+        bool consumed = false;
+        f->call(&arg, &consumed);
+        return consumed;
+    }));
+    ELG_CATCH(nullptr)
+}
+// `on_text_input` args: ElgTextInputEvent*, ret: bool* (consumed).
+ELG_EXPORT View* elg_mod_on_text_input(const View* v, ElgClosure on_text_input) {
+    ELG_TRY
+    SharedFn f = std::make_shared<const RustFn>(on_text_input);
+    return out(v->on_text_input([f](const TextInputEvent& event) {
+        ElgTextInputEvent arg{static_cast<int32_t>(event.kind), c_str(event.text), event.cursor};
+        bool consumed = false;
+        f->call(&arg, &consumed);
+        return consumed;
+    }));
     ELG_CATCH(nullptr)
 }
 
@@ -1108,14 +1394,62 @@ ELG_EXPORT View* elg_mod_window_drag_area(const View* v, bool enabled) {
 ELG_EXPORT View* elg_mod_context_menu(const View* v, ElgClosure menu) {
     MOD_TRY(v->context_menu(view_builder(menu)))
 }
-ELG_EXPORT View* elg_mod_help(const View* v, ElgStr text) {
-    MOD_TRY(v->help(str(text)))
-}
-ELG_EXPORT View* elg_mod_popover(const View* v, Binding<bool>* take_is_presented, ElgClosure content, int32_t opens,
-                                 bool padded) {
+struct ElgFloatingOptions {
+    ElgFloatingPlacement placement;
+    int32_t boundary; // FloatingBoundary
+    bool outside_click;
+    bool escape;
+    ElgPopupMotion motion;
+};
+
+ELG_EXPORT View* elg_mod_floating(const View* v, Binding<bool>* take_is_presented, ElgClosure content,
+                                  const ElgFloatingOptions* o) {
     ELG_TRY
     std::unique_ptr<Binding<bool>> is_presented(take_is_presented);
-    return out(v->popover(*is_presented, view_builder(content), {static_cast<PopoverEdge>(opens), padded}));
+    FloatingOptions options;
+    options.placement = placement(o->placement);
+    options.boundary = static_cast<FloatingBoundary>(o->boundary);
+    options.dismiss = {o->outside_click, o->escape};
+    options.motion = motion(o->motion);
+    return out(v->floating(*is_presented, view_builder(content), std::move(options)));
+    ELG_CATCH(nullptr)
+}
+ELG_EXPORT View* elg_mod_floating_container(const View* v) {
+    MOD_TRY(v->floating_container())
+}
+
+struct ElgTooltipOptions {
+    ElgFloatingPlacement placement;
+    int32_t boundary;
+    double delay;
+    ElgPopupMotion motion;
+};
+
+static TooltipOptions tooltip_options(const ElgTooltipOptions& o) {
+    return {placement(o.placement), static_cast<FloatingBoundary>(o.boundary), o.delay, motion(o.motion)};
+}
+
+// One of `content` (ret: View*) and `text`.
+ELG_EXPORT View* elg_mod_tooltip(const View* v, ElgClosure content, const ElgProp* text, const ElgTooltipOptions* o) {
+    ELG_TRY
+    if (text) {
+        return out(v->tooltip(prop<std::string>(*text), tooltip_options(*o)));
+    }
+    return out(v->tooltip(view_builder(content), tooltip_options(*o)));
+    ELG_CATCH(nullptr)
+}
+
+ELG_EXPORT View* elg_mod_popover(const View* v, Binding<bool>* take_is_presented, ElgClosure content,
+                                 const ElgFloatingPlacement* popover_placement, int32_t boundary, ElgProp padded,
+                                 ElgPopupMotion popup_motion) {
+    ELG_TRY
+    std::unique_ptr<Binding<bool>> is_presented(take_is_presented);
+    PopoverOptions options;
+    options.placement = placement(*popover_placement);
+    options.boundary = static_cast<FloatingBoundary>(boundary);
+    options.padded = prop<bool>(padded);
+    options.motion = motion(popup_motion);
+    return out(v->popover(*is_presented, view_builder(content), std::move(options)));
     ELG_CATCH(nullptr)
 }
 ELG_EXPORT View* elg_mod_focusable(const View* v, bool focusable) {
@@ -1130,20 +1464,111 @@ ELG_EXPORT View* elg_mod_focused(const View* v, Binding<bool>* take_is_focused) 
 ELG_EXPORT View* elg_mod_on_key_press(const View* v, int32_t key, ElgClosure on_press) {
     MOD_TRY(v->on_key_press(static_cast<Key>(key), action(on_press)))
 }
-// `on_key` args: ElgKeyEvent*, ret: bool* (handled).
-ELG_EXPORT View* elg_mod_on_key_event(const View* v, ElgClosure on_key) {
+// `on_key` args: ElgKeyEvent* (downs and ups), ret: bool* (handled).
+ELG_EXPORT View* elg_mod_on_key(const View* v, ElgClosure on_key) {
+    MOD_TRY(v->on_key(key_handler(on_key)))
+}
+// --- Selection ---
+
+struct ElgItemKey {
+    bool is_string;
+    int64_t int_key;
+    ElgStr string_key;
+};
+
+struct ElgItemKeys {
+    const ElgItemKey* keys;
+    size_t count;
+};
+
+ELG_EXPORT void elg_item_keys_push(std::vector<ItemKey>* target, ElgItemKey key) {
+    target->push_back(key.is_string ? ItemKey(str(key.string_key)) : ItemKey(key.int_key));
+}
+
+namespace {
+
+ElgItemKey c_item_key(const ItemKey& key) {
+    if (const auto* s = std::get_if<std::string>(&key)) {
+        return {true, 0, c_str(*s)};
+    }
+    return {false, std::get<std::int64_t>(key), {}};
+}
+
+std::vector<ItemKey> read_keys(const RustFn& get) {
+    std::vector<ItemKey> keys;
+    get.call(nullptr, &keys);
+    return keys;
+}
+
+void write_keys(const RustFn& set, const std::vector<ItemKey>& keys) {
+    std::vector<ElgItemKey> items;
+    items.reserve(keys.size());
+    for (const ItemKey& key : keys) {
+        items.push_back(c_item_key(key));
+    }
+    ElgItemKeys arg{items.data(), items.size()};
+    set.call(&arg, nullptr);
+}
+
+// View::selection over the Rust selection, with keys of type K (std::int64_t or std::string).
+template <class K>
+View with_selection(const View& v, bool multiple, SharedFn get, SharedFn set, SharedFn activate) {
+    SelectionOptions<K> options;
+    if (activate) {
+        options.on_activate = [activate](const K& key) {
+            const ItemKey item = detail::to_item_key(key);
+            ElgItemKey arg = c_item_key(item);
+            activate->call(&arg, nullptr);
+        };
+    }
+    if (multiple) {
+        Binding<std::set<K>> binding(
+            [get] {
+                std::set<K> keys;
+                for (const ItemKey& key : read_keys(*get)) {
+                    keys.insert(detail::from_item_key<K>(key));
+                }
+                return keys;
+            },
+            [set](std::set<K> keys) {
+                std::vector<ItemKey> items;
+                for (const K& key : keys) {
+                    items.push_back(detail::to_item_key(key));
+                }
+                write_keys(*set, items);
+            });
+        return v.selection(std::move(binding), std::move(options));
+    }
+    Binding<std::optional<K>> binding(
+        [get]() -> std::optional<K> {
+            const std::vector<ItemKey> keys = read_keys(*get);
+            return keys.empty() ? std::nullopt : std::optional<K>(detail::from_item_key<K>(keys.front()));
+        },
+        [set](std::optional<K> key) {
+            write_keys(*set, key ? std::vector<ItemKey>{detail::to_item_key(*key)} : std::vector<ItemKey>{});
+        });
+    return v.selection(std::move(binding), std::move(options));
+}
+
+} // namespace
+
+// get (ret: std::vector<ItemKey>*, filled with elg_item_keys_push) is a tracked read; set (args:
+// ElgItemKeys*); activate (args: ElgItemKey*) may be none. string_keys: the ForEach's keys are strings.
+ELG_EXPORT View* elg_mod_selection(const View* v, bool multiple, bool string_keys, ElgClosure get, ElgClosure set,
+                                   ElgClosure activate) {
     ELG_TRY
-    SharedFn f = std::make_shared<const RustFn>(on_key);
-    return out(v->on_key_press([f](const KeyEvent& event) {
-        ElgKeyEvent arg = c_key_event(event);
-        bool handled = false;
-        f->call(&arg, &handled);
-        return handled;
-    }));
+    SharedFn g = std::make_shared<const RustFn>(get);
+    SharedFn s = std::make_shared<const RustFn>(set);
+    SharedFn a = share(activate);
+    if (string_keys) {
+        return out(with_selection<std::string>(*v, multiple, g, s, a));
+    }
+    return out(with_selection<std::int64_t>(*v, multiple, g, s, a));
     ELG_CATCH(nullptr)
 }
-ELG_EXPORT View* elg_mod_font_weight(const View* v, int32_t weight) {
-    MOD_TRY(v->font_weight(static_cast<Weight>(weight)))
+
+ELG_EXPORT View* elg_mod_font_weight(const View* v, ElgProp weight) {
+    MOD_TRY(v->font_weight(prop<Weight>(weight)))
 }
 ELG_EXPORT View* elg_mod_font(const View* v, ElgProp f) {
     MOD_TRY(v->font(prop<Font>(f)))
@@ -1163,16 +1588,6 @@ ELG_EXPORT View* elg_mod_theme(const View* v, const Theme* theme) {
 ELG_EXPORT View* elg_mod_disabled(const View* v, ElgProp disabled) {
     MOD_TRY(v->disabled(prop<bool>(disabled)))
 }
-ELG_EXPORT View* elg_mod_button_style(const View* v, const std::shared_ptr<const ButtonStyle>* style) {
-    MOD_TRY(v->modifier(ButtonStyleModifier(*style)))
-}
-ELG_EXPORT View* elg_mod_toggle_style(const View* v, const std::shared_ptr<const ToggleStyle>* style) {
-    MOD_TRY(v->modifier(ToggleStyleModifier(*style)))
-}
-ELG_EXPORT View* elg_mod_text_field_style(const View* v, const std::shared_ptr<const TextFieldStyle>* style) {
-    MOD_TRY(v->modifier(TextFieldStyleModifier(*style)))
-}
-
 namespace {
 // View::animation's source: Rust returns a version number that changes when its value does.
 struct VersionSource {
@@ -1193,124 +1608,6 @@ ELG_EXPORT View* elg_mod_transition(const View* v, const Transition* transition)
 }
 ELG_EXPORT View* elg_mod_animates_layout(const View* v, bool enabled) {
     MOD_TRY(v->animates_layout(enabled))
-}
-
-// --- Built-in styles (shared pointers, as the environment holds them) ---
-
-ELG_EXPORT std::shared_ptr<const ButtonStyle>* elg_button_style_builtin(int32_t kind) {
-    switch (kind) {
-    case 0: return new std::shared_ptr<const ButtonStyle>(std::make_shared<const ProminentButtonStyle>());
-    case 1: return new std::shared_ptr<const ButtonStyle>(std::make_shared<const BorderedButtonStyle>());
-    default: return new std::shared_ptr<const ButtonStyle>(std::make_shared<const PlainButtonStyle>());
-    }
-}
-ELG_EXPORT std::shared_ptr<const ToggleStyle>* elg_toggle_style_builtin(int32_t kind) {
-    if (kind == 0) {
-        return new std::shared_ptr<const ToggleStyle>(std::make_shared<const SwitchToggleStyle>());
-    }
-    return new std::shared_ptr<const ToggleStyle>(std::make_shared<const CheckboxToggleStyle>());
-}
-ELG_EXPORT std::shared_ptr<const TextFieldStyle>* elg_text_field_style_builtin(int32_t kind) {
-    if (kind == 0) {
-        return new std::shared_ptr<const TextFieldStyle>(std::make_shared<const RoundedBorderTextFieldStyle>());
-    }
-    return new std::shared_ptr<const TextFieldStyle>(std::make_shared<const PlainTextFieldStyle>());
-}
-ELG_EXPORT std::shared_ptr<const ButtonStyle>* elg_button_style_clone(const std::shared_ptr<const ButtonStyle>* s) {
-    return new std::shared_ptr<const ButtonStyle>(*s);
-}
-ELG_EXPORT void elg_button_style_free(std::shared_ptr<const ButtonStyle>* s) {
-    delete s;
-}
-ELG_EXPORT std::shared_ptr<const ToggleStyle>* elg_toggle_style_clone(const std::shared_ptr<const ToggleStyle>* s) {
-    return new std::shared_ptr<const ToggleStyle>(*s);
-}
-ELG_EXPORT void elg_toggle_style_free(std::shared_ptr<const ToggleStyle>* s) {
-    delete s;
-}
-ELG_EXPORT std::shared_ptr<const TextFieldStyle>* elg_text_field_style_clone(const std::shared_ptr<const TextFieldStyle>* s) {
-    return new std::shared_ptr<const TextFieldStyle>(*s);
-}
-ELG_EXPORT void elg_text_field_style_free(std::shared_ptr<const TextFieldStyle>* s) {
-    delete s;
-}
-
-// Configurations, copied for the Rust side to keep.
-ELG_EXPORT void elg_button_config_free(ButtonConfiguration* c) {
-    delete c;
-}
-ELG_EXPORT ButtonConfiguration* elg_button_config_clone(const ButtonConfiguration* c) {
-    return new ButtonConfiguration(*c);
-}
-ELG_EXPORT View* elg_button_config_label(const ButtonConfiguration* c) {
-    return new View(c->label);
-}
-// which: 0 pressed, 1 hovered, 2 enabled, 3 focused. A tracked read.
-ELG_EXPORT bool elg_button_config_state(const ButtonConfiguration* c, int32_t which) {
-    ELG_TRY
-    switch (which) {
-    case 0: return c->is_pressed();
-    case 1: return c->is_hovered();
-    case 2: return c->is_enabled();
-    default: return c->is_focused();
-    }
-    ELG_CATCH(false)
-}
-ELG_EXPORT View* elg_button_style_make_body(const std::shared_ptr<const ButtonStyle>* style, const ButtonConfiguration* c) {
-    MOD_TRY((*style)->make_body(*c))
-}
-
-ELG_EXPORT void elg_toggle_config_free(ToggleConfiguration* c) {
-    delete c;
-}
-ELG_EXPORT ToggleConfiguration* elg_toggle_config_clone(const ToggleConfiguration* c) {
-    return new ToggleConfiguration(*c);
-}
-ELG_EXPORT View* elg_toggle_config_label(const ToggleConfiguration* c) {
-    return new View(c->label);
-}
-// which: 0 on, 1 pressed, 2 hovered, 3 enabled.
-ELG_EXPORT bool elg_toggle_config_state(const ToggleConfiguration* c, int32_t which) {
-    ELG_TRY
-    switch (which) {
-    case 0: return c->is_on();
-    case 1: return c->is_pressed();
-    case 2: return c->is_hovered();
-    default: return c->is_enabled();
-    }
-    ELG_CATCH(false)
-}
-ELG_EXPORT void elg_toggle_config_toggle(const ToggleConfiguration* c) {
-    ELG_TRY
-    c->toggle();
-    ELG_CATCH_VOID
-}
-ELG_EXPORT View* elg_toggle_style_make_body(const std::shared_ptr<const ToggleStyle>* style, const ToggleConfiguration* c) {
-    MOD_TRY((*style)->make_body(*c))
-}
-
-ELG_EXPORT void elg_text_field_config_free(TextFieldConfiguration* c) {
-    delete c;
-}
-ELG_EXPORT TextFieldConfiguration* elg_text_field_config_clone(const TextFieldConfiguration* c) {
-    return new TextFieldConfiguration(*c);
-}
-ELG_EXPORT View* elg_text_field_config_field(const TextFieldConfiguration* c) {
-    return new View(c->field);
-}
-// which: 0 focused, 1 hovered, 2 enabled.
-ELG_EXPORT bool elg_text_field_config_state(const TextFieldConfiguration* c, int32_t which) {
-    ELG_TRY
-    switch (which) {
-    case 0: return c->is_focused();
-    case 1: return c->is_hovered();
-    default: return c->is_enabled();
-    }
-    ELG_CATCH(false)
-}
-ELG_EXPORT View* elg_text_field_style_make_body(const std::shared_ptr<const TextFieldStyle>* style,
-                                                const TextFieldConfiguration* c) {
-    MOD_TRY((*style)->make_body(*c))
 }
 
 // --- Hot reload ---
@@ -1504,8 +1801,20 @@ ELG_EXPORT View* elg_mod_grid_column_alignment(const View* v, int32_t a) {
 
 ELG_EXPORT void elg_layouts_views(ElgStrSink out, void* ctx) {
     ELG_LAYOUT(ElgTextFieldOptions);
+    ELG_LAYOUT(ElgNumberInputOptions);
+    ELG_LAYOUT(ElgOptNumber);
     ELG_LAYOUT(ElgForEachItem);
+    ELG_LAYOUT(ElgStackSeparators);
+    ELG_LAYOUT(ElgSplitViewOptions);
     ELG_LAYOUT(ElgColumnWidth);
+    ELG_LAYOUT(ElgNavigationSplitViewOptions);
+    ELG_LAYOUT(ElgGestureOptions);
+    ELG_LAYOUT(ElgDragOptions);
+    ELG_LAYOUT(ElgLongPressOptions);
+    ELG_LAYOUT(ElgFloatingOptions);
+    ELG_LAYOUT(ElgTooltipOptions);
+    ELG_LAYOUT(ElgItemKey);
+    ELG_LAYOUT(ElgItemKeys);
     ELG_LAYOUT(ElgTextRun);
     ELG_LAYOUT(ElgPolyline);
     ELG_LAYOUT(ElgAsyncImagePhase);

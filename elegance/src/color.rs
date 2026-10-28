@@ -329,77 +329,8 @@ impl AngularGradient {
     }
 }
 
-/// Frosted glass: the shape shows what's drawn behind it in the window, blurred, with its colors
-/// boosted, under a translucent tint and a little grain. The presets follow the color scheme:
-///
-/// ```ignore
-/// Text("Now playing").padding(12).background_in(Material::REGULAR, RoundedRectangle(12))
-/// Rectangle().fill(.thin_material)
-/// ```
-///
-/// Inside an offscreen group (opacity below 1, a shadow, a blur, ...) a material sees only what
-/// the group drew behind it, as CSS's backdrop-filter does.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Material {
-    /// Blur radius in points.
-    pub blur: f32,
-    /// Of what shows through; 1 keeps the colors.
-    pub saturation: f32,
-    pub tint: Color,
-    /// The tint in dark mode; `None` uses `tint` in both.
-    pub dark_tint: Option<Color>,
-    /// Grain, 0...1, so smooth gradients don't band.
-    pub noise: f32,
-}
-
-impl Default for Material {
-    fn default() -> Self {
-        Self::REGULAR
-    }
-}
-
-#[elegance_macros::elg_builder]
-impl Material {
-    const fn preset(blur: f32, light_alpha: f32, dark_alpha: f32) -> Self {
-        Self {
-            blur,
-            saturation: 1.8,
-            tint: Color::new(0.97, 0.97, 0.98, light_alpha),
-            dark_tint: Some(Color::new(0.11, 0.11, 0.12, dark_alpha)),
-            noise: 0.02,
-        }
-    }
-    pub const ULTRA_THIN: Material = Material::preset(24.0, 0.2, 0.3);
-    pub const THIN: Material = Material::preset(28.0, 0.38, 0.45);
-    pub const REGULAR: Material = Material::preset(30.0, 0.55, 0.6);
-    pub const THICK: Material = Material::preset(36.0, 0.72, 0.74);
-    pub const ULTRA_THICK: Material = Material::preset(40.0, 0.86, 0.86);
-
-    pub fn blur(mut self, radius: f32) -> Self {
-        self.blur = radius;
-        self
-    }
-    pub fn saturation(mut self, saturation: f32) -> Self {
-        self.saturation = saturation;
-        self
-    }
-    /// The tint in both color schemes.
-    pub fn tint(mut self, tint: impl Into<Color>) -> Self {
-        self.tint = tint.into();
-        self.dark_tint = None;
-        self
-    }
-    pub fn dark_tint(mut self, tint: impl Into<Color>) -> Self {
-        self.dark_tint = Some(tint.into());
-        self
-    }
-    pub fn noise(mut self, noise: f32) -> Self {
-        self.noise = noise;
-        self
-    }
-}
-
-/// How a shape or background is filled: a color, a gradient, or a material.
+/// How a shape or background is filled: a color or a gradient. (Frosted glass is
+/// [`crate::ViewExt::backdrop_blur`].)
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeStyle {
     Color(Color),
@@ -407,7 +338,6 @@ pub enum ShapeStyle {
     Radial(RadialGradient),
     Elliptical(EllipticalGradient),
     Angular(AngularGradient),
-    Material(Material),
 }
 
 impl From<Color> for ShapeStyle {
@@ -435,11 +365,6 @@ impl From<AngularGradient> for ShapeStyle {
         ShapeStyle::Angular(g)
     }
 }
-impl From<Material> for ShapeStyle {
-    fn from(m: Material) -> Self {
-        ShapeStyle::Material(m)
-    }
-}
 
 fn c_stops(stops: &[GradientStop]) -> Vec<sys::ElgGradientStop> {
     stops.iter().map(|s| sys::ElgGradientStop { color: s.color.c(), location: s.location }).collect()
@@ -459,11 +384,6 @@ impl ShapeStyle {
             y1: 0.0,
             r0: 0.0,
             r1: 0.0,
-            blur: 0.0,
-            saturation: 0.0,
-            noise: 0.0,
-            has_dark_tint: false,
-            dark_tint: sys::ElgColor::default(),
         };
         let stops = match self {
             ShapeStyle::Color(color) => {
@@ -489,14 +409,6 @@ impl ShapeStyle {
                 c.kind = 4;
                 (c.x0, c.y0, c.r0, c.r1) = (g.center.x, g.center.y, g.start_angle, g.end_angle);
                 c_stops(&g.stops)
-            }
-            ShapeStyle::Material(m) => {
-                c.kind = 5;
-                (c.blur, c.saturation, c.noise, c.color) = (m.blur, m.saturation, m.noise, m.tint.c());
-                if let Some(dark) = m.dark_tint {
-                    (c.has_dark_tint, c.dark_tint) = (true, dark.c());
-                }
-                Vec::new()
             }
         };
         c.stops = stops.as_ptr();

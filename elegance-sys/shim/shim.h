@@ -99,8 +99,7 @@ struct ElgGradientStop {
 
 // kind 0: color; 1: linear gradient from (x0, y0) to (x1, y1); 2: radial gradient around (x0, y0)
 // from radius r0 to r1; 3: elliptical gradient around (x0, y0) from radius fraction r0 to r1;
-// 4: angular gradient around (x0, y0) from angle r0 to r1 (degrees); 5: material: `color` is its
-// tint, `dark_tint` (when has_dark_tint) the tint in dark mode.
+// 4: angular gradient around (x0, y0) from angle r0 to r1 (degrees).
 struct ElgShapeStyle {
     int32_t kind;
     ElgColor color;
@@ -108,9 +107,10 @@ struct ElgShapeStyle {
     size_t stop_count;
     float x0, y0, x1, y1;
     float r0, r1;
-    float blur, saturation, noise;
-    bool has_dark_tint;
-    ElgColor dark_tint;
+};
+
+struct ElgEdgeInsets {
+    float top, leading, bottom, trailing;
 };
 
 // A reactive argument. kind 0: `value` points at the static value (its C form); 1: `fn` returns
@@ -153,16 +153,35 @@ struct ElgPointerEvent {
     int32_t button;
     int32_t click_count;
     uint32_t modifiers;
+    ElgPoint window_location;
 };
 
 struct ElgScrollEvent {
     ElgPoint location;
+    ElgPoint window_location;
     float dx, dy;
     bool precise;
     uint32_t modifiers;
     int32_t phase;
     bool momentum;
     double time;
+};
+
+struct ElgClickEvent {
+    ElgPoint location;
+    ElgPoint window_location;
+    int32_t button;
+    uint32_t modifiers;
+    int32_t click_count;
+};
+
+struct ElgDragEvent {
+    ElgPoint location;
+    ElgPoint start_location;
+    ElgPoint translation;
+    ElgPoint velocity;
+    int32_t button;
+    uint32_t modifiers;
 };
 
 struct ElgMagnifyEvent {
@@ -188,6 +207,26 @@ struct ElgTextInputEvent {
 struct ElgEventResult {
     bool consumed;
     bool redraw;
+    bool cancellable;
+};
+
+// elg::FloatingPlacement: edge (FloatingEdge), alignment (FloatingAlignment), and an optional
+// position instead of an edge.
+struct ElgFloatingPlacement {
+    int32_t edge;
+    int32_t alignment;
+    float spacing;
+    ElgPoint offset;
+    bool has_position;
+    ElgPoint position;
+};
+
+// An optional elg::PopupMotion: `has` false is nullopt (the style's); null transition or
+// animation is PopupMotion::none(). Borrowed.
+struct ElgPopupMotion {
+    bool has;
+    const elg::Transition* transition;
+    const elg::Animation* animation;
 };
 
 struct ElgHoverDelay {
@@ -425,17 +464,38 @@ inline elg::ShapeStyle shape_style(const ElgShapeStyle& s) {
     case 2: return elg::RadialGradient(stops(s), elg::UnitPoint{s.x0, s.y0}, s.r0, s.r1);
     case 3: return elg::EllipticalGradient(stops(s), elg::UnitPoint{s.x0, s.y0}, s.r0, s.r1);
     case 4: return elg::AngularGradient(stops(s), elg::UnitPoint{s.x0, s.y0}, s.r0, s.r1);
-    case 5: {
-        elg::Material material;
-        material.blur = s.blur;
-        material.saturation = s.saturation;
-        material.tint = color(s.color);
-        material.dark_tint = s.has_dark_tint ? std::optional<elg::Color>(color(s.dark_tint)) : std::nullopt;
-        material.noise = s.noise;
-        return material;
-    }
     default: return color(s.color);
     }
+}
+
+inline elg::EdgeInsets edge_insets(ElgEdgeInsets i) {
+    return {i.top, i.leading, i.bottom, i.trailing};
+}
+
+inline elg::FloatingPlacement placement(const ElgFloatingPlacement& p) {
+    elg::FloatingPlacement result;
+    result.edge = static_cast<elg::FloatingEdge>(p.edge);
+    result.alignment = static_cast<elg::FloatingAlignment>(p.alignment);
+    result.spacing = p.spacing;
+    result.offset = point(p.offset);
+    if (p.has_position) {
+        result.position = point(p.position);
+    }
+    return result;
+}
+
+inline std::optional<elg::PopupMotion> motion(const ElgPopupMotion& m) {
+    if (!m.has) {
+        return std::nullopt;
+    }
+    if (!m.transition || !m.animation) {
+        return elg::PopupMotion::none();
+    }
+    return elg::PopupMotion(*m.transition, *m.animation);
+}
+
+inline std::optional<elg::Animation> animation(const elg::Animation* a) {
+    return a ? std::optional<elg::Animation>(*a) : std::nullopt;
 }
 
 inline elg::UnitPoint unit_point(ElgPoint p) {
@@ -495,9 +555,28 @@ inline ElgKeyEvent c_key_event(const elg::KeyEvent& e) {
     return {static_cast<int32_t>(e.kind), static_cast<int32_t>(e.key), static_cast<uint32_t>(e.modifiers), e.repeat};
 }
 
+inline ElgPoint c_point(elg::Point p) {
+    return {p.x, p.y};
+}
+
+inline ElgPointerEvent c_pointer_event(const elg::PointerEvent& e) {
+    return {static_cast<int32_t>(e.kind), c_point(e.location), static_cast<int32_t>(e.button), e.click_count,
+            static_cast<uint32_t>(e.modifiers), c_point(e.window_location)};
+}
+
 inline ElgScrollEvent c_scroll_event(const elg::ScrollEvent& e) {
-    return {{e.location.x, e.location.y}, e.dx, e.dy, e.precise, static_cast<uint32_t>(e.modifiers),
+    return {c_point(e.location), c_point(e.window_location), e.dx, e.dy, e.precise, static_cast<uint32_t>(e.modifiers),
             static_cast<int32_t>(e.phase), e.momentum, e.time};
+}
+
+inline ElgClickEvent c_click_event(const elg::ClickEvent& e) {
+    return {c_point(e.location), c_point(e.window_location), static_cast<int32_t>(e.button),
+            static_cast<uint32_t>(e.modifiers), e.click_count};
+}
+
+inline ElgDragEvent c_drag_event(const elg::DragEvent& e) {
+    return {c_point(e.location), c_point(e.start_location), c_point(e.translation), c_point(e.velocity),
+            static_cast<int32_t>(e.button), static_cast<uint32_t>(e.modifiers)};
 }
 
 inline ElgMagnifyEvent c_magnify_event(const elg::MagnifyEvent& e) {
@@ -519,6 +598,30 @@ struct PropValue<float> {
 template <>
 struct PropValue<bool> {
     static bool from(const void* v) { return *static_cast<const bool*>(v); }
+};
+template <>
+struct PropValue<int> {
+    static int from(const void* v) { return *static_cast<const int32_t*>(v); }
+};
+template <>
+struct PropValue<double> {
+    static double from(const void* v) { return *static_cast<const double*>(v); }
+};
+template <>
+struct PropValue<elg::Weight> {
+    static elg::Weight from(const void* v) { return static_cast<elg::Weight>(*static_cast<const int32_t*>(v)); }
+};
+template <>
+struct PropValue<elg::EdgeInsets> {
+    static elg::EdgeInsets from(const void* v) { return edge_insets(*static_cast<const ElgEdgeInsets*>(v)); }
+};
+// Empty: has false.
+template <>
+struct PropValue<std::optional<float>> {
+    static std::optional<float> from(const void* v) {
+        const auto& o = *static_cast<const ElgOptLen*>(v);
+        return o.has ? std::optional<float>(o.value) : std::nullopt;
+    }
 };
 template <>
 struct PropValue<std::string> {

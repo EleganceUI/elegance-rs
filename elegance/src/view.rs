@@ -12,16 +12,23 @@ use crate::color::{Color, ColorScheme, ShapeStyle, Theme};
 use crate::environment::EnvironmentKey;
 use crate::error::ffi;
 use crate::events::{
-    DragEvent, HoverDelay, Key, KeyEvent, MagnifyEvent, PixelSize, PointerEvent, PointerStyle, RotateEvent,
-    ScrollEvent,
+    ClickEvent, ClickOptions, DragEvent, HoverDelay, Key, KeyEvent, MagnifyEvent, PixelSize, PointerEvent,
+    PointerStyle, RotateEvent, ScrollEvent, TextInputEvent,
 };
 use crate::ffi as cffi;
 use crate::font::{Font, Weight};
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size};
-use crate::prop::{with_prop, IntoProp};
+use crate::gestures::{
+    DragGesture, Gesture, GestureOptions, LongPressGesture, MagnifyGesture, RotateGesture, TwoFingerDoubleTapGesture,
+};
+use crate::prop::{with_prop, IntoProp, Prop};
 use crate::reactive::IntoBinding;
 use crate::shapes::Shape;
-use crate::styles::{IntoButtonStyle, IntoTextFieldStyle, IntoToggleStyle};
+use crate::styles::{
+    IntoButtonStyle, IntoCheckboxStyle, IntoMenuStyle, IntoNavigationStackStyle, IntoNumberInputStyle, IntoPickerStyle,
+    IntoPopoverStyle, IntoProgressStyle, IntoRowStyle, IntoSliderStyle, IntoTextFieldStyle, IntoToggleStyle,
+    IntoTooltipStyle,
+};
 use crate::text::Text;
 
 mod options;
@@ -55,6 +62,12 @@ impl View {
     /// An empty view: takes no space and draws nothing.
     pub fn empty() -> Self {
         Self::from_raw(unsafe { sys::elg_view_empty() })
+    }
+
+    /// Whether this is an empty view (`View::empty()`, `EmptyView()`), e.g. a style's label for
+    /// a control made without one.
+    pub fn is_empty(&self) -> bool {
+        unsafe { sys::elg_view_is_empty(self.as_ptr()) }
     }
 
     /// A view whose body runs each time it's mounted (what [`Component`]s become).
@@ -171,28 +184,23 @@ impl<C: Component> IntoView for C {
 pub trait ViewExt: IntoView + Sized {
     // Layout.
 
-    /// Space around the content, on every edge.
-    fn padding(self, length: impl Number) -> View {
-        let l = length.to_f32();
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_padding(v, l, l, l, l) })
+    /// Space around the content, on every edge. Reactive: `.padding(move || if compact.get() { 4.0 } else { 12.0 })`.
+    fn padding(self, length: impl IntoProp<f32>) -> View {
+        self.padding_edges(Edges::ALL, length)
     }
     /// Space on some edges: `.padding_edges(Edges::HORIZONTAL, 12)`.
-    fn padding_edges(self, edges: impl Into<Edges>, length: impl Number) -> View {
-        let (edges, l) = (edges.into(), length.to_f32());
-        let on = |edge| if edges.contains(edge) { l } else { 0.0 };
-        let insets = EdgeInsets {
-            top: on(Edges::TOP),
-            leading: on(Edges::LEADING),
-            bottom: on(Edges::BOTTOM),
-            trailing: on(Edges::TRAILING),
-        };
-        self.padding_insets(insets)
+    fn padding_edges(self, edges: impl Into<Edges>, length: impl IntoProp<f32>) -> View {
+        let (view, edges) = (self.into_view(), edges.into().0);
+        with_prop(length.into_prop(), |p| {
+            view.modify(|v| unsafe { sys::elg_mod_padding_edges(v, edges, p) })
+        })
     }
-    fn padding_insets(self, insets: impl Into<EdgeInsets>) -> View {
-        let i = insets.into();
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_padding(v, i.top, i.leading, i.bottom, i.trailing) })
+    /// Space on each edge, static or reactive.
+    fn padding_insets(self, insets: impl IntoProp<EdgeInsets>) -> View {
+        let view = self.into_view();
+        with_prop(insets.into_prop(), |p| {
+            view.modify(|v| unsafe { sys::elg_mod_padding(v, p) })
+        })
     }
     /// `.padding(top: 8, horizontal: 12)` in `elg!`.
     fn padding_with(self, insets: impl FnOnce(EdgeInsets) -> EdgeInsets) -> View {
@@ -338,16 +346,25 @@ pub trait ViewExt: IntoView + Sized {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_overlay(v, o.into_raw(), a) })
     }
-    /// A border drawn inside the view's bounds.
-    fn border(self, color: impl Into<Color>, width: impl Number) -> View {
-        let (c, w) = (color.into().c(), width.to_f32());
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_border(v, c, w) })
+    /// A border drawn inside the view's bounds: `.overlay(Rectangle().stroke_border(color, width))`.
+    /// Reactive colors work.
+    fn border(self, color: impl IntoProp<Color>, width: impl Number) -> View {
+        let (view, w) = (self.into_view(), width.to_f32());
+        with_prop(color.into_prop(), |c| {
+            view.modify(|v| unsafe { sys::elg_mod_border(v, c, w, std::ptr::null()) })
+        })
+    }
+    /// A border along `shape`: `.border_in(.outline, 1, Capsule())`.
+    fn border_in(self, color: impl IntoProp<Color>, width: impl Number, shape: impl Into<Shape>) -> View {
+        let (view, w, shape) = (self.into_view(), width.to_f32(), shape.into());
+        with_prop(color.into_prop(), |c| {
+            view.modify(|v| unsafe { sys::elg_mod_border(v, c, w, shape.as_ptr()) })
+        })
     }
 
     // Effects.
 
-    /// Clips the content to the view's bounds.
+    /// Clips the content to the view's bounds: `clip_shape(Rectangle())`.
     fn clipped(self) -> View {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_clipped(v) })
@@ -412,6 +429,32 @@ pub trait ViewExt: IntoView + Sized {
             view.modify(|v| unsafe { sys::elg_mod_blur(v, r, opaque) })
         })
     }
+    /// Blurs what's drawn behind the view in the window (frosted glass), inside its bounds;
+    /// `radius` in points. Reactive and animatable. Like `.background`, it goes behind everything
+    /// it wraps, so a tint goes on before it:
+    ///
+    /// ```ignore
+    /// Text("Now playing").padding(12)
+    ///     .background_in(Color::WHITE.opacity(0.5), RoundedRectangle(12))
+    ///     .backdrop_blur_in(30, RoundedRectangle(12), |o| o.saturation(1.8).noise(0.02))
+    /// ```
+    fn backdrop_blur(self, radius: impl IntoProp<f32>) -> View {
+        self.backdrop_blur_with(radius, |o| o)
+    }
+    /// `.backdrop_blur(30, saturation: 1.8)` in `elg!`.
+    fn backdrop_blur_with(self, radius: impl IntoProp<f32>, options: impl FnOnce(BackdropOptions) -> BackdropOptions) -> View {
+        backdrop_blur(self.into_view(), radius.into_prop(), None, options(BackdropOptions::default()))
+    }
+    /// Frosted glass inside `shape` (filling the view's bounds).
+    fn backdrop_blur_in(
+        self,
+        radius: impl IntoProp<f32>,
+        shape: impl Into<Shape>,
+        options: impl FnOnce(BackdropOptions) -> BackdropOptions,
+    ) -> View {
+        let shape = shape.into();
+        backdrop_blur(self.into_view(), radius.into_prop(), Some(&shape), options(BackdropOptions::default()))
+    }
     /// A color adjustment ([`ColorFilter`]); the shorthands below cover each kind.
     fn color_filter(self, filter: ColorFilter) -> View {
         let view = self.into_view();
@@ -443,7 +486,7 @@ pub trait ViewExt: IntoView + Sized {
     fn sepia(self, amount: impl IntoProp<f32>) -> View {
         self.color_filter(ColorFilter::Sepia(amount.into_prop()))
     }
-    /// Inverts the colors.
+    /// Inverts the colors: `color_invert_amount(1)`.
     fn color_invert(self) -> View {
         self.color_invert_amount(1.0)
     }
@@ -466,7 +509,7 @@ pub trait ViewExt: IntoView + Sized {
             .modify(|v| unsafe { sys::elg_mod_blend_mode(v, mode) })
     }
     /// Draws the content offscreen first, then composites it as one image: blend modes inside it
-    /// blend with each other only, and a material inside sees only what the group drew.
+    /// blend with each other only, and a backdrop blur inside sees only what the group drew.
     fn compositing_group(self) -> View {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_compositing_group(v) })
@@ -568,60 +611,82 @@ pub trait ViewExt: IntoView + Sized {
 
     // Events.
 
-    /// Receives pointer events over the view's frame. Return true to consume the
-    /// event; consuming a press captures its drag and release/cancel events.
-    /// Coordinates are in window points, as with a custom EventHandler.
-    fn on_pointer_event(self, action: impl Fn(&PointerEvent) -> bool + 'static) -> View {
-        crate::modifier::on_pointer_event(self.into_view(), action)
+    /// Pointer clicks: pressed and released inside the view with the left button. The innermost
+    /// click handler wins. Clicks only: for something a keyboard or a screen reader should be
+    /// able to use too, use `on_activate`.
+    fn on_click(self, action: impl Fn(&ClickEvent) + 'static) -> View {
+        self.on_click_with(action, |o| o)
     }
-
-    /// Tracks a left-button drag, capturing the pointer until release or cancellation.
-    /// Movement deltas are in window points. Both release and cancellation emit
-    /// [`DragEvent::Ended`]. Each mounted view has independent drag state.
-    /// Consumes the drag's pointer events, including the initial press.
-    fn on_drag(self, action: impl Fn(DragEvent) + 'static) -> View {
-        crate::modifier::on_drag(self.into_view(), action)
-    }
-
-    /// Receives scrolling over the view's frame. Return true to consume the event,
-    /// or false to let an enclosing scroll view handle it.
-    fn on_scroll(self, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
-        crate::modifier::on_scroll(self.into_view(), action)
-    }
-
-    /// Runs `action` on a tap. The innermost tap gesture wins.
-    fn on_tap_gesture(self, action: impl FnMut() + 'static) -> View {
-        self.on_tap_gesture_with(action, |o| o)
-    }
-    /// `.on_tap_gesture(open, count: 2)` in `elg!`.
-    fn on_tap_gesture_with(
+    /// `.on_click(open, count: 2)`, `.on_click(menu, button: .right)` in `elg!`.
+    fn on_click_with(
         self,
-        action: impl FnMut() + 'static,
-        options: impl FnOnce(TapOptions) -> TapOptions,
+        action: impl Fn(&ClickEvent) + 'static,
+        options: impl FnOnce(ClickOptions) -> ClickOptions,
     ) -> View {
-        let count = options(TapOptions::default()).count;
+        let o = options(ClickOptions::default());
+        let action = cffi::consumer(move |e: sys::ElgClickEvent| action(&ClickEvent::from_c(&e)));
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_click(v, action, o.button.c(), o.count) })
+    }
+    /// `on_click` with a count of 2.
+    fn on_double_click(self, action: impl Fn(&ClickEvent) + 'static) -> View {
+        self.on_click_with(action, |o| o.count(2))
+    }
+    /// The view's action, however it's used: a left click, Space or Enter while it has focus,
+    /// or a screen reader's default action. Makes it focusable; ignored while disabled.
+    fn on_activate(self, action: impl FnMut() + 'static) -> View {
         let action = cffi::action(action);
         self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_on_tap_gesture(v, action, count) })
+            .modify(|v| unsafe { sys::elg_mod_on_activate(v, action) })
     }
-    /// Pinching on a trackpad over the view (began ... ended). The innermost view handling it
-    /// under the pointer takes the gesture.
+    /// A gesture ([`crate::gestures`]): drags and long presses take a press over once they
+    /// recognize it; pinches, rotations and two-finger double taps come from trackpads.
+    fn recognize(self, gesture: impl Gesture) -> View {
+        gesture.attach(self.into_view(), GestureOptions::default())
+    }
+    /// `.recognize(swipe, priority: .high)` in `elg!`: how a drag or long press competes for
+    /// presses.
+    fn recognize_with(self, gesture: impl Gesture, options: impl FnOnce(GestureOptions) -> GestureOptions) -> View {
+        gesture.attach(self.into_view(), options(GestureOptions::default()))
+    }
+    /// `recognize(DragGesture::new().on_changed(action))`.
+    fn on_drag(self, action: impl Fn(&DragEvent) + 'static) -> View {
+        self.recognize(DragGesture::new().on_changed(action))
+    }
+    /// `recognize(LongPressGesture::new(action))`.
+    fn on_long_press(self, action: impl Fn() + 'static) -> View {
+        self.recognize(LongPressGesture::new(action))
+    }
+    /// Pinching on a trackpad: `recognize(MagnifyGesture::new().on_changed(action))`.
     fn on_magnify(self, action: impl Fn(&MagnifyEvent) + 'static) -> View {
-        let action = cffi::consumer(move |e: sys::ElgMagnifyEvent| action(&MagnifyEvent::from_c(&e)));
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_on_magnify(v, action) })
+        self.recognize(MagnifyGesture::new().on_changed(action))
     }
-    /// Turning two fingers on a trackpad over the view (began ... ended).
+    /// Turning two fingers on a trackpad: `recognize(RotateGesture::new().on_changed(action))`.
     fn on_rotate(self, action: impl Fn(&RotateEvent) + 'static) -> View {
-        let action = cffi::consumer(move |e: sys::ElgRotateEvent| action(&RotateEvent::from_c(&e)));
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_on_rotate(v, action) })
+        self.recognize(RotateGesture::new().on_changed(action))
     }
-    /// A two-finger double tap over the view (macOS's smart zoom), with its location.
-    fn on_smart_magnify(self, action: impl Fn(Point) + 'static) -> View {
-        let action = cffi::consumer(move |p: sys::ElgPoint| action(Point::from_c(p)));
+    /// A two-finger double tap on a trackpad, with where it was (window coordinates).
+    fn on_two_finger_double_tap(self, action: impl Fn(Point) + 'static) -> View {
+        self.recognize(TwoFingerDoubleTapGesture::new(action))
+    }
+    /// Raw pointer events over the view (down, up, moves while captured, hover moves, cancel),
+    /// located in its own coordinates. Return true to consume one; consuming a down captures the
+    /// pointer. For drawing and custom controls; prefer `on_click` and gestures otherwise.
+    fn on_pointer(self, action: impl Fn(&PointerEvent) -> bool + 'static) -> View {
+        let action = cffi::closure(move |args, ret| unsafe {
+            *(ret as *mut bool) = action(&PointerEvent::from_c(&*(args as *const sys::ElgPointerEvent)));
+        });
         self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_on_smart_magnify(v, action) })
+            .modify(|v| unsafe { sys::elg_mod_on_pointer(v, action) })
+    }
+    /// Wheel and trackpad scrolling over the view, located in its own coordinates. Return true
+    /// to consume it (scroll views around it then don't scroll).
+    fn on_scroll(self, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
+        let action = cffi::closure(move |args, ret| unsafe {
+            *(ret as *mut bool) = action(&ScrollEvent::from_c(&*(args as *const sys::ElgScrollEvent)));
+        });
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_scroll(v, action) })
     }
     /// The pointer's shape over the view, like CSS's `cursor`: `.pointer_style(.pointer)` over
     /// something to click. Views inside can set their own (a text field's I-beam). Reactive:
@@ -653,21 +718,26 @@ pub trait ViewExt: IntoView + Sized {
             .modify(|v| unsafe { sys::elg_mod_on_size_change(v, action) })
     }
 
-    /// Called with true when the pointer has rested on the view for the hover delay, and false
-    /// when it leaves.
-    fn on_hover(self, action: impl Fn(bool) + 'static) -> View {
+    /// Called at once when the pointer comes over the view (its hit area): for highlights.
+    fn on_pointer_enter(self, action: impl FnMut() + 'static) -> View {
+        let action = cffi::action(action);
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_pointer_boundary(v, false, action) })
+    }
+    /// Called at once when the pointer leaves the view.
+    fn on_pointer_leave(self, action: impl FnMut() + 'static) -> View {
+        let action = cffi::action(action);
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_pointer_boundary(v, true, action) })
+    }
+    /// Hover intent: called with true once the pointer has rested on the view for the hover
+    /// delay (moving across it doesn't count), and false when it leaves (after the exit delay):
+    /// for previews that shouldn't flash as the pointer passes. The delay comes from the
+    /// environment: `.on_hover_change(preview).hover_delay_with(|d| d.enter(0.5))`.
+    fn on_hover_change(self, action: impl Fn(bool) + 'static) -> View {
         let action = cffi::consumer(action);
         self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_on_hover(v, action, std::ptr::null()) })
-    }
-    fn on_hover_with(
-        self,
-        action: impl Fn(bool) + 'static,
-        delay: impl FnOnce(HoverDelay) -> HoverDelay,
-    ) -> View {
-        let (action, delay) = (cffi::consumer(action), delay(HoverDelay::default()).c());
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_on_hover(v, action, &delay) })
+            .modify(|v| unsafe { sys::elg_mod_on_hover_change(v, action) })
     }
     /// Files or text dragged from other apps can be dropped here.
     fn on_drop(self, options: DropOptions) -> View {
@@ -746,7 +816,8 @@ pub trait ViewExt: IntoView + Sized {
             .modify(|v| unsafe { sys::elg_mod_accessibility_action(v, action) })
     }
 
-    /// The hover delay for on_hover handlers and controls inside.
+    /// The hover delay for `on_hover_change` handlers and submenus inside (default: enter 0.1 s,
+    /// exit 0). Controls' highlights and pointer enter/leave don't wait.
     fn hover_delay(self, delay: HoverDelay) -> View {
         let d = delay.c();
         self.into_view()
@@ -770,11 +841,57 @@ pub trait ViewExt: IntoView + Sized {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_context_menu(v, menu) })
     }
-    /// A tooltip shown after the pointer rests on the view.
-    fn help(self, text: impl Into<String>) -> View {
-        let text: String = text.into();
+    /// A text tooltip, shown after the pointer rests on the view for a moment, until it leaves
+    /// or presses. Static or reactive: `.tooltip("Settings")`.
+    fn tooltip(self, text: impl IntoProp<String>) -> View {
+        self.tooltip_with(text, |o| o)
+    }
+    /// `.tooltip("Settings", delay: 0.3)` in `elg!`.
+    fn tooltip_with(self, text: impl IntoProp<String>, options: impl FnOnce(TooltipOptions) -> TooltipOptions) -> View {
+        let (view, o) = (self.into_view(), options(TooltipOptions::default()));
+        let c = c_tooltip_options(&o);
+        with_prop(text.into_prop(), |t| {
+            view.modify(|v| unsafe { sys::elg_mod_tooltip(v, sys::ElgClosure::NONE, &t, &c) })
+        })
+    }
+    /// A tooltip of any content, in the environment's TooltipStyle. Screen readers don't see it.
+    fn tooltip_view<V: IntoView>(
+        self,
+        content: impl Fn() -> V + 'static,
+        options: impl FnOnce(TooltipOptions) -> TooltipOptions,
+    ) -> View {
+        let o = options(TooltipOptions::default());
+        let c = c_tooltip_options(&o);
+        let content = cffi::closure(move |_, ret| unsafe { content().into_view().write_into(ret) });
         self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_help(v, cffi::s(&text)) })
+            .modify(|v| unsafe { sys::elg_mod_tooltip(v, content, std::ptr::null(), &c) })
+    }
+    /// `content` floating above everything by the view while `is_presented` is true, with no
+    /// chrome of its own. The builder runs each time it opens. What closes it (and sets the
+    /// binding back to false), where it goes and whether it may leave the window are `options`'.
+    fn floating<V: IntoView>(
+        self,
+        is_presented: impl IntoBinding<bool>,
+        content: impl Fn() -> V + 'static,
+        options: impl FnOnce(FloatingOptions) -> FloatingOptions,
+    ) -> View {
+        let o = options(FloatingOptions::default());
+        let c = sys::ElgFloatingOptions {
+            placement: o.placement.c(),
+            boundary: o.boundary as i32,
+            outside_click: o.dismiss.outside_click,
+            escape: o.dismiss.escape,
+            motion: c_motion(o.motion.as_ref()),
+        };
+        let binding = is_presented.into_binding().cpp();
+        let content = cffi::closure(move |_, ret| unsafe { content().into_view().write_into(ret) });
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_floating(v, binding, content, &c) })
+    }
+    /// Marks the view as where `FloatingBoundary::Container` content inside it stays.
+    fn floating_container(self) -> View {
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_floating_container(v) })
     }
     /// A panel of `content` beside the view, shown while `is_presented` is true. With a `State`,
     /// dismissing it sets the state back to false; with a closure or a `Computed`
@@ -794,10 +911,13 @@ pub trait ViewExt: IntoView + Sized {
         options: impl FnOnce(PopoverOptions) -> PopoverOptions,
     ) -> View {
         let o = options(PopoverOptions::default());
+        let (view, placement, motion) = (self.into_view(), o.placement.c(), c_motion(o.motion.as_ref()));
         let binding = is_presented.into_binding().cpp();
         let content = cffi::closure(move |_, ret| unsafe { content().into_view().write_into(ret) });
-        self.into_view().modify(|v| unsafe {
-            sys::elg_mod_popover(v, binding, content, o.opens as i32, o.padded)
+        with_prop(o.padded.clone(), |padded| {
+            view.modify(|v| unsafe {
+                sys::elg_mod_popover(v, binding, content, &placement, o.boundary as i32, padded, motion)
+            })
         })
     }
 
@@ -820,22 +940,53 @@ pub trait ViewExt: IntoView + Sized {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_key_press(v, key, action) })
     }
-    /// Sees every key press while focused; return true if handled.
-    fn on_key_event(self, action: impl Fn(&KeyEvent) -> bool + 'static) -> View {
+    /// Sees every key down and up while the view (or something inside) has focus; return true
+    /// if handled (unhandled keys bubble out).
+    fn on_key(self, action: impl Fn(&KeyEvent) -> bool + 'static) -> View {
         let action = cffi::closure(move |args, ret| unsafe {
             let event = KeyEvent::from_c(&*(args as *const sys::ElgKeyEvent));
             *(ret as *mut bool) = action(&event);
         });
         self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_on_key_event(v, action) })
+            .modify(|v| unsafe { sys::elg_mod_on_key(v, action) })
+    }
+    /// Makes the view focusable and sees the text typed while it has focus: commits, and an
+    /// IME's compositions in progress. Keys still go to `on_key`. Return true if handled.
+    fn on_text_input(self, action: impl Fn(&TextInputEvent) -> bool + 'static) -> View {
+        let action = cffi::closure(move |args, ret| unsafe {
+            *(ret as *mut bool) = action(&TextInputEvent::from_c(&*(args as *const sys::ElgTextInputEvent)));
+        });
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_text_input(v, action) })
+    }
+
+    // Selection.
+
+    /// Makes the rows of a stack over a ForEach selectable, by their ForEach keys. Put it on
+    /// the VStack, HStack, LazyVStack or LazyHStack itself; its other children aren't rows. Each
+    /// row is drawn by the environment's RowStyle (`.row_style()`). With an `Option<K>`, one
+    /// row; with a `BTreeSet<K>`, any number (Ctrl/Cmd+click, Shift+click, Ctrl/Cmd+A).
+    ///
+    /// ```ignore
+    /// let open = State::new(None::<i64>);
+    /// ScrollView(LazyVStack(ForEach(mails, &Mail::id, MailRow)).selection(open))
+    /// ```
+    fn selection<S: crate::views::Selection>(self, selection: S) -> View {
+        crate::views::selection(self.into_view(), selection, None::<fn(&S::Key)>)
+    }
+    /// With `on_activate`: Enter, or a double click on a row.
+    fn selection_with<S: crate::views::Selection>(self, selection: S, on_activate: impl Fn(&S::Key) + 'static) -> View {
+        crate::views::selection(self.into_view(), selection, Some(on_activate))
     }
 
     // Environment: inherited by everything inside.
 
-    fn font_weight(self, weight: impl Into<Weight>) -> View {
-        let w = weight.into() as i32;
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_font_weight(v, w) })
+    /// The weight of the font inside, keeping its size and family. Static or reactive.
+    fn font_weight(self, weight: impl IntoProp<Weight>) -> View {
+        let view = self.into_view();
+        with_prop(weight.into_prop(), |p| {
+            view.modify(|v| unsafe { sys::elg_mod_font_weight(v, p) })
+        })
     }
     fn font(self, font: impl IntoProp<Font>) -> View {
         let view = self.into_view();
@@ -869,7 +1020,8 @@ pub trait ViewExt: IntoView + Sized {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_theme(v, &t) })
     }
-    /// Controls inside stop responding and look disabled.
+    /// Controls inside stop responding and look disabled, and event handlers and gestures inside
+    /// are switched off (hover, tooltips and scrolling keep working).
     fn disabled(self, disabled: impl IntoProp<bool>) -> View {
         let view = self.into_view();
         with_prop(disabled.into_prop(), |p| {
@@ -878,21 +1030,55 @@ pub trait ViewExt: IntoView + Sized {
     }
     /// The style of every Button inside.
     fn button_style(self, style: impl IntoButtonStyle) -> View {
-        let style = style.into_button_style();
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_button_style(v, style.as_ptr()) })
+        style.into_button_style().apply(self.into_view())
     }
     /// The style of every Toggle inside.
     fn toggle_style(self, style: impl IntoToggleStyle) -> View {
-        let style = style.into_toggle_style();
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_toggle_style(v, style.as_ptr()) })
+        style.into_toggle_style().apply(self.into_view())
     }
-    /// The style of every TextField inside.
+    /// The style of every Checkbox inside.
+    fn checkbox_style(self, style: impl IntoCheckboxStyle) -> View {
+        style.into_checkbox_style().apply(self.into_view())
+    }
+    /// The style of every NumberInput inside.
+    fn number_input_style(self, style: impl IntoNumberInputStyle) -> View {
+        style.into_number_input_style().apply(self.into_view())
+    }
+    /// The style of every Progress inside.
+    fn progress_style(self, style: impl IntoProgressStyle) -> View {
+        style.into_progress_style().apply(self.into_view())
+    }
+    /// The style of every TextField and TextArea inside.
     fn text_field_style(self, style: impl IntoTextFieldStyle) -> View {
-        let style = style.into_text_field_style();
-        self.into_view()
-            .modify(|v| unsafe { sys::elg_mod_text_field_style(v, style.as_ptr()) })
+        style.into_text_field_style().apply(self.into_view())
+    }
+    /// The style of every Picker inside.
+    fn picker_style(self, style: impl IntoPickerStyle) -> View {
+        style.into_picker_style().apply(self.into_view())
+    }
+    /// The style of every Slider inside.
+    fn slider_style(self, style: impl IntoSliderStyle) -> View {
+        style.into_slider_style().apply(self.into_view())
+    }
+    /// The style of every NavigationStack inside.
+    fn navigation_stack_style(self, style: impl IntoNavigationStackStyle) -> View {
+        style.into_navigation_stack_style().apply(self.into_view())
+    }
+    /// The style of popovers opened from inside.
+    fn popover_style(self, style: impl IntoPopoverStyle) -> View {
+        style.into_popover_style().apply(self.into_view())
+    }
+    /// The style of tooltips shown from inside.
+    fn tooltip_style(self, style: impl IntoTooltipStyle) -> View {
+        style.into_tooltip_style().apply(self.into_view())
+    }
+    /// The style of menus opened from inside.
+    fn menu_style(self, style: impl IntoMenuStyle) -> View {
+        style.into_menu_style().apply(self.into_view())
+    }
+    /// The style of the selectable rows inside (`.selection()`).
+    fn row_style(self, style: impl IntoRowStyle) -> View {
+        style.into_row_style().apply(self.into_view())
     }
     /// Sets any environment key: `.environment::<Compact>(true)`.
     fn environment<K: EnvironmentKey>(self, value: impl IntoProp<K::Value>) -> View {
@@ -945,6 +1131,29 @@ pub trait ViewExt: IntoView + Sized {
 }
 
 impl<T: IntoView> ViewExt for T {}
+
+fn backdrop_blur(view: View, radius: Prop<f32>, shape: Option<&Shape>, o: BackdropOptions) -> View {
+    let shape = shape.map_or(std::ptr::null(), Shape::as_ptr);
+    with_prop(radius, |r| {
+        with_prop(o.saturation, |s| {
+            with_prop(o.brightness, |b| {
+                with_prop(o.noise, |n| {
+                    view.modify(|v| unsafe { sys::elg_mod_backdrop_blur(v, r, shape, s, b, n) })
+                })
+            })
+        })
+    })
+}
+
+/// Borrows `o`'s motion.
+fn c_tooltip_options(o: &TooltipOptions) -> sys::ElgTooltipOptions {
+    sys::ElgTooltipOptions {
+        placement: o.placement.c(),
+        boundary: o.boundary as i32,
+        delay: o.delay,
+        motion: c_motion(o.motion.as_ref()),
+    }
+}
 
 // Text keeps its own font/foreground modifiers (they return Text); the rest come from ViewExt.
 impl IntoView for Text {

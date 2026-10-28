@@ -303,6 +303,27 @@ impl EnvironmentKey for WindowKey {
     }
 }
 
+/// Inside a selectable row ([`crate::ViewExt::selection`]): whether it's selected; false
+/// elsewhere. For rows that show their state themselves (`PlainRowStyle`):
+///
+/// ```ignore
+/// let selected = Environment::<RowSelectedKey>::new();
+/// Text(mail.sender).foreground_style(move || if selected.get() { ThemeColor::OnAccent } else { ThemeColor::Secondary })
+/// ```
+pub struct RowSelectedKey;
+impl EnvironmentKey for RowSelectedKey {
+    type Value = bool;
+    fn default_value(_: &EnvironmentValues) -> bool {
+        false
+    }
+    fn read(environment: &EnvironmentValues) -> bool {
+        ffi!(sys::elg_env_row_selected(environment.as_ptr()))
+    }
+    fn write(environment: &mut EnvironmentValues, value: Prop<bool>) {
+        with_prop(value, |p| ffi!(sys::elg_env_set_row_selected(environment.as_ptr(), p)))
+    }
+}
+
 pub struct ButtonStyleKey;
 impl EnvironmentKey for ButtonStyleKey {
     type Value = AnyButtonStyle;

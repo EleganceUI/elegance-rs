@@ -27,19 +27,21 @@
 
 use crate::animation::{Animation, Transition};
 use crate::app::TitleBar;
-use crate::color::{Color, ColorScheme, Material, ShapeStyle, ThemeColor};
-use crate::events::{Key, PointerStyle};
+use crate::color::{Color, ColorScheme, ShapeStyle, ThemeColor};
+use crate::events::{Key, MouseButton, PointerStyle};
 use crate::font::{Font, Weight};
 use crate::geometry::{
     Alignment, Axis, ContentMode, CornerRadii, EdgeInsets, Edges, HorizontalAlignment, Len,
     UnitPoint, VerticalAlignment,
 };
+use crate::gestures::GesturePriority;
 use crate::hot_reload::HotReloadShow;
 use crate::media::VideoFormat;
+use crate::navigation::PageTransition;
 use crate::path::{FillRule, LineCap, LineJoin};
 use crate::text::TextAlignment;
-use crate::view::{AccessibilityRole, BlendMode, PopoverEdge};
-use crate::views::{MenuEdge, PickerStyle, ScrollAxes};
+use crate::view::{AccessibilityRole, BlendMode, FloatingAlignment, FloatingBoundary, FloatingEdge};
+use crate::views::ScrollAxes;
 use crate::window::WindowControlsStyle;
 
 use crate::prop::Prop;
@@ -211,7 +213,7 @@ dots! {
         TextAlignment => TextAlignment::Leading,
         Edges => Edges::LEADING,
         UnitPoint => UnitPoint::LEADING,
-        PopoverEdge => PopoverEdge::Leading,
+        FloatingEdge => FloatingEdge::Leading,
     }
     center {
         HorizontalAlignment => HorizontalAlignment::Center,
@@ -219,6 +221,7 @@ dots! {
         Alignment => Alignment::CENTER,
         TextAlignment => TextAlignment::Center,
         UnitPoint => UnitPoint::CENTER,
+        FloatingAlignment => FloatingAlignment::Center,
     }
     trailing {
         HorizontalAlignment => HorizontalAlignment::Trailing,
@@ -226,19 +229,21 @@ dots! {
         TextAlignment => TextAlignment::Trailing,
         Edges => Edges::TRAILING,
         UnitPoint => UnitPoint::TRAILING,
-        PopoverEdge => PopoverEdge::Trailing,
+        FloatingEdge => FloatingEdge::Trailing,
     }
     top {
         VerticalAlignment => VerticalAlignment::Top,
         Alignment => Alignment::TOP,
         Edges => Edges::TOP,
         UnitPoint => UnitPoint::TOP,
+        FloatingEdge => FloatingEdge::Top,
     }
     bottom {
         VerticalAlignment => VerticalAlignment::Bottom,
         Alignment => Alignment::BOTTOM,
         Edges => Edges::BOTTOM,
         UnitPoint => UnitPoint::BOTTOM,
+        FloatingEdge => FloatingEdge::Bottom,
     }
     top_leading { Alignment => Alignment::TOP_LEADING, UnitPoint => UnitPoint::TOP_LEADING }
     top_trailing { Alignment => Alignment::TOP_TRAILING, UnitPoint => UnitPoint::TOP_TRAILING }
@@ -254,11 +259,20 @@ dots! {
     fit { ContentMode => ContentMode::Fit }
     fill { ContentMode => ContentMode::Fill }
 
-    // Popups and pickers.
-    below { PopoverEdge => PopoverEdge::Below, MenuEdge => MenuEdge::Below }
-    above { PopoverEdge => PopoverEdge::Above, MenuEdge => MenuEdge::Above }
-    segmented { PickerStyle => PickerStyle::Segmented }
-    menu { PickerStyle => PickerStyle::Menu, Key => Key::Menu }
+    // Floating content (popovers, menus, tooltips).
+    start { FloatingAlignment => FloatingAlignment::Start }
+    end { FloatingAlignment => FloatingAlignment::End, Key => Key::End }
+    window { FloatingBoundary => FloatingBoundary::Window }
+    container { FloatingBoundary => FloatingBoundary::Container }
+    menu { Key => Key::Menu }
+
+    // Navigation stacks.
+    fade { PageTransition => PageTransition::Fade }
+    none { PageTransition => PageTransition::None }
+
+    // Gestures and clicks.
+    high { GesturePriority => GesturePriority::High }
+    middle { MouseButton => MouseButton::Middle }
 
     // Colors.
     background { ThemeColor => ThemeColor::Background }
@@ -278,20 +292,14 @@ dots! {
     light { ColorScheme => ColorScheme::Light, Weight => Weight::Light }
     dark { ColorScheme => ColorScheme::Dark }
 
-    // Materials (frosted glass): `.background(.thin_material)`.
-    ultra_thin_material { Material => Material::ULTRA_THIN }
-    thin_material { Material => Material::THIN }
-    regular_material { Material => Material::REGULAR }
-    thick_material { Material => Material::THICK }
-    ultra_thick_material { Material => Material::ULTRA_THICK }
 
     // Blend modes.
-    normal { BlendMode => BlendMode::Normal }
+    normal { BlendMode => BlendMode::Normal, GesturePriority => GesturePriority::Normal }
     multiply { BlendMode => BlendMode::Multiply }
     darken { BlendMode => BlendMode::Darken }
     color_burn { BlendMode => BlendMode::ColorBurn }
     plus_darker { BlendMode => BlendMode::PlusDarker }
-    screen { BlendMode => BlendMode::Screen }
+    screen { BlendMode => BlendMode::Screen, FloatingBoundary => FloatingBoundary::Screen }
     lighten { BlendMode => BlendMode::Lighten }
     color_dodge { BlendMode => BlendMode::ColorDodge }
     plus_lighter { BlendMode => BlendMode::PlusLighter }
@@ -336,7 +344,7 @@ dots! {
     opacity { Transition => Transition::opacity() }
     identity { Transition => Transition::identity() }
     scale { Transition => Transition::scale(0.0) }
-    slide { Transition => Transition::slide() }
+    slide { Transition => Transition::slide(), PageTransition => PageTransition::Slide }
 
     // Paths.
     non_zero { FillRule => FillRule::NonZero }
@@ -405,7 +413,7 @@ dots! {
     digit9 { Key => Key::Digit9 }
     enter { Key => Key::Enter } escape { Key => Key::Escape } backspace { Key => Key::Backspace }
     space { Key => Key::Space } forward_delete { Key => Key::ForwardDelete } insert { Key => Key::Insert }
-    home { Key => Key::Home } end { Key => Key::End } page_up { Key => Key::PageUp } page_down { Key => Key::PageDown }
+    home { Key => Key::Home } page_up { Key => Key::PageUp } page_down { Key => Key::PageDown }
     left { Key => Key::Left } right { Key => Key::Right } up { Key => Key::Up } down { Key => Key::Down }
     f1 { Key => Key::F1 } f2 { Key => Key::F2 } f3 { Key => Key::F3 } f4 { Key => Key::F4 }
     f5 { Key => Key::F5 } f6 { Key => Key::F6 } f7 { Key => Key::F7 } f8 { Key => Key::F8 }
@@ -417,8 +425,9 @@ dots! {
         EdgeInsets => [f32],
         CornerRadii => [f32],
         Prop<Color> => [Color, ThemeColor],
-        Prop<ShapeStyle> => [Color, ThemeColor, Material],
+        Prop<ShapeStyle> => [Color, ThemeColor],
         Prop<Font> => [Font],
+        Prop<Weight> => [Weight],
         Prop<ColorScheme> => [ColorScheme],
         Prop<PointerStyle> => [PointerStyle],
     }

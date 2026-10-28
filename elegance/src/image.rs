@@ -10,6 +10,7 @@ use crate::error::{self, ffi, Error};
 use crate::ffi as cffi;
 use crate::font::Weight;
 use crate::geometry::ContentMode;
+use crate::prop::{with_prop, IntoProp};
 use crate::view::{IntoView, View};
 
 /// Where an image comes from: an icon name (`"gear"`, `"heart-fill"`), a file (PNG, JPEG, SVG,
@@ -107,20 +108,30 @@ pub enum AsyncImagePhase {
 ///
 /// ```ignore
 /// AsyncImage(url) { phase in
-///     { match phase { AsyncImagePhase::Success(image) => image.clone().resizable(), _ => ProgressView::new().into_view() } }
+///     { match phase { AsyncImagePhase::Success(image) => image.clone().resizable(), _ => Progress::new().into_view() } }
 /// }
 /// ```
+///
+/// Downloads are cached in memory, and on disk for as long as the server allows
+/// ([`set_image_cache`]).
 pub struct AsyncImage {
     url: String,
     scale: f32,
     content_mode: Option<ContentMode>,
+    disk_cache: bool,
     content: Option<Box<dyn Fn(&AsyncImagePhase) -> View>>,
 }
 
 #[elegance_macros::elg_builder]
 impl AsyncImage {
     pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into(), scale: 1.0, content_mode: None, content: None }
+        Self { url: url.into(), scale: 1.0, content_mode: None, disk_cache: true, content: None }
+    }
+    /// false: kept in memory only, never in the disk cache (private images whose server doesn't
+    /// send `Cache-Control: no-store`).
+    pub fn disk_cache(mut self, cached: bool) -> Self {
+        self.disk_cache = cached;
+        self
     }
     /// Pixels per point.
     pub fn scale(mut self, scale: f32) -> Self {
@@ -155,7 +166,7 @@ impl IntoView for AsyncImage {
         match self.content {
             None => {
                 let mode = self.content_mode.map_or(-1, |m| m as i32);
-                View::from_raw(ffi!(sys::elg_async_image(cffi::s(&self.url), self.scale, mode)))
+                View::from_raw(ffi!(sys::elg_async_image(cffi::s(&self.url), self.scale, mode, self.disk_cache)))
             }
             Some(content) => {
                 let content = cffi::closure(move |args, ret| unsafe {
@@ -167,10 +178,46 @@ impl IntoView for AsyncImage {
                     };
                     content(&phase).write_into(ret);
                 });
-                View::from_raw(ffi!(sys::elg_async_image_content(cffi::s(&self.url), content, self.scale)))
+                View::from_raw(ffi!(sys::elg_async_image_content(
+                    cffi::s(&self.url),
+                    content,
+                    self.scale,
+                    self.disk_cache
+                )))
             }
         }
     }
+}
+
+/// AsyncImage's disk cache: downloads kept between runs while Cache-Control (or Expires) says
+/// they're fresh, then revalidated; a stale copy is shown when the server can't be reached. The
+/// least recently used go first past the limit. `ELG_IMAGE_CACHE=off` turns it off.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageCacheOptions {
+    pub disk: bool,
+    /// Bytes.
+    pub disk_limit: u64,
+    /// None: `<the user's cache folder>/Elegance/<this executable's name>/Images`.
+    pub directory: Option<PathBuf>,
+}
+
+impl Default for ImageCacheOptions {
+    fn default() -> Self {
+        Self { disk: true, disk_limit: 256 << 20, directory: None }
+    }
+}
+
+/// Sets up AsyncImage's disk cache. Downloads already under way use the cache they started
+/// with. UI thread.
+pub fn set_image_cache(options: ImageCacheOptions) {
+    let directory = options.directory.as_deref().map(cffi::path_str).unwrap_or_default();
+    ffi!(sys::elg_set_image_cache(options.disk, options.disk_limit, cffi::s(&directory)))
+}
+
+/// Forgets every downloaded image, in memory and on disk (when signing out, say). Downloads under
+/// way finish without being cached. UI thread.
+pub fn clear_image_cache() {
+    ffi!(sys::elg_clear_image_cache())
 }
 
 /// An icon and a title side by side.
@@ -178,18 +225,18 @@ pub struct Label {
     _private: (),
 }
 
-impl<S: Into<String>, I: Into<ImageSource>> ElgNew<(S, I)> for Label {
+impl<S: IntoProp<String>, I: Into<ImageSource>> ElgNew<(S, I)> for Label {
     type Out = View;
     fn elg_new((title, icon): (S, I)) -> View {
         Label(title, icon)
     }
 }
 
+/// The title is static or reactive.
 #[allow(non_snake_case)]
-pub fn Label(title: impl Into<String>, icon: impl Into<ImageSource>) -> View {
-    let (title, icon) = (title.into(), icon.into());
-    let c = icon.c();
-    View::from_raw(ffi!(sys::elg_label(cffi::s(&title), &c)))
+pub fn Label(title: impl IntoProp<String>, icon: impl Into<ImageSource>) -> View {
+    let c = icon.into().c();
+    with_prop(title.into_prop(), |t| View::from_raw(ffi!(sys::elg_label(t, &c))))
 }
 
 /// An icon font: a file, or data in memory (copied when registered).

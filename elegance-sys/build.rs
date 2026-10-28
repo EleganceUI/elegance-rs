@@ -41,6 +41,7 @@ const SHIM_FILES: &[&str] = &[
     "shim/views.cpp",
     "shim/ext.cpp",
     "shim/platform.cpp",
+    "shim/styles.cpp",
 ];
 
 fn main() {
@@ -230,6 +231,13 @@ impl Link {
                     build.display()
                 ),
                 "static" => link.libs.push(("static", value.to_owned())),
+                // A CMake target the manifest couldn't resolve to a file (Boost::context), which
+                // rustc would read as a renamed library. What it stands for is linked elsewhere,
+                // or isn't used.
+                "lib" if value.contains("::") => println!(
+                    "cargo:warning=elegance-sys: skipping `{value}` in {}: a CMake target, not a library",
+                    file.display()
+                ),
                 "lib" => link.libs.push(("lib", value.to_owned())),
                 "runtime" | "runtime-dir" => link.runtime.push(PathBuf::from(value)),
                 "define" => link.defines.push(value.to_owned()),

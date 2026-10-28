@@ -213,7 +213,12 @@ fn receiver_helpers() {
     let _: Prop<ShapeStyle> = stack
         .__elg_dot_background_0()
         .resolve_dot_values()
-        .thin_material
+        .clear
+        .into_prop();
+    let _: Prop<Weight> = stack
+        .__elg_dot_font_weight_0()
+        .resolve_dot_values()
+        .bold
         .into_prop();
     let _: Prop<Color> = stack
         .__elg_dot_color_multiply_0()

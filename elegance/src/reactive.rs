@@ -502,6 +502,55 @@ impl<T: fmt::Display + Clone + 'static> fmt::Display for Binding<T> {
     }
 }
 
+/// A binding to a fixed value, for a control that should show `value` and ignore edits:
+/// `Toggle("Always on", constant(true))`.
+pub fn constant<T: Clone + 'static>(value: T) -> Binding<T> {
+    Binding::constant(value)
+}
+
+/// Read-only access to a value that can change: a State, Binding, Computed, or closure. Reading
+/// it is a tracked read. Pass it anywhere a reactive argument goes.
+pub struct Signal<T: 'static>(Rc<dyn Fn() -> T>);
+
+impl<T: 'static> Clone for Signal<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T: 'static> Signal<T> {
+    pub fn new(get: impl Fn() -> T + 'static) -> Self {
+        Self(Rc::new(get))
+    }
+    pub fn get(&self) -> T {
+        (self.0)()
+    }
+}
+
+impl<T: Clone + 'static> From<State<T>> for Signal<T> {
+    fn from(state: State<T>) -> Self {
+        Self::new(move || state.get())
+    }
+}
+
+impl<T: Clone + 'static> From<Binding<T>> for Signal<T> {
+    fn from(binding: Binding<T>) -> Self {
+        Self::new(move || binding.get())
+    }
+}
+
+impl<T: Clone + 'static> From<Computed<T>> for Signal<T> {
+    fn from(computed: Computed<T>) -> Self {
+        Self::new(move || computed.get())
+    }
+}
+
+impl<T: 'static> crate::prop::IntoProp<T> for Signal<T> {
+    fn into_prop(self) -> crate::prop::Prop<T> {
+        crate::prop::Prop::Fn(self.0)
+    }
+}
+
 /// What a two-way argument (a popover's `is_presented`, a Toggle's value, ...) can be made from:
 /// a [`State`] or [`Binding`], or, read-only, a [`Computed`] or a closure.
 ///
@@ -565,12 +614,6 @@ impl Binding<f32> {
         let owned = Rc::new(Owned(ptr));
         let reader = owned.clone();
         Binding::new(move || ffi!(sys::elg_binding_f32_get(reader.0)), move |v| ffi!(sys::elg_binding_f32_set(owned.0, v)))
-    }
-}
-
-impl Binding<i32> {
-    pub(crate) fn cpp(self) -> *mut sys::BindingI32 {
-        unsafe { sys::elg_binding_i32(cffi::producer(move || self.get()), cffi::consumer(move |v: i32| self.set(v))) }
     }
 }
 

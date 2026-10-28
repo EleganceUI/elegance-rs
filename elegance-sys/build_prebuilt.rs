@@ -44,6 +44,7 @@ const HASHED: &[&str] = &[
     "shim/views.cpp",
     "shim/ext.cpp",
     "shim/platform.cpp",
+    "shim/styles.cpp",
     ELEGANCE_REV,
 ];
 

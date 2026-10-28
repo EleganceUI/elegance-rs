@@ -51,7 +51,7 @@ pub fn dots(input: TokenStream) -> TokenStream {
 ///         if todos.read().is_empty() {
 ///             Text("Nothing left to do.").foreground_style(.secondary)
 ///         } else {
-///             List { ForEach(todos, id: |t| t.id) { todo in TodoRow(todo: todo.clone(), todos: todos) } }
+///             ScrollView { LazyVStack { ForEach(todos, id: |t| t.id) { todo in TodoRow(todo: todo.clone(), todos: todos) } } }
 ///         }
 ///     }
 ///     .padding(24)
