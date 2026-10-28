@@ -17,15 +17,15 @@ use std::rc::Rc;
 use elegance_sys as sys;
 
 use crate::color::{
-    AngularGradient, Color, ColorScheme, EllipticalGradient, LinearGradient, Material, RadialGradient, ShapeStyle, Theme,
+    AngularGradient, Color, ColorScheme, EllipticalGradient, LinearGradient, RadialGradient, ShapeStyle, Theme,
     ThemeColor,
 };
 use crate::dot;
 use crate::environment::EnvironmentValues;
 use crate::events::{HoverDelay, PointerStyle};
 use crate::ffi;
-use crate::font::Font;
-use crate::geometry::Size;
+use crate::font::{Font, Weight};
+use crate::geometry::{EdgeInsets, Size};
 use crate::reactive::{Binding, Computed, State};
 
 /// A reactive argument (`elg::Prop<T>`).
@@ -144,6 +144,36 @@ macro_rules! number_props {
 }
 number_props!(f64, i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 
+// Bounds and steps of number inputs, which work in f64.
+macro_rules! double_props {
+    ($($t:ty),*) => {$(
+        impl IntoProp<f64> for $t {
+            fn into_prop(self) -> Prop<f64> {
+                Prop::Value(self as f64)
+            }
+        }
+    )*};
+}
+double_props!(f32, i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
+
+// A known fraction (Progress): `Progress(0.4)`.
+macro_rules! fraction_props {
+    ($($t:ty),*) => {$(
+        impl IntoProp<Option<f32>> for $t {
+            fn into_prop(self) -> Prop<Option<f32>> {
+                Prop::Value(Some(self as f32))
+            }
+        }
+    )*};
+}
+fraction_props!(f32, f64);
+
+impl IntoProp<EdgeInsets> for f32 {
+    fn into_prop(self) -> Prop<EdgeInsets> {
+        Prop::Value(EdgeInsets::from(self))
+    }
+}
+
 impl IntoProp<String> for &str {
     fn into_prop(self) -> Prop<String> {
         Prop::Value(self.to_owned())
@@ -172,7 +202,9 @@ macro_rules! closure_props {
         }
     )*};
 }
-closure_props!(f32, bool, Size, Font, ColorScheme, Theme, HoverDelay, PointerStyle);
+closure_props!(
+    f32, f64, i32, bool, Size, Font, Weight, EdgeInsets, ColorScheme, Theme, HoverDelay, PointerStyle, Option<f32>
+);
 
 impl<F: Fn() -> R + 'static, R: Into<String>> IntoProp<String> for F {
     fn into_prop(self) -> Prop<String> {
@@ -238,11 +270,6 @@ impl ResolveStyle for AngularGradient {
         ShapeStyle::Angular(self)
     }
 }
-impl ResolveStyle for Material {
-    fn resolve_style(self, _: &EnvironmentValues) -> ShapeStyle {
-        ShapeStyle::Material(self)
-    }
-}
 
 // Closures may return theme colors, so color and style closures resolve in the environment.
 impl<F: Fn() -> R + 'static, R: ResolveColor> IntoProp<Color> for F {
@@ -299,11 +326,6 @@ impl IntoProp<ShapeStyle> for AngularGradient {
     }
 }
 
-impl IntoProp<ShapeStyle> for Material {
-    fn into_prop(self) -> Prop<ShapeStyle> {
-        Prop::Value(ShapeStyle::Material(self))
-    }
-}
 
 impl IntoProp<ShapeStyle> for State<Color> {
     fn into_prop(self) -> Prop<ShapeStyle> {
@@ -361,22 +383,6 @@ macro_rules! color_markers {
 }
 color_markers!(black, white, clear);
 
-macro_rules! material_markers {
-    ($($marker:ident),*) => {$(
-        impl IntoProp<ShapeStyle> for dot::$marker {
-            fn into_prop(self) -> Prop<ShapeStyle> {
-                Prop::Value(ShapeStyle::Material(self.into()))
-            }
-        }
-        impl ResolveStyle for dot::$marker {
-            fn resolve_style(self, _: &EnvironmentValues) -> ShapeStyle {
-                ShapeStyle::Material(self.into())
-            }
-        }
-    )*};
-}
-material_markers!(ultra_thin_material, thin_material, regular_material, thick_material, ultra_thick_material);
-
 macro_rules! value_markers {
     ($t:ty: $($marker:ident),*) => {$(
         impl IntoProp<$t> for dot::$marker {
@@ -387,7 +393,24 @@ macro_rules! value_markers {
     )*};
 }
 value_markers!(Font: large_title, title, title2, title3, headline, body, callout, subheadline, footnote, caption, caption2);
-value_markers!(ColorScheme: light, dark);
+value_markers!(ColorScheme: dark);
+value_markers!(Weight: ultra_light, thin, regular, medium, semibold, bold, heavy);
+// Names that are a value of more than one prop type.
+impl IntoProp<ColorScheme> for dot::light {
+    fn into_prop(self) -> Prop<ColorScheme> {
+        Prop::Value(ColorScheme::Light)
+    }
+}
+impl IntoProp<Weight> for dot::light {
+    fn into_prop(self) -> Prop<Weight> {
+        Prop::Value(Weight::Light)
+    }
+}
+impl IntoProp<Weight> for dot::black {
+    fn into_prop(self) -> Prop<Weight> {
+        Prop::Value(Weight::Black)
+    }
+}
 value_markers!(
     PointerStyle: automatic, arrow, pointer, text, crosshair, r#move, wait, progress, resize_horizontal,
     resize_vertical, resize_nwse, resize_nesw, not_allowed
@@ -420,7 +443,11 @@ macro_rules! pod_value {
 }
 
 pod_value!(f32, f32, |v| *v);
+pod_value!(f64, f64, |v| *v);
+pod_value!(i32, i32, |v| *v);
 pod_value!(bool, bool, |v| *v);
+pod_value!(Weight, i32, |v| *v as i32);
+pod_value!(EdgeInsets, sys::ElgEdgeInsets, |v| v.c());
 pod_value!(Color, sys::ElgColor, |v| v.c());
 pod_value!(Size, sys::ElgSize, |v| v.c());
 pod_value!(ColorScheme, i32, |v| *v as i32);
@@ -435,6 +462,18 @@ impl PropValue for String {
     }
     unsafe fn write(&self, ret: *mut c_void) { unsafe {
         ffi::write_string(ret, self);
+    }}
+}
+
+// std::optional<float>: empty is `has` false.
+impl PropValue for Option<f32> {
+    fn with_c<R>(&self, f: impl FnOnce(*const c_void) -> R) -> R {
+        let c = sys::ElgOptLen { has: self.is_some(), value: self.unwrap_or(0.0) };
+        f(&c as *const sys::ElgOptLen as *const c_void)
+    }
+    unsafe fn write(&self, ret: *mut c_void) { unsafe {
+        let c = sys::ElgOptLen { has: self.is_some(), value: self.unwrap_or(0.0) };
+        sys::elg_opt_float_assign(ret as *mut sys::OptFloat, c);
     }}
 }
 
@@ -456,6 +495,40 @@ impl PropValue for ShapeStyle {
     unsafe fn write(&self, ret: *mut c_void) { unsafe {
         ShapeStyle::with_c(self, |c| sys::elg_shape_style_assign(ret as *mut sys::ShapeStyle, c));
     }}
+}
+
+/// A color prop's C form that owns what it points at, for option structs that hold several props.
+/// C++ takes its closure, so pass each one once.
+pub(crate) struct OwnedProp {
+    pub(crate) c: sys::ElgProp,
+    _value: Option<Box<sys::ElgColor>>,
+}
+
+impl OwnedProp {
+    pub(crate) fn color(prop: Prop<Color>) -> Self {
+        match prop {
+            Prop::Value(color) => {
+                let value = Box::new(color.c());
+                let c = sys::ElgProp {
+                    kind: 0,
+                    theme: 0,
+                    value: &*value as *const sys::ElgColor as *const c_void,
+                    fn_: sys::ElgClosure::NONE,
+                };
+                Self { c, _value: Some(value) }
+            }
+            // The other kinds don't point at the stack.
+            other => with_prop(other, |c| Self { c, _value: None }),
+        }
+    }
+    /// The C form, and what it points at: keep that until the call.
+    pub(crate) fn split(self) -> (sys::ElgProp, Option<Box<sys::ElgColor>>) {
+        (self.c, self._value)
+    }
+    /// Null for None.
+    pub(crate) fn ptr(prop: &Option<OwnedProp>) -> *const sys::ElgProp {
+        prop.as_ref().map_or(std::ptr::null(), |p| &p.c)
+    }
 }
 
 /// Calls `f` with the C form of `prop` (static values stay valid for the call).

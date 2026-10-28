@@ -17,7 +17,8 @@ pub struct PixelSize {
     pub height: u32,
 }
 
-/// How long the pointer rests before hover starts, and lingers before it ends (seconds).
+/// Hover intent (`on_hover_change`, submenus): how long the pointer rests before hover starts,
+/// and lingers before it ends (seconds). Pointer enter/leave and controls' highlights don't wait.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HoverDelay {
     pub enter: f64,
@@ -57,13 +58,16 @@ pub enum MouseButton {
 }
 
 impl MouseButton {
-    fn from_c(value: i32) -> Self {
+    pub(crate) fn from_c(value: i32) -> Self {
         match value {
             0 => MouseButton::Left,
             1 => MouseButton::Middle,
             2 => MouseButton::Right,
             _ => MouseButton::Other,
         }
+    }
+    pub(crate) fn c(self) -> i32 {
+        self as i32
     }
 }
 
@@ -187,7 +191,11 @@ impl GesturePhase {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ScrollEvent {
+    /// Where the pointer is: in window coordinates for an [`crate::EventHandler`], in the view's
+    /// own for [`crate::ViewExt::on_scroll`].
     pub location: Point,
+    /// Always in the window's coordinates.
+    pub window_location: Point,
     pub dx: f32,
     pub dy: f32,
     /// Trackpad-style fine deltas (apply directly) rather than wheel notches.
@@ -207,6 +215,7 @@ impl ScrollEvent {
     pub(crate) fn from_c(e: &sys::ElgScrollEvent) -> Self {
         Self {
             location: Point::from_c(e.location),
+            window_location: Point::from_c(e.window_location),
             dx: e.dx,
             dy: e.dy,
             precise: e.precise,
@@ -343,13 +352,16 @@ pub enum PointerEventKind {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PointerEvent {
     pub kind: PointerEventKind,
-    /// Window coordinates, in points.
+    /// In points: window coordinates for an [`crate::EventHandler`], the view's own for
+    /// [`crate::ViewExt::on_pointer`].
     pub location: Point,
     pub button: MouseButton,
     /// 2 for the second click of a double click, ...
     pub click_count: i32,
     /// Held when the button went down / up.
     pub modifiers: KeyModifiers,
+    /// Always in the window's coordinates.
+    pub window_location: Point,
 }
 
 impl PointerEvent {
@@ -366,20 +378,90 @@ impl PointerEvent {
             button: MouseButton::from_c(e.button),
             click_count: e.click_count,
             modifiers: KeyModifiers(e.modifiers),
+            window_location: Point::from_c(e.window_location),
         }
     }
 }
 
-/// A left-button drag over a view. Movement is measured in window points.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum DragEvent {
-    Started,
-    /// Movement since the previous pointer position, not since the drag started.
-    Moved {
-        delta: Point,
-    },
-    /// The button was released or the drag was cancelled.
-    Ended,
+/// A click on a view ([`crate::ViewExt::on_click`]): pressed and released inside it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ClickEvent {
+    /// Where it was released, in the view's own coordinates (0, 0: its top-leading corner).
+    pub location: Point,
+    pub window_location: Point,
+    pub button: MouseButton,
+    /// Held when it was released.
+    pub modifiers: KeyModifiers,
+    /// 2 for a double click, ...
+    pub click_count: i32,
+}
+
+impl ClickEvent {
+    pub(crate) fn from_c(e: &sys::ElgClickEvent) -> Self {
+        Self {
+            location: Point::from_c(e.location),
+            window_location: Point::from_c(e.window_location),
+            button: MouseButton::from_c(e.button),
+            modifiers: KeyModifiers(e.modifiers),
+            click_count: e.click_count,
+        }
+    }
+}
+
+/// Which clicks [`crate::ViewExt::on_click_with`] takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClickOptions {
+    pub button: MouseButton,
+    /// 2: double clicks (the first click goes on to outer handlers), 3: triple clicks, ...
+    pub count: i32,
+}
+
+impl Default for ClickOptions {
+    fn default() -> Self {
+        Self { button: MouseButton::Left, count: 1 }
+    }
+}
+
+impl ClickOptions {
+    pub fn button(mut self, button: impl Into<MouseButton>) -> Self {
+        self.button = button.into();
+        self
+    }
+    pub fn count(mut self, count: i32) -> Self {
+        self.count = count;
+        self
+    }
+}
+
+/// A drag in progress ([`crate::DragGesture`]). Locations are in the view's own coordinates;
+/// `translation` is measured in the window, so a view that moves with the drag doesn't feed back
+/// into it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DragEvent {
+    /// Where the pointer is now.
+    pub location: Point,
+    /// Where the press went down.
+    pub start_location: Point,
+    /// How far the pointer has moved since the press.
+    pub translation: Point,
+    /// Points per second, over the last moments of the drag.
+    pub velocity: Point,
+    pub button: MouseButton,
+    /// Held when the press went down.
+    pub modifiers: KeyModifiers,
+}
+
+impl DragEvent {
+    pub(crate) fn from_c(e: &sys::ElgDragEvent) -> Self {
+        Self {
+            location: Point::from_c(e.location),
+            start_location: Point::from_c(e.start_location),
+            translation: Point::from_c(e.translation),
+            velocity: Point::from_c(e.velocity),
+            button: MouseButton::from_c(e.button),
+            modifiers: KeyModifiers(e.modifiers),
+        }
+    }
 }
 
 /// What an event handler did with an event.
@@ -389,14 +471,23 @@ pub struct EventResult {
     pub consumed: bool,
     /// Draw a new frame.
     pub redraw: bool,
+    /// With `consumed` on a down: gestures around the view ([`crate::ViewExt::recognize`]) may
+    /// take the press over, and the handler then gets `Cancel`. For presses that are clicks;
+    /// handlers that track the pointer themselves (sliders) leave it false.
+    pub cancellable: bool,
 }
 
 impl EventResult {
-    pub const IGNORED: EventResult = EventResult { consumed: false, redraw: false };
-    pub const CONSUMED: EventResult = EventResult { consumed: true, redraw: false };
-    pub const REDRAW: EventResult = EventResult { consumed: true, redraw: true };
+    pub const IGNORED: EventResult = EventResult { consumed: false, redraw: false, cancellable: false };
+    pub const CONSUMED: EventResult = EventResult { consumed: true, redraw: false, cancellable: false };
+    pub const REDRAW: EventResult = EventResult { consumed: true, redraw: true, cancellable: false };
+
+    /// A consumed press that gestures around the view may take over.
+    pub fn cancellable(self) -> Self {
+        Self { cancellable: true, ..self }
+    }
 
     pub(crate) fn c(self) -> sys::ElgEventResult {
-        sys::ElgEventResult { consumed: self.consumed, redraw: self.redraw }
+        sys::ElgEventResult { consumed: self.consumed, redraw: self.redraw, cancellable: self.cancellable }
     }
 }

@@ -72,11 +72,11 @@ pub mod error;
 pub mod events;
 pub mod font;
 pub mod geometry;
+pub mod gestures;
 pub mod gpu_image;
 pub mod graphics;
 pub mod grid;
 pub mod hot_reload;
-pub mod http;
 pub mod image;
 pub mod layout;
 pub mod media;
@@ -105,14 +105,18 @@ mod items {
     pub use crate::app::{post_to_ui_thread, version, App, AppHandle, TitleBar, WindowDesc};
     pub use crate::color::{
         AngularGradient, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop,
-        LinearGradient, Material, RadialGradient, ShapeStyle, Theme, ThemeColor,
+        LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeColor,
     };
     pub use crate::environment::{Environment, EnvironmentKey, EnvironmentValues};
     pub use crate::error::{Error, ErrorKind};
     pub use crate::events::{
-        DragEvent, EventResult, GesturePhase, HoverDelay, Key, KeyEvent, KeyEventKind,
-        KeyModifiers, MagnifyEvent, MouseButton, PixelSize, PointerEvent, PointerEventKind,
-        PointerStyle, RotateEvent, ScrollEvent, TextInputEvent, TextInputKind,
+        ClickEvent, ClickOptions, DragEvent, EventResult, GesturePhase, HoverDelay, Key, KeyEvent,
+        KeyEventKind, KeyModifiers, MagnifyEvent, MouseButton, PixelSize, PointerEvent,
+        PointerEventKind, PointerStyle, RotateEvent, ScrollEvent, TextInputEvent, TextInputKind,
+    };
+    pub use crate::gestures::{
+        DragGesture, DragOptions, Gesture, GestureOptions, GesturePriority, LongPressGesture,
+        LongPressOptions, MagnifyGesture, PhasedGesture, RotateGesture, TwoFingerDoubleTapGesture,
     };
     pub use crate::font::{register_emoji_font, register_font, register_font_data, Font, Weight};
     pub use crate::geometry::{
@@ -130,8 +134,9 @@ mod items {
     pub use crate::hot_reload::HotReload;
     pub use crate::hot_reload::HotReloadShow;
     pub use crate::image::{
-        register_icon_set, set_default_icon_set, AsyncImage, AsyncImagePhase, IconFont,
-        IconSetOptions, IconVariant, Image, ImageSource, Label,
+        clear_image_cache, register_icon_set, set_default_icon_set, set_image_cache, AsyncImage,
+        AsyncImagePhase, IconFont, IconSetOptions, IconVariant, Image, ImageCacheOptions,
+        ImageSource, Label,
     };
     pub use crate::layout::{
         Cached, CachedLayout, HStackLayout, Layout, LayoutChild, LayoutValueKey, VStackLayout,
@@ -149,35 +154,54 @@ mod items {
         Modifier, Placement, ViewModifier,
     };
     pub use crate::navigation::{
-        ColumnWidth, HSplitView, NavigationSplitView, NavigationStack, VSplitView,
+        ColumnWidth, HSplitView, NavigationSplitView, NavigationStack, PageTransition,
+        SplitViewOptions, VSplitView,
     };
     pub use crate::path::{FillRule, LineCap, LineJoin, Path, Polyline, StrokeStyle};
     pub use crate::prop::{IntoProp, Prop, ResolveColor, ResolveStyle};
     pub use crate::reactive::{
-        batch, computed, effect, untrack, Binding, Computed, IntoBinding, ReadRef, State, WriteRef,
+        batch, computed, constant, effect, untrack, Binding, Computed, IntoBinding, ReadRef, Signal,
+        State, WriteRef,
     };
     pub use crate::shapes::{
         Capsule, Circle, CustomShape, PathShape, PathShapeOptions, Rectangle, RoundedRectangle,
         Shape,
     };
     pub use crate::styles::{
-        AnyButtonStyle, AnyTextFieldStyle, AnyToggleStyle, BorderedButtonStyle,
-        ButtonConfiguration, ButtonStyle, CheckboxToggleStyle, IntoButtonStyle, IntoTextFieldStyle,
-        IntoToggleStyle, PlainButtonStyle, PlainTextFieldStyle, ProminentButtonStyle,
-        RoundedBorderTextFieldStyle, SwitchToggleStyle, TextFieldConfiguration, TextFieldStyle,
-        ToggleConfiguration, ToggleStyle,
+        AnyButtonStyle, AnyCheckboxStyle, AnyMenuStyle, AnyNavigationStackStyle,
+        AnyNumberInputStyle, AnyPickerStyle, AnyPopoverStyle, AnyProgressStyle, AnyRowStyle,
+        AnySliderStyle, AnyTextFieldStyle, AnyToggleStyle, AnyTooltipStyle,
+        BarNavigationStackStyle, BorderedButtonStyle, BoxCheckboxStyle, BoxNumberInputStyle,
+        ButtonConfiguration, ButtonStyle, CheckboxConfiguration, CheckboxStyle,
+        CircularProgressStyle, DefaultMenuStyle, DefaultPopoverStyle, DefaultTooltipStyle,
+        HighlightRowStyle, IntoButtonStyle, IntoCheckboxStyle, IntoMenuStyle,
+        IntoNavigationStackStyle, IntoNumberInputStyle, IntoPickerStyle, IntoPopoverStyle,
+        IntoProgressStyle, IntoRowStyle, IntoSliderStyle, IntoTextFieldStyle, IntoToggleStyle,
+        IntoTooltipStyle, KnobSliderStyle, LinearProgressStyle, MenuConfiguration,
+        MenuItemConfiguration, MenuPickerStyle, MenuStyle, NavigationStackConfiguration,
+        NavigationStackStyle, NumberInputConfiguration, NumberInputStyle, PickerConfiguration,
+        PickerStyle, PlainButtonStyle, PlainMenuStyle, PlainNavigationStackStyle,
+        PlainNumberInputStyle, PlainPopoverStyle, PlainRowStyle, PlainTextFieldStyle,
+        PlainTooltipStyle, PopoverConfiguration, PopoverStyle, ProgressConfiguration,
+        ProgressStyle, ProminentButtonStyle, RoundedBorderTextFieldStyle, RowConfiguration,
+        RowStyle, SegmentedPickerStyle, SliderConfiguration, SliderStyle, SwitchToggleStyle,
+        TextFieldConfiguration, TextFieldStyle, ToggleConfiguration, ToggleStyle,
+        TooltipConfiguration, TooltipStyle,
     };
     pub use crate::text::{RunStyle, StyledText, Text, TextAlignment, TextRun, TextSpan};
     pub use crate::view::{
-        AccessibilityRole, AnchorOptions, AspectRatioOptions, BlendMode, BlurOptions, ColorFilter,
-        Component, DecorationOptions, DropOptions, FrameOptions, IntoView, PopoverEdge,
-        PopoverOptions, Shadow, TapOptions, View, ViewExt,
+        AccessibilityRole, AnchorOptions, AspectRatioOptions, BackdropOptions, BlendMode,
+        BlurOptions, ColorFilter, Component, DecorationOptions, DropOptions, FloatingAlignment,
+        FloatingBoundary, FloatingDismiss, FloatingEdge, FloatingOptions, FloatingPlacement,
+        FrameOptions, IntoView, PopoverOptions, PopupMotion, Shadow, TooltipOptions, View,
+        ViewExt,
     };
     pub use crate::views::{
-        Button, Divider, EmptyView, ForEach, HStack, If, IntoItemKey, IntoLabel, ItemKey,
-        ItemsSource, LazyHStack, LazyVStack, List, Menu, MenuButton, MenuEdge, MenuItem, Picker,
-        PickerStyle, ProgressView, ScrollAxes, ScrollPosition, ScrollView, SecureField, Slider,
-        Spacer, Stepper, Submenu, TextField, Toggle, VStack, ZStack,
+        Button, Checkbox, EmptyView, ForEach, HStack, If, IntoItemKey, IntoLabel, ItemKey,
+        ItemsSource, LazyHStack, LazyVStack, Menu, MenuButton, MenuItem, NumberInput,
+        NumberValue, Picker, Progress, ScrollAxes, ScrollPosition, ScrollView, Selection,
+        SelectionKey, Separator, Slider, Spacer, StackSeparators, Submenu, TextArea, TextField,
+        Toggle, VStack, ZStack,
     };
     pub use crate::window::{WindowControls, WindowControlsStyle, WindowHandle};
 }
@@ -187,7 +211,7 @@ mod items {
 pub mod prelude {
     pub use crate::environment::{
         ButtonStyleKey, ColorSchemeKey, DisabledKey, FontKey, ForegroundKey, HoverDelayKey,
-        TextFieldStyleKey, ThemeKey, TintKey, ToggleStyleKey, WindowKey,
+        RowSelectedKey, TextFieldStyleKey, ThemeKey, TintKey, ToggleStyleKey, WindowKey,
     };
     pub use crate::items::*;
 }

@@ -110,6 +110,10 @@ ELG_EXPORT void elg_view_move_into(View* target, View* take_view) {
 }
 
 // A Rust component: `body` (ret: View*) runs each time the view is mounted.
+ELG_EXPORT bool elg_view_is_empty(const View* view) {
+    return view->is_empty();
+}
+
 ELG_EXPORT View* elg_view_component(ElgClosure body) {
     ELG_TRY
     return out(View(RustComponent{share(body)}));
@@ -244,6 +248,15 @@ ELG_EXPORT Binding<int>* elg_binding_i32(ElgClosure get, ElgClosure set) {
 ELG_EXPORT Binding<std::string>* elg_binding_string(ElgClosure get, ElgClosure set) {
     return make_binding<std::string>(get, set);
 }
+ELG_EXPORT Binding<double>* elg_binding_f64(ElgClosure get, ElgClosure set) {
+    return make_binding<double>(get, set);
+}
+
+// Writes an optional float into a closure's std::optional<float> result.
+ELG_EXPORT void elg_opt_float_assign(std::optional<float>* target, ElgOptLen value) {
+    *target = value.has ? std::optional<float>(value.value) : std::nullopt;
+}
+static_assert(sizeof(EdgeInsets) == sizeof(ElgEdgeInsets), "Rust writes EdgeInsets results as ElgEdgeInsets");
 
 // Bindings made by Elegance (AudioPlayer::time_binding, ...), for the Rust side to read and write.
 ELG_EXPORT float elg_binding_f32_get(const Binding<float>* binding) {
@@ -369,6 +382,13 @@ ELG_EXPORT std::shared_ptr<const TextFieldStyle>* elg_env_text_field_style(const
     ELG_CATCH(nullptr)
 }
 
+// Inside a selectable row: whether it's selected.
+ELG_EXPORT bool elg_env_row_selected(const EnvironmentValues* environment) {
+    ELG_TRY
+    return environment->get<RowSelectedKey>();
+    ELG_CATCH(false)
+}
+
 // The Rust side's map, or null.
 ELG_EXPORT void* elg_env_rust_values(const EnvironmentValues* environment) {
     ELG_TRY
@@ -411,6 +431,11 @@ ELG_EXPORT void elg_env_set_disabled(EnvironmentValues* environment, ElgProp val
 ELG_EXPORT void elg_env_set_hover_delay(EnvironmentValues* environment, ElgProp value) {
     ELG_TRY
     environment->set<HoverDelayKey>(prop<HoverDelay>(value));
+    ELG_CATCH_VOID
+}
+ELG_EXPORT void elg_env_set_row_selected(EnvironmentValues* environment, ElgProp value) {
+    ELG_TRY
+    environment->set<RowSelectedKey>(prop<bool>(value));
     ELG_CATCH_VOID
 }
 ELG_EXPORT void elg_env_set_window(EnvironmentValues* environment, const WindowHandle* window) {
@@ -505,8 +530,8 @@ struct ElgWindowDesc {
     bool has_background;
     ElgColor background;
     int32_t title_bar;
-    bool has_traffic_lights_position;
-    ElgPoint traffic_lights_position;
+    bool has_system_controls_position;
+    ElgPoint system_controls_position;
     bool transparent;
     float opacity;
     bool fullscreen;
@@ -539,8 +564,8 @@ ELG_EXPORT void elg_app_window(App* app, const ElgWindowDesc* desc, ElgClosure c
         window.background = color(desc->background);
     }
     window.title_bar = static_cast<TitleBar>(desc->title_bar);
-    if (desc->has_traffic_lights_position) {
-        window.traffic_lights_position = point(desc->traffic_lights_position);
+    if (desc->has_system_controls_position) {
+        window.system_controls_position = point(desc->system_controls_position);
     }
     window.transparent = desc->transparent;
     window.opacity = desc->opacity;
@@ -642,8 +667,8 @@ ELG_EXPORT Transition* elg_transition_opacity() {
 ELG_EXPORT Transition* elg_transition_identity() {
     return new Transition(Transition::identity());
 }
-ELG_EXPORT Transition* elg_transition_scale(float from) {
-    return new Transition(Transition::scale(from));
+ELG_EXPORT Transition* elg_transition_scale(float from, ElgAlignment anchor) {
+    return new Transition(Transition::scale(from, alignment(anchor)));
 }
 ELG_EXPORT Transition* elg_transition_offset(float x, float y) {
     return new Transition(Transition::offset(x, y));
@@ -685,6 +710,7 @@ ELG_EXPORT void elg_layouts_core(ElgStrSink out, void* ctx) {
     ELG_LAYOUT(ElgFont);
     ELG_LAYOUT(ElgGradientStop);
     ELG_LAYOUT(ElgShapeStyle);
+    ELG_LAYOUT(ElgEdgeInsets);
     ELG_LAYOUT(ElgProp);
     ELG_LAYOUT(ElgProposedSize);
     ELG_LAYOUT(ElgOptLen);
@@ -692,10 +718,14 @@ ELG_EXPORT void elg_layouts_core(ElgStrSink out, void* ctx) {
     ELG_LAYOUT(ElgKeyEvent);
     ELG_LAYOUT(ElgPointerEvent);
     ELG_LAYOUT(ElgScrollEvent);
+    ELG_LAYOUT(ElgClickEvent);
+    ELG_LAYOUT(ElgDragEvent);
     ELG_LAYOUT(ElgMagnifyEvent);
     ELG_LAYOUT(ElgRotateEvent);
     ELG_LAYOUT(ElgTextInputEvent);
     ELG_LAYOUT(ElgEventResult);
+    ELG_LAYOUT(ElgFloatingPlacement);
+    ELG_LAYOUT(ElgPopupMotion);
     ELG_LAYOUT(ElgHoverDelay);
     ELG_LAYOUT(ElgShadow);
     ELG_LAYOUT(ElgStrokeStyle);

@@ -43,6 +43,7 @@ add_library(elegance_native SHARED
         ${shim}/views.cpp
         ${shim}/ext.cpp
         ${shim}/platform.cpp
+        ${shim}/styles.cpp
 )
 # The whole archive, so ELG_API functions the shim doesn't call (elg_gpu_image_*) are exported too.
 target_link_libraries(elegance_native PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,elegance>")
@@ -87,7 +88,7 @@ install(FILES "${ELEGANCE_ROOT}/LICENSE" DESTINATION . RENAME LICENSE-elegance)
 # The prerelease tag is native-<its first 12>.
 set(native_text "")
 foreach (file IN ITEMS ${shim}/shim.h ${shim}/core.cpp ${shim}/views.cpp ${shim}/ext.cpp ${shim}/platform.cpp
-                       ${CMAKE_CURRENT_SOURCE_DIR}/elegance-rev)
+                       ${shim}/styles.cpp ${CMAKE_CURRENT_SOURCE_DIR}/elegance-rev)
     file(READ "${file}" text)
     string(REPLACE "\r" "" text "${text}")
     string(APPEND native_text "${text}")

@@ -18,8 +18,8 @@ use elegance_sys as sys;
 use crate::color::Color;
 use crate::environment::EnvironmentValues;
 use crate::events::{
-    DragEvent, EventResult, HoverDelay, KeyEvent, MagnifyEvent, MouseButton, PointerEvent, PointerEventKind,
-    PointerStyle, RotateEvent, ScrollEvent, TextInputEvent,
+    ClickOptions, EventResult, HoverDelay, KeyEvent, MagnifyEvent, PointerEvent, PointerStyle, RotateEvent,
+    ScrollEvent, TextInputEvent,
 };
 use crate::ffi as cffi;
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Point, ProposedSize, Rect, Size, UnitPoint};
@@ -84,13 +84,7 @@ pub struct Effects {
 
 #[elegance_macros::elg_builder]
 impl Effects {
-    pub fn clip_to_bounds(&self) -> bool {
-        unsafe { sys::elg_effects_clip_to_bounds(self.ptr) }
-    }
-    pub fn set_clip_to_bounds(&mut self, clip: bool) {
-        unsafe { sys::elg_effects_set_clip_to_bounds(self.ptr, clip) }
-    }
-    /// Clips to a shape filling the view's bounds.
+    /// Clips to a shape filling the view's bounds (`Rectangle()`: to the bounds).
     pub fn set_clip_shape(&mut self, shape: Option<Shape>) {
         unsafe { sys::elg_effects_set_clip_shape(self.ptr, shape.as_ref().map_or(std::ptr::null(), Shape::as_ptr)) }
     }
@@ -208,7 +202,9 @@ pub trait EventHandler: 'static {
     fn pointer_style(&self, location: Point) -> PointerStyle {
         PointerStyle::Automatic
     }
-    fn scroll(&mut self, event: &ScrollEvent) -> EventResult {
+    /// Wheel and trackpad scrolling: goes to the handlers under the pointer, innermost first,
+    /// until one consumes it. `frame` as for `pointer`.
+    fn scroll(&mut self, event: &ScrollEvent, frame: Rect) -> EventResult {
         EventResult::IGNORED
     }
     /// Trackpad gestures: the handler under the pointer that consumes `Began` gets the rest of
@@ -219,8 +215,8 @@ pub trait EventHandler: 'static {
     fn rotate(&mut self, event: &RotateEvent) -> EventResult {
         EventResult::IGNORED
     }
-    /// A two-finger double tap (zoom to fit, in Safari).
-    fn smart_magnify(&mut self, location: Point) -> EventResult {
+    /// A two-finger double tap (usually: zoom to fit).
+    fn two_finger_double_tap(&mut self, location: Point) -> EventResult {
         EventResult::IGNORED
     }
     fn key(&mut self, event: &KeyEvent) -> EventResult {
@@ -251,121 +247,6 @@ pub trait EventHandler: 'static {
 /// Handles input for the modified view: makes one EventHandler per mounted view.
 pub trait EventModifier: 'static {
     fn make_handler(&self) -> Box<dyn EventHandler>;
-}
-
-#[derive(Clone, Default)]
-struct EventCallbacks {
-    pointer: Option<std::rc::Rc<dyn Fn(&PointerEvent) -> bool>>,
-    scroll: Option<std::rc::Rc<dyn Fn(&ScrollEvent) -> bool>>,
-}
-
-impl EventHandler for EventCallbacks {
-    fn pointer(&mut self, event: &PointerEvent, _: Rect) -> EventResult {
-        if self.pointer.as_ref().is_some_and(|action| action(event)) {
-            EventResult::CONSUMED
-        } else {
-            EventResult::IGNORED
-        }
-    }
-
-    fn scroll(&mut self, event: &ScrollEvent) -> EventResult {
-        if self.scroll.as_ref().is_some_and(|action| action(event)) {
-            EventResult::CONSUMED
-        } else {
-            EventResult::IGNORED
-        }
-    }
-
-    fn covers_frame(&self) -> bool {
-        true
-    }
-}
-
-impl EventModifier for EventCallbacks {
-    fn make_handler(&self) -> Box<dyn EventHandler> {
-        Box::new(self.clone())
-    }
-}
-
-pub(crate) fn on_pointer_event(
-    content: View,
-    action: impl Fn(&PointerEvent) -> bool + 'static,
-) -> View {
-    event_modifier(
-        content,
-        EventCallbacks {
-            pointer: Some(std::rc::Rc::new(action)),
-            ..Default::default()
-        },
-    )
-}
-
-pub(crate) fn on_scroll(content: View, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
-    event_modifier(
-        content,
-        EventCallbacks {
-            scroll: Some(std::rc::Rc::new(action)),
-            ..Default::default()
-        },
-    )
-}
-
-struct DragModifier(std::rc::Rc<dyn Fn(DragEvent)>);
-
-struct DragHandler {
-    action: std::rc::Rc<dyn Fn(DragEvent)>,
-    last: Option<Point>,
-}
-
-impl EventHandler for DragHandler {
-    fn pointer(&mut self, event: &PointerEvent, _: Rect) -> EventResult {
-        let drag = match event.kind {
-            PointerEventKind::Down if event.button == MouseButton::Left && self.last.is_none() => {
-                self.last = Some(event.location);
-                DragEvent::Started
-            }
-            PointerEventKind::Move => {
-                let Some(previous) = self.last else {
-                    return EventResult::IGNORED;
-                };
-                self.last = Some(event.location);
-                DragEvent::Moved {
-                    delta: Point {
-                        x: event.location.x - previous.x,
-                        y: event.location.y - previous.y,
-                    },
-                }
-            }
-            PointerEventKind::Up if event.button == MouseButton::Left && self.last.is_some() => {
-                self.last = None;
-                DragEvent::Ended
-            }
-            PointerEventKind::Cancel if self.last.is_some() => {
-                self.last = None;
-                DragEvent::Ended
-            }
-            _ => return EventResult::IGNORED,
-        };
-        (self.action)(drag);
-        EventResult::CONSUMED
-    }
-
-    fn covers_frame(&self) -> bool {
-        true
-    }
-}
-
-impl EventModifier for DragModifier {
-    fn make_handler(&self) -> Box<dyn EventHandler> {
-        Box::new(DragHandler {
-            action: self.0.clone(),
-            last: None,
-        })
-    }
-}
-
-pub(crate) fn on_drag(content: View, action: impl Fn(DragEvent) + 'static) -> View {
-    event_modifier(content, DragModifier(std::rc::Rc::new(action)))
 }
 
 // --- Applying Rust modifiers ---
@@ -481,7 +362,7 @@ fn handle_event(handler: &std::cell::RefCell<Box<dyn EventHandler>>, args: *mut 
         match call.op {
             0 => result(h.pointer(&PointerEvent::from_c(&call.pointer), Rect::from_c(call.frame))),
             1 => result(h.hover(call.flag)),
-            2 => result(h.scroll(&ScrollEvent::from_c(&call.scroll))),
+            2 => result(h.scroll(&ScrollEvent::from_c(&call.scroll), Rect::from_c(call.frame))),
             3 => result(h.key(&KeyEvent::from_c(&call.key))),
             4 => *(ret as *mut bool) = h.focusable(),
             5 => result(h.focus(call.flag)),
@@ -496,7 +377,7 @@ fn handle_event(handler: &std::cell::RefCell<Box<dyn EventHandler>>, args: *mut 
             10 => *(ret as *mut i32) = h.pointer_style(Point::from_c(call.location)) as i32,
             11 => result(h.magnify(&MagnifyEvent::from_c(&call.magnify))),
             12 => result(h.rotate(&RotateEvent::from_c(&call.rotate))),
-            13 => result(h.smart_magnify(Point::from_c(call.location))),
+            13 => result(h.two_finger_double_tap(Point::from_c(call.location))),
             _ => {}
         }
     }
@@ -570,23 +451,6 @@ impl Modifier for OverlayModifier {
     }
 }
 
-pub struct BorderModifier {
-    pub color: Color,
-    pub width: f32,
-}
-impl Modifier for BorderModifier {
-    fn apply(self, content: View) -> View {
-        content.border(self.color, self.width)
-    }
-}
-
-pub struct ClippedModifier;
-impl Modifier for ClippedModifier {
-    fn apply(self, content: View) -> View {
-        content.clipped()
-    }
-}
-
 pub struct ClipShapeModifier(pub Shape);
 impl Modifier for ClipShapeModifier {
     fn apply(self, content: View) -> View {
@@ -639,27 +503,54 @@ impl Modifier for AllowsHitTestingModifier {
     }
 }
 
-pub struct TapGestureModifier {
-    pub count: i32,
-    pub action: Box<dyn FnMut()>,
+pub struct ClickModifier {
+    pub action: Box<dyn Fn(&crate::events::ClickEvent)>,
+    pub options: ClickOptions,
 }
-impl Modifier for TapGestureModifier {
+impl Modifier for ClickModifier {
     fn apply(self, content: View) -> View {
-        let count = self.count;
-        content.on_tap_gesture_with(self.action, move |o| o.count(count))
+        let options = self.options;
+        content.on_click_with(self.action, move |_| options)
     }
 }
 
-pub struct HoverModifier {
-    pub action: Box<dyn Fn(bool)>,
-    pub delay: Option<HoverDelay>,
+/// `enter` as soon as the pointer comes over the view, `leave` as soon as it goes.
+pub struct PointerBoundaryModifier {
+    pub enter: Box<dyn FnMut()>,
+    pub leave: Box<dyn FnMut()>,
 }
+impl Modifier for PointerBoundaryModifier {
+    fn apply(self, content: View) -> View {
+        content.on_pointer_enter(self.enter).on_pointer_leave(self.leave)
+    }
+}
+
+/// Hover intent; the delay comes from the environment (`HoverDelayModifier`).
+pub struct HoverModifier(pub Box<dyn Fn(bool)>);
 impl Modifier for HoverModifier {
     fn apply(self, content: View) -> View {
-        match self.delay {
-            Some(delay) => content.on_hover_with(self.action, move |_| delay),
-            None => content.on_hover(self.action),
-        }
+        content.on_hover_change(self.0)
+    }
+}
+
+pub struct PointerModifier(pub Box<dyn Fn(&PointerEvent) -> bool>);
+impl Modifier for PointerModifier {
+    fn apply(self, content: View) -> View {
+        content.on_pointer(self.0)
+    }
+}
+
+pub struct ScrollModifier(pub Box<dyn Fn(&ScrollEvent) -> bool>);
+impl Modifier for ScrollModifier {
+    fn apply(self, content: View) -> View {
+        content.on_scroll(self.0)
+    }
+}
+
+pub struct TextInputModifier(pub Box<dyn Fn(&TextInputEvent) -> bool>);
+impl Modifier for TextInputModifier {
+    fn apply(self, content: View) -> View {
+        content.on_text_input(self.0)
     }
 }
 
@@ -670,10 +561,11 @@ impl Modifier for FocusableModifier {
     }
 }
 
-pub struct KeyPressModifier(pub Box<dyn Fn(&KeyEvent) -> bool>);
-impl Modifier for KeyPressModifier {
+/// Key downs and ups while the view (or something inside) has focus.
+pub struct KeyEventModifier(pub Box<dyn Fn(&KeyEvent) -> bool>);
+impl Modifier for KeyEventModifier {
     fn apply(self, content: View) -> View {
-        content.on_key_event(self.0)
+        content.on_key(self.0)
     }
 }
 

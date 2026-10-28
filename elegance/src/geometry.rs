@@ -201,6 +201,9 @@ impl EdgeInsets {
     pub fn all_edges(self, length: impl Number) -> Self {
         self.horizontal(length).vertical(length)
     }
+    pub(crate) fn c(self) -> sys::ElgEdgeInsets {
+        sys::ElgEdgeInsets { top: self.top, leading: self.leading, bottom: self.bottom, trailing: self.trailing }
+    }
 }
 
 impl<N: Number> From<N> for EdgeInsets {

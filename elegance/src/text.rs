@@ -51,13 +51,13 @@ impl Text {
         self.ptr.as_ptr()
     }
 
-    pub fn font(self, font: impl Into<Font>) -> Text {
-        let f = font.into();
-        let c = f.c();
-        Self::from_raw(ffi!(sys::elg_text_font(self.as_ptr(), &c)))
+    /// Static or reactive.
+    pub fn font(self, font: impl IntoProp<Font>) -> Text {
+        with_prop(font.into_prop(), |p| Self::from_raw(ffi!(sys::elg_text_font(self.as_ptr(), p))))
     }
-    pub fn font_weight(self, weight: impl Into<Weight>) -> Text {
-        Self::from_raw(ffi!(sys::elg_text_font_weight(self.as_ptr(), weight.into() as i32)))
+    /// Static or reactive.
+    pub fn font_weight(self, weight: impl IntoProp<Weight>) -> Text {
+        with_prop(weight.into_prop(), |p| Self::from_raw(ffi!(sys::elg_text_font_weight(self.as_ptr(), p))))
     }
     pub fn bold(self) -> Text {
         Self::from_raw(ffi!(sys::elg_text_bold(self.as_ptr())))

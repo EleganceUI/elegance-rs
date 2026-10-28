@@ -2,70 +2,12 @@
 // If a copy of the MPL was not distributed with this file, You can obtain one at
 // https://mozilla.org/MPL/2.0/.
 
-// Extension points implemented in Rust: styles, layouts, modifiers, event handlers.
+// Extension points implemented in Rust: layouts, modifiers, event handlers. (Styles: styles.cpp.)
 
 #include "shim.h"
 
 using namespace elg;
 using namespace elg_shim;
-
-// --- Styles ---
-//
-// make_body: args is a heap copy of the configuration, owned by the Rust side; ret: View*.
-
-namespace {
-
-class RustButtonStyle final : public ButtonStyle {
-public:
-    explicit RustButtonStyle(SharedFn f) : f_(std::move(f)) {}
-    View make_body(const ButtonConfiguration& button) const override {
-        View result;
-        f_->call(new ButtonConfiguration(button), &result);
-        return result;
-    }
-
-private:
-    SharedFn f_;
-};
-
-class RustToggleStyle final : public ToggleStyle {
-public:
-    explicit RustToggleStyle(SharedFn f) : f_(std::move(f)) {}
-    View make_body(const ToggleConfiguration& toggle) const override {
-        View result;
-        f_->call(new ToggleConfiguration(toggle), &result);
-        return result;
-    }
-
-private:
-    SharedFn f_;
-};
-
-class RustTextFieldStyle final : public TextFieldStyle {
-public:
-    explicit RustTextFieldStyle(SharedFn f) : f_(std::move(f)) {}
-    View make_body(const TextFieldConfiguration& field) const override {
-        View result;
-        f_->call(new TextFieldConfiguration(field), &result);
-        return result;
-    }
-
-private:
-    SharedFn f_;
-};
-
-} // namespace
-
-ELG_EXPORT std::shared_ptr<const ButtonStyle>* elg_button_style_rust(ElgClosure make_body) {
-    return new std::shared_ptr<const ButtonStyle>(std::make_shared<const RustButtonStyle>(std::make_shared<const RustFn>(make_body)));
-}
-ELG_EXPORT std::shared_ptr<const ToggleStyle>* elg_toggle_style_rust(ElgClosure make_body) {
-    return new std::shared_ptr<const ToggleStyle>(std::make_shared<const RustToggleStyle>(std::make_shared<const RustFn>(make_body)));
-}
-ELG_EXPORT std::shared_ptr<const TextFieldStyle>* elg_text_field_style_rust(ElgClosure make_body) {
-    return new std::shared_ptr<const TextFieldStyle>(
-        std::make_shared<const RustTextFieldStyle>(std::make_shared<const RustFn>(make_body)));
-}
 
 // --- Layout ---
 
@@ -345,12 +287,6 @@ ELG_EXPORT View* elg_mod_rust_effect_modifier(const View* v, ElgClosure apply) {
 }
 
 // Effects, for EffectModifier::apply.
-ELG_EXPORT bool elg_effects_clip_to_bounds(const Effects* e) {
-    return e->clip_to_bounds;
-}
-ELG_EXPORT void elg_effects_set_clip_to_bounds(Effects* e, bool clip) {
-    e->clip_to_bounds = clip;
-}
 ELG_EXPORT void elg_effects_set_clip_shape(Effects* e, const Shape* shape) {
     if (shape) {
         e->clip_shape = *shape;
@@ -476,8 +412,8 @@ ELG_EXPORT void elg_effects_set_allows_hit_testing(Effects* e, bool enabled) {
 struct ElgEventCall {
     // 0 pointer, 1 hover, 2 scroll, 3 key, 4 focusable (ret bool*), 5 focus, 6 accepts_text_input
     // (ret bool*), 7 text_input, 8 hover_delay (ret ElgOptHoverDelay*), 9 covers_frame (ret bool*),
-    // 10 pointer_style (ret int32_t*), 11 magnify, 12 rotate, 13 smart_magnify.
-    // The others: ret ElgEventResult*.
+    // 10 pointer_style (ret int32_t*), 11 magnify, 12 rotate, 13 two_finger_double_tap.
+    // The others: ret ElgEventResult*. `frame`: pointer and scroll.
     int32_t op;
     ElgPointerEvent pointer;
     ElgRect frame;
@@ -485,7 +421,7 @@ struct ElgEventCall {
     ElgScrollEvent scroll;
     ElgKeyEvent key;
     ElgTextInputEvent text;
-    ElgPoint location; // pointer_style, smart_magnify
+    ElgPoint location; // pointer_style, two_finger_double_tap
     ElgMagnifyEvent magnify;
     ElgRotateEvent rotate;
 };
@@ -508,8 +444,7 @@ public:
     EventResult pointer(const PointerEvent& event, Rect frame) override {
         ElgEventCall call{};
         call.op = 0;
-        call.pointer = {static_cast<int32_t>(event.kind), {event.location.x, event.location.y},
-                        static_cast<int32_t>(event.button), event.click_count, mods(event.modifiers)};
+        call.pointer = c_pointer_event(event);
         call.frame = c_rect(frame);
         return result(call);
     }
@@ -527,10 +462,11 @@ public:
         f_->call(&call, &style);
         return static_cast<PointerStyle>(style);
     }
-    EventResult scroll(const ScrollEvent& event) override {
+    EventResult scroll(const ScrollEvent& event, Rect frame) override {
         ElgEventCall call{};
         call.op = 2;
         call.scroll = c_scroll_event(event);
+        call.frame = c_rect(frame);
         return result(call);
     }
     EventResult magnify(const MagnifyEvent& event) override {
@@ -545,7 +481,7 @@ public:
         call.rotate = c_rotate_event(event);
         return result(call);
     }
-    EventResult smart_magnify(Point location) override {
+    EventResult two_finger_double_tap(Point location) override {
         ElgEventCall call{};
         call.op = 13;
         call.location = {location.x, location.y};
@@ -587,7 +523,7 @@ private:
     EventResult result(ElgEventCall& call) {
         ElgEventResult r{};
         f_->call(&call, &r);
-        return {r.consumed, r.redraw};
+        return {r.consumed, r.redraw, r.cancellable};
     }
     bool flag(int32_t op) const {
         ElgEventCall call{};

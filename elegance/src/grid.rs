@@ -11,7 +11,7 @@
 //!
 //! Grid(alignment: .leading, horizontal_spacing: 24) {
 //!     GridRow { Text("Game").bold() Text("Size").bold().grid_column_alignment(.trailing) }
-//!     Divider()
+//!     Separator()
 //!     ForEach(games, id: |g| g.id) { game in
 //!         GridRow { Text(game.name) Text(format!("{} GB", game.size)) }
 //!     }
@@ -256,7 +256,7 @@ line_grid!(
 );
 
 /// A table of [`GridRow`]s: columns as wide as their widest cell, rows as tall as their tallest.
-/// Other children (a Divider, a heading) take a row of their own, as wide as the grid.
+/// Other children (a Separator, a heading) take a row of their own, as wide as the grid.
 #[derive(Default)]
 pub struct Grid {
     alignment: Alignment,
