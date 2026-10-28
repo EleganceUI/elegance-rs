@@ -41,7 +41,32 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
+    # A minute's check before six builds of half an hour or so: the shim must compile against the
+    # Elegance it's built with.
+    shim:
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  ref: ${{ inputs.bindings_ref }}
+            # As the build job: the candidate update-elegance.yml passes, else the pin.
+            - name: Elegance revision
+              id: rev
+              env:
+                  CANDIDATE: ${{ inputs.elegance_rev }}
+              run: echo "rev=${CANDIDATE:-$(head -n 1 elegance-sys/native/elegance-rev | tr -d '\r[:space:]')}" >> "$GITHUB_OUTPUT"
+            - uses: actions/checkout@v7
+              with:
+                  repository: ${{ github.repository_owner }}/elegance
+                  ref: ${{ steps.rev.outputs.rev }}
+                  path: upstream
+            - name: Compile the shim
+              env:
+                  CXX: g++-14
+              run: .github/scripts/check-shim.sh upstream
+
     build:
+        needs: shim
         strategy:
             fail-fast: false
             matrix:

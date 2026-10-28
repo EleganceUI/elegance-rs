@@ -74,24 +74,53 @@ jobs:
                   echo "Pinned: $pinned. $WANTED: $rev."
                   echo "rev=$rev" >> "$GITHUB_OUTPUT"
                   if [ "$rev" = "$pinned" ]; then echo "changed=false"; else echo "changed=true"; fi >> "$GITHUB_OUTPUT"
+            - uses: actions/checkout@v7
+              if: steps.check.outputs.changed == 'true'
+              with:
+                  repository: ${{ github.repository_owner }}/elegance
+                  ref: ${{ steps.check.outputs.rev }}
+                  path: upstream
             # The elegance-rs commit to build: the matching branch's, else main's. Its exact commit,
-            # so what's merged later is what was built.
+            # so what's merged later is what was built. Its shim must compile against the new
+            # Elegance, checked here in a minute rather than by every native build. A matching
+            # branch can still be on its way (pushed after the Elegance merge): while main's shim
+            # doesn't compile, wait for it.
             - id: bindings
+              if: steps.check.outputs.changed == 'true'
               env:
                   BRANCH: ${{ inputs.branch || github.event.client_payload.branch }}
+                  REV: ${{ steps.check.outputs.rev }}
+                  CXX: g++-14
               run: |
-                  sha=
-                  if [ -n "$BRANCH" ] && [ "$BRANCH" != main ]; then
-                    sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
-                    [ -n "$sha" ] || echo "No elegance-rs branch $BRANCH: building main."
-                  fi
-                  if [ -n "$sha" ]; then
-                    echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-                    echo "Building elegance-rs's $BRANCH (${sha:0:12}), to merge with the pin."
+                  # The checks below check out other commits; keep this one's script.
+                  check=$RUNNER_TEMP/check-shim.sh
+                  cp .github/scripts/check-shim.sh "$check"
+                  [ "$BRANCH" = main ] && BRANCH=
+                  deadline=$((SECONDS + 30 * 60))
+                  while :; do
+                    branch='' sha=''
+                    if [ -n "$BRANCH" ]; then
+                      sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                      [ -n "$sha" ] && branch=$BRANCH
+                    fi
+                    [ -n "$sha" ] || sha=$(git ls-remote origin refs/heads/main | cut -f1)
+                    git fetch --quiet --depth 1 origin "$sha"
+                    git checkout --quiet --detach FETCH_HEAD
+                    if "$check" upstream; then break; fi
+                    if [ -n "$BRANCH" ] && [ -z "$branch" ] && [ "$SECONDS" -lt "$deadline" ]; then
+                      echo "elegance-rs's main doesn't compile against Elegance ${REV:0:12} and there's no $BRANCH branch yet: waiting for it."
+                      sleep 60
+                      continue
+                    fi
+                    echo "::error::The shim on elegance-rs's ${branch:-main} (${sha:0:12}) doesn't compile against Elegance ${REV:0:12}. Push an elegance-rs branch with the shim changes it needs${BRANCH:+ (named $BRANCH)}, then run this workflow by hand with rev ${REV:0:12} and that branch."
+                    exit 1
+                  done
+                  if [ -n "$branch" ]; then
+                    echo "Building elegance-rs's $branch (${sha:0:12}), to merge with the pin."
                   else
-                    sha=$(git rev-parse origin/main)
-                    echo "branch=" >> "$GITHUB_OUTPUT"
+                    [ -n "$BRANCH" ] && echo "No elegance-rs branch $BRANCH: building main."
                   fi
+                  echo "branch=$branch" >> "$GITHUB_OUTPUT"
                   echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
     build:
