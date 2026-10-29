@@ -1,7 +1,7 @@
-//! Raw bindings to Elegance's C++ API through the C shim in `shim/`. Use the `elegance` crate;
-//! everything here is unsafe and mirrors `shim/*.cpp` one to one.
+//! Raw bindings to Elegance's C API (the `c/` folder of the Elegance commit `elegance-rev` pins).
+//! Use the `elegance` crate; everything here is unsafe and mirrors `c/*.cpp` one to one.
 //!
-//! Conventions (see `shim/shim.h`): pointer arguments named `take_*`, and arrays of view pointers,
+//! Conventions (see `c/shim.h`): pointer arguments named `take_*`, and arrays of view pointers,
 //! are consumed; other pointers are borrowed; returned pointers are owned by the caller. A C++
 //! exception becomes a pending error, read with [`elg_take_error`].
 

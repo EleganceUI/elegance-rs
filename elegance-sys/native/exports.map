@@ -1,5 +1,0 @@
-/* Linux: export the C ABI (the shim and ELG_API's C functions) and nothing else. */
-{
-    global: elg_*;
-    local: *;
-};

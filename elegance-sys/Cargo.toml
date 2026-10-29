@@ -1,6 +1,6 @@
 [package]
 name = "elegance-sys"
-description = "Raw bindings to Elegance through a small C++ shim (for the `elegance` crate)"
+description = "Raw bindings to Elegance's C API (for the `elegance` crate)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,6 @@ build = "build.rs"
 
 [build-dependencies]
 cc = "1.2"
-sha2 = "0.10"
 
 [features]
 # Link elegance.dll (a shared build of Elegance) instead of the static library: what the preview

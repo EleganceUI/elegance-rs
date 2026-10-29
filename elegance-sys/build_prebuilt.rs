@@ -1,29 +1,27 @@
-// The prebuilt native library: the shim and Elegance in one shared library (native/CMakeLists.txt),
-// so apps need no C++ compiler, CMake, or vcpkg.
+// The prebuilt C library: Elegance's C API (its c/ folder) and Elegance in one shared library, so
+// apps need no C++ compiler, CMake, or vcpkg.
 //
-// What goes in it is pinned by this crate's files: the shim sources, which define the ABI the Rust
-// side declares, and native/elegance-rev, the Elegance commit it's built from. Their hash names the
-// prebuilt library: CI (.github/workflows/native.yml) attaches one archive per target to a
-// prerelease tagged native-<first 12 hex digits of the hash>, and a vX.Y.Z release for each
-// version. So a checkout always gets the library built from its own shim and pinned Elegance, and
-// a new pin (update-elegance.yml moves it after publishing that library) means a new download.
+// elegance-rev pins the Elegance commit whose C API this crate declares. Elegance's CI
+// (.github/workflows/c-api.yml there) builds the library for every commit on its main and attaches
+// one archive per target to a prerelease tagged c-<first 12 hex digits of the commit>. So a
+// checkout always gets the library its pin names, and moving the pin (bump-elegance.yml opens a
+// pull request for that) means a new download.
 //
-// ELEGANCE_NATIVE_DIR     an extracted prebuilt archive to use (offline, or a build of your own)
+// ELEGANCE_NATIVE_DIR     an extracted archive to use (offline, or a build of your own)
 // ELEGANCE_PREBUILT=0     never download one: build Elegance from source
 // ELEGANCE_PREBUILT=1     always use one, even beside an Elegance checkout; fail if there's none
-// ELEGANCE_PREBUILT_URL   the folder of archives (default: the GitHub prerelease for this hash)
+// ELEGANCE_PREBUILT_URL   the folder of archives (default: the prerelease for the pinned commit)
 //
 // Without ELEGANCE_PREBUILT, the prebuilt library is used unless a source build was asked for
 // (ELEGANCE_ROOT, ELEGANCE_BUILD_DIR, or an Elegance checkout beside this workspace), and when
-// there's none for this hash and target yet, Elegance is built from source.
+// there's none for this commit and target, Elegance is built from source.
 
-use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Targets the release workflow (.github/workflows/native.yml) builds.
+/// Targets Elegance's CI builds the library for.
 const TARGETS: &[&str] = &[
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
@@ -33,22 +31,10 @@ const TARGETS: &[&str] = &[
     "aarch64-pc-windows-msvc",
 ];
 
-/// The pinned Elegance commit (update-elegance.yml moves it).
-const ELEGANCE_REV: &str = "native/elegance-rev";
+/// The pinned Elegance commit.
+const ELEGANCE_REV: &str = "elegance-rev";
 
-/// The files whose contents make up the prebuilt library's hash, in this order
-/// (native/CMakeLists.txt hashes the same files the same way).
-const HASHED: &[&str] = &[
-    "shim/shim.h",
-    "shim/core.cpp",
-    "shim/views.cpp",
-    "shim/ext.cpp",
-    "shim/platform.cpp",
-    "shim/styles.cpp",
-    ELEGANCE_REV,
-];
-
-/// The Elegance commit native/elegance-rev pins, which source builds clone too.
+/// The Elegance commit elegance-rev pins, which source builds clone too.
 pub fn pinned_elegance(manifest: &Path) -> String {
     println!("cargo:rerun-if-changed={ELEGANCE_REV}");
     let path = manifest.join(ELEGANCE_REV);
@@ -61,9 +47,6 @@ pub fn pinned_elegance(manifest: &Path) -> String {
 pub fn find(manifest: &Path) -> Option<PathBuf> {
     for var in ["ELEGANCE_NATIVE_DIR", "ELEGANCE_PREBUILT", "ELEGANCE_PREBUILT_URL"] {
         println!("cargo:rerun-if-env-changed={var}");
-    }
-    for file in HASHED {
-        println!("cargo:rerun-if-changed={file}");
     }
     if let Some(dir) = env::var_os("ELEGANCE_NATIVE_DIR").filter(|d| !d.is_empty()) {
         return Some(PathBuf::from(dir));
@@ -78,7 +61,7 @@ pub fn find(manifest: &Path) -> Option<PathBuf> {
     }
     let target = env::var("TARGET").unwrap();
     let result = if TARGETS.contains(&target.as_str()) {
-        download(&target, &native_hash(manifest))
+        download(&target, &pinned_elegance(manifest))
     } else {
         Err(format!("there's no prebuilt Elegance for {target}"))
     };
@@ -104,44 +87,31 @@ fn source_requested(manifest: &Path) -> bool {
             .is_file()
 }
 
-/// SHA-256 of the hashed files, without carriage returns (a Windows checkout may have them).
-pub fn native_hash(manifest: &Path) -> String {
-    let mut hasher = Sha256::new();
-    for file in HASHED {
-        let path = manifest.join(file);
-        let bytes =
-            fs::read(&path).unwrap_or_else(|e| panic!("elegance-sys: can't read {}: {e}", path.display()));
-        hasher.update(bytes.into_iter().filter(|&b| b != b'\r').collect::<Vec<_>>());
+/// The archive for `target` and Elegance commit `rev`, downloaded and extracted once into the user
+/// cache folder (one folder per commit): from ELEGANCE_PREBUILT_URL, else that commit's prerelease.
+fn download(target: &str, rev: &str) -> Result<PathBuf, String> {
+    if rev.len() < 12 {
+        return Err(format!("elegance-rev holds `{rev}`, not a full commit hash"));
     }
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// The archive for `target`, downloaded and extracted once into the user cache folder (one folder
-/// per hash): from ELEGANCE_PREBUILT_URL, else this version's release, else the prerelease for this
-/// hash.
-fn download(target: &str, hash: &str) -> Result<PathBuf, String> {
-    let short = &hash[..12];
-    let cache = crate::cmake::cache_dir()
+    let short = &rev[..12];
+    let dir = crate::cmake::cache_dir()
         .ok_or("no user cache folder to put the prebuilt Elegance in")?
         .join("elegance")
-        .join("native");
-    let dir = |name: &str| cache.join(format!("{name}-{short}")).join(target);
-    let file = format!("elegance-native-{target}.tar.gz");
-    if let Some(base) = env::var("ELEGANCE_PREBUILT_URL").ok().filter(|u| !u.is_empty()) {
-        return fetch(&dir("custom"), &format!("{}/{file}", base.trim_end_matches('/')), hash);
-    }
-    let releases = "https://github.com/EleganceUI/elegance-rs/releases/download";
-    let version = format!("v{}", env::var("CARGO_PKG_VERSION").unwrap());
-    let tag = format!("native-{short}");
-    // The release's archive only counts if its hash matches (a git checkout past the release).
-    fetch(&dir(&version), &format!("{releases}/{version}/{file}"), hash)
-        .or_else(|_| fetch(&dir("native"), &format!("{releases}/{tag}/{file}"), hash))
+        .join("c")
+        .join(short)
+        .join(target);
+    let file = format!("elegance-c-{target}.tar.gz");
+    let base = env::var("ELEGANCE_PREBUILT_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| format!("https://github.com/EleganceUI/elegance/releases/download/c-{short}"));
+    fetch(&dir, &format!("{}/{file}", base.trim_end_matches('/')), rev)
 }
 
-/// `url`'s archive, extracted into `dir` (unless it's there already) if its hash matches.
-fn fetch(dir: &Path, url: &str, hash: &str) -> Result<PathBuf, String> {
+/// `url`'s archive, extracted into `dir` (unless it's there already) if it was built from `rev`.
+fn fetch(dir: &Path, url: &str, rev: &str) -> Result<PathBuf, String> {
     let dir = dir.to_owned();
-    if matches_hash(&dir, hash) {
+    if built_from(&dir, rev) {
         return Ok(dir);
     }
     let partial = dir.with_extension("partial");
@@ -150,18 +120,16 @@ fn fetch(dir: &Path, url: &str, hash: &str) -> Result<PathBuf, String> {
     let archive = partial.join("archive.tar.gz");
     run(
         Command::new(system_tool("curl")).args(["-fsSL", "--retry", "3", "-o"]).arg(&archive).arg(url),
-        &format!("downloading {url} (CI may not have built this revision yet)"),
+        &format!("downloading {url} (Elegance's CI may not have published this commit's library yet)"),
     )?;
     run(
         Command::new(system_tool("tar")).arg("-xzf").arg(&archive).arg("-C").arg(&partial),
         &format!("extracting {}", archive.display()),
     )?;
     let _ = fs::remove_file(&archive);
-    if !matches_hash(&partial, hash) {
+    if !built_from(&partial, rev) {
         let _ = fs::remove_dir_all(&partial);
-        return Err(format!(
-            "the prebuilt Elegance at {url} was built from a different shim or Elegance than this elegance-sys pins"
-        ));
+        return Err(format!("the prebuilt Elegance at {url} wasn't built from the commit elegance-rev pins ({rev})"));
     }
     let _ = fs::remove_dir_all(&dir);
     fs::rename(&partial, &dir).map_err(|e| format!("can't move the prebuilt Elegance to {}: {e}", dir.display()))?;
@@ -182,8 +150,11 @@ fn system_tool(name: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn matches_hash(dir: &Path, hash: &str) -> bool {
-    fs::read_to_string(dir.join("native.sha256")).is_ok_and(|text| text.trim() == hash) && dir.join("lib").is_dir()
+/// Whether `dir` holds an extracted archive built from Elegance commit `rev` (its BUILDINFO says).
+fn built_from(dir: &Path, rev: &str) -> bool {
+    fs::read_to_string(dir.join("BUILDINFO"))
+        .is_ok_and(|text| text.lines().any(|line| line.trim() == format!("elegance {rev}")))
+        && dir.join("lib").is_dir()
 }
 
 fn run(command: &mut Command, what: &str) -> Result<(), String> {
@@ -201,9 +172,9 @@ fn run(command: &mut Command, what: &str) -> Result<(), String> {
 /// The library in an extracted archive's lib/: the import library on Windows.
 pub fn library(native: &Path) -> PathBuf {
     let lib = native.join("lib");
-    ["elegance_native.lib", "libelegance_native.so", "libelegance_native.dylib"]
+    ["elegance_c.lib", "libelegance_c.so", "libelegance_c.dylib"]
         .iter()
         .map(|file| lib.join(file))
         .find(|file| file.is_file())
-        .unwrap_or_else(|| panic!("\n\nelegance-sys: no elegance_native library in {}.\n", lib.display()))
+        .unwrap_or_else(|| panic!("\n\nelegance-sys: no elegance_c library in {}.\n", lib.display()))
 }
