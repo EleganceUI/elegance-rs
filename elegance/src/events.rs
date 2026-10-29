@@ -27,7 +27,7 @@ pub struct HoverDelay {
 
 impl Default for HoverDelay {
     fn default() -> Self {
-        Self { enter: 0.1, exit: 0.0 }
+        Self { enter: 0.0, exit: 0.0 }
     }
 }
 

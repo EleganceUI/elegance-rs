@@ -12,22 +12,23 @@ use crate::color::{Color, ColorScheme, ShapeStyle, Theme};
 use crate::environment::EnvironmentKey;
 use crate::error::ffi;
 use crate::events::{
-    ClickEvent, ClickOptions, DragEvent, HoverDelay, Key, KeyEvent, MagnifyEvent, PixelSize, PointerEvent,
-    PointerStyle, RotateEvent, ScrollEvent, TextInputEvent,
+    ClickEvent, ClickOptions, DragEvent, HoverDelay, Key, KeyEvent, MagnifyEvent, PixelSize,
+    PointerEvent, PointerStyle, RotateEvent, ScrollEvent, TextInputEvent,
 };
 use crate::ffi as cffi;
 use crate::font::{Font, Weight};
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Edges, Len, Number, Point, Size};
 use crate::gestures::{
-    DragGesture, Gesture, GestureOptions, LongPressGesture, MagnifyGesture, RotateGesture, TwoFingerDoubleTapGesture,
+    DragGesture, Gesture, GestureOptions, LongPressGesture, MagnifyGesture, RotateGesture,
+    TwoFingerDoubleTapGesture,
 };
-use crate::prop::{with_prop, IntoProp, Prop};
+use crate::prop::{IntoProp, Prop, with_prop};
 use crate::reactive::IntoBinding;
 use crate::shapes::Shape;
 use crate::styles::{
-    IntoButtonStyle, IntoCheckboxStyle, IntoMenuStyle, IntoNavigationStackStyle, IntoNumberInputStyle, IntoPickerStyle,
-    IntoPopoverStyle, IntoProgressStyle, IntoRowStyle, IntoSliderStyle, IntoTextFieldStyle, IntoToggleStyle,
-    IntoTooltipStyle,
+    IntoButtonStyle, IntoCheckboxStyle, IntoMenuStyle, IntoNavigationStackStyle,
+    IntoNumberInputStyle, IntoPickerStyle, IntoPopoverStyle, IntoProgressStyle, IntoRowStyle,
+    IntoSliderStyle, IntoTextFieldStyle, IntoToggleStyle, IntoTooltipStyle,
 };
 use crate::text::Text;
 
@@ -93,14 +94,16 @@ impl View {
     }
 
     /// Moves this view into a closure's C++ `View` result.
-    pub(crate) unsafe fn write_into(self, ret: *mut c_void) { unsafe {
-        sys::elg_view_move_into(ret as *mut sys::View, self.into_raw());
-    }}
+    pub(crate) unsafe fn write_into(self, ret: *mut c_void) {
+        unsafe {
+            sys::elg_view_move_into(ret as *mut sys::View, self.into_raw());
+        }
+    }
 
     /// Takes ownership of a borrowed C++ view by copying it.
-    pub(crate) unsafe fn copy_from(ptr: *const sys::View) -> Self { unsafe {
-        Self::from_raw(sys::elg_view_clone(ptr))
-    }}
+    pub(crate) unsafe fn copy_from(ptr: *const sys::View) -> Self {
+        unsafe { Self::from_raw(sys::elg_view_clone(ptr)) }
+    }
 
     pub(crate) fn modify(self, f: impl FnOnce(*const sys::View) -> *mut sys::View) -> View {
         let result = f(self.as_ptr());
@@ -355,7 +358,12 @@ pub trait ViewExt: IntoView + Sized {
         })
     }
     /// A border along `shape`: `.border_in(.outline, 1, Capsule())`.
-    fn border_in(self, color: impl IntoProp<Color>, width: impl Number, shape: impl Into<Shape>) -> View {
+    fn border_in(
+        self,
+        color: impl IntoProp<Color>,
+        width: impl Number,
+        shape: impl Into<Shape>,
+    ) -> View {
         let (view, w, shape) = (self.into_view(), width.to_f32(), shape.into());
         with_prop(color.into_prop(), |c| {
             view.modify(|v| unsafe { sys::elg_mod_border(v, c, w, shape.as_ptr()) })
@@ -442,8 +450,17 @@ pub trait ViewExt: IntoView + Sized {
         self.backdrop_blur_with(radius, |o| o)
     }
     /// `.backdrop_blur(30, saturation: 1.8)` in `elg!`.
-    fn backdrop_blur_with(self, radius: impl IntoProp<f32>, options: impl FnOnce(BackdropOptions) -> BackdropOptions) -> View {
-        backdrop_blur(self.into_view(), radius.into_prop(), None, options(BackdropOptions::default()))
+    fn backdrop_blur_with(
+        self,
+        radius: impl IntoProp<f32>,
+        options: impl FnOnce(BackdropOptions) -> BackdropOptions,
+    ) -> View {
+        backdrop_blur(
+            self.into_view(),
+            radius.into_prop(),
+            None,
+            options(BackdropOptions::default()),
+        )
     }
     /// Frosted glass inside `shape` (filling the view's bounds).
     fn backdrop_blur_in(
@@ -453,7 +470,12 @@ pub trait ViewExt: IntoView + Sized {
         options: impl FnOnce(BackdropOptions) -> BackdropOptions,
     ) -> View {
         let shape = shape.into();
-        backdrop_blur(self.into_view(), radius.into_prop(), Some(&shape), options(BackdropOptions::default()))
+        backdrop_blur(
+            self.into_view(),
+            radius.into_prop(),
+            Some(&shape),
+            options(BackdropOptions::default()),
+        )
     }
     /// A color adjustment ([`ColorFilter`]); the shorthands below cover each kind.
     fn color_filter(self, filter: ColorFilter) -> View {
@@ -646,7 +668,11 @@ pub trait ViewExt: IntoView + Sized {
     }
     /// `.recognize(swipe, priority: .high)` in `elg!`: how a drag or long press competes for
     /// presses.
-    fn recognize_with(self, gesture: impl Gesture, options: impl FnOnce(GestureOptions) -> GestureOptions) -> View {
+    fn recognize_with(
+        self,
+        gesture: impl Gesture,
+        options: impl FnOnce(GestureOptions) -> GestureOptions,
+    ) -> View {
         gesture.attach(self.into_view(), options(GestureOptions::default()))
     }
     /// `recognize(DragGesture::new().on_changed(action))`.
@@ -674,7 +700,9 @@ pub trait ViewExt: IntoView + Sized {
     /// pointer. For drawing and custom controls; prefer `on_click` and gestures otherwise.
     fn on_pointer(self, action: impl Fn(&PointerEvent) -> bool + 'static) -> View {
         let action = cffi::closure(move |args, ret| unsafe {
-            *(ret as *mut bool) = action(&PointerEvent::from_c(&*(args as *const sys::ElgPointerEvent)));
+            *(ret as *mut bool) = action(&PointerEvent::from_c(
+                &*(args as *const sys::ElgPointerEvent),
+            ));
         });
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_pointer(v, action) })
@@ -683,7 +711,8 @@ pub trait ViewExt: IntoView + Sized {
     /// to consume it (scroll views around it then don't scroll).
     fn on_scroll(self, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
         let action = cffi::closure(move |args, ret| unsafe {
-            *(ret as *mut bool) = action(&ScrollEvent::from_c(&*(args as *const sys::ElgScrollEvent)));
+            *(ret as *mut bool) =
+                action(&ScrollEvent::from_c(&*(args as *const sys::ElgScrollEvent)));
         });
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_scroll(v, action) })
@@ -816,7 +845,7 @@ pub trait ViewExt: IntoView + Sized {
             .modify(|v| unsafe { sys::elg_mod_accessibility_action(v, action) })
     }
 
-    /// The hover delay for `on_hover_change` handlers and submenus inside (default: enter 0.1 s,
+    /// The hover delay for `on_hover_change` handlers and submenus inside (default: enter 0 s,
     /// exit 0). Controls' highlights and pointer enter/leave don't wait.
     fn hover_delay(self, delay: HoverDelay) -> View {
         let d = delay.c();
@@ -847,7 +876,11 @@ pub trait ViewExt: IntoView + Sized {
         self.tooltip_with(text, |o| o)
     }
     /// `.tooltip("Settings", delay: 0.3)` in `elg!`.
-    fn tooltip_with(self, text: impl IntoProp<String>, options: impl FnOnce(TooltipOptions) -> TooltipOptions) -> View {
+    fn tooltip_with(
+        self,
+        text: impl IntoProp<String>,
+        options: impl FnOnce(TooltipOptions) -> TooltipOptions,
+    ) -> View {
         let (view, o) = (self.into_view(), options(TooltipOptions::default()));
         let c = c_tooltip_options(&o);
         with_prop(text.into_prop(), |t| {
@@ -911,12 +944,24 @@ pub trait ViewExt: IntoView + Sized {
         options: impl FnOnce(PopoverOptions) -> PopoverOptions,
     ) -> View {
         let o = options(PopoverOptions::default());
-        let (view, placement, motion) = (self.into_view(), o.placement.c(), c_motion(o.motion.as_ref()));
+        let (view, placement, motion) = (
+            self.into_view(),
+            o.placement.c(),
+            c_motion(o.motion.as_ref()),
+        );
         let binding = is_presented.into_binding().cpp();
         let content = cffi::closure(move |_, ret| unsafe { content().into_view().write_into(ret) });
         with_prop(o.padded.clone(), |padded| {
             view.modify(|v| unsafe {
-                sys::elg_mod_popover(v, binding, content, &placement, o.boundary as i32, padded, motion)
+                sys::elg_mod_popover(
+                    v,
+                    binding,
+                    content,
+                    &placement,
+                    o.boundary as i32,
+                    padded,
+                    motion,
+                )
             })
         })
     }
@@ -954,7 +999,9 @@ pub trait ViewExt: IntoView + Sized {
     /// IME's compositions in progress. Keys still go to `on_key`. Return true if handled.
     fn on_text_input(self, action: impl Fn(&TextInputEvent) -> bool + 'static) -> View {
         let action = cffi::closure(move |args, ret| unsafe {
-            *(ret as *mut bool) = action(&TextInputEvent::from_c(&*(args as *const sys::ElgTextInputEvent)));
+            *(ret as *mut bool) = action(&TextInputEvent::from_c(
+                &*(args as *const sys::ElgTextInputEvent),
+            ));
         });
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_text_input(v, action) })
@@ -975,7 +1022,11 @@ pub trait ViewExt: IntoView + Sized {
         crate::views::selection(self.into_view(), selection, None::<fn(&S::Key)>)
     }
     /// With `on_activate`: Enter, or a double click on a row.
-    fn selection_with<S: crate::views::Selection>(self, selection: S, on_activate: impl Fn(&S::Key) + 'static) -> View {
+    fn selection_with<S: crate::views::Selection>(
+        self,
+        selection: S,
+        on_activate: impl Fn(&S::Key) + 'static,
+    ) -> View {
         crate::views::selection(self.into_view(), selection, Some(on_activate))
     }
 
