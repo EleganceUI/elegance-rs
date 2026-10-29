@@ -91,6 +91,72 @@ pub enum ThemeColor {
     Danger,
     Success,
     Warning,
+    /// Frosted glass: translucent tints for under a `.backdrop_blur()`, thinnest to thickest.
+    /// Light in light mode and dark in dark mode by default:
+    ///
+    /// ```ignore
+    /// Text("Now playing").padding(12)
+    ///     .background_in(.glass_regular, RoundedRectangle(12))
+    ///     .backdrop_blur_in(.xl, RoundedRectangle(12), |o| o.saturation(1.8).noise(0.02))
+    /// ```
+    GlassUltraThin,
+    GlassThin,
+    GlassRegular,
+    GlassThick,
+    GlassUltraThick,
+}
+
+/// Blur radii, smallest to largest, resolved against the theme where they're used (`.blur()`,
+/// `.backdrop_blur()`): `.blur(.sm)` in `elg!`. `Xxl` and `Xxxl` are 2xl and 3xl.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ThemeBlur {
+    Xs,
+    Sm,
+    Md,
+    Lg,
+    Xl,
+    Xxl,
+    Xxxl,
+}
+
+/// The theme's blur radii, in points.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BlurTokens {
+    pub xs: f32,
+    pub sm: f32,
+    pub md: f32,
+    pub lg: f32,
+    pub xl: f32,
+    pub xxl: f32,
+    pub xxxl: f32,
+}
+
+impl Default for BlurTokens {
+    fn default() -> Self {
+        Self::standard()
+    }
+}
+
+impl BlurTokens {
+    pub const fn standard() -> Self {
+        Self { xs: 4.0, sm: 8.0, md: 12.0, lg: 16.0, xl: 24.0, xxl: 40.0, xxxl: 64.0 }
+    }
+}
+
+impl std::ops::Index<ThemeBlur> for BlurTokens {
+    type Output = f32;
+    fn index(&self, token: ThemeBlur) -> &f32 {
+        match token {
+            ThemeBlur::Xs => &self.xs,
+            ThemeBlur::Sm => &self.sm,
+            ThemeBlur::Md => &self.md,
+            ThemeBlur::Lg => &self.lg,
+            ThemeBlur::Xl => &self.xl,
+            ThemeBlur::Xxl => &self.xxl,
+            ThemeBlur::Xxxl => &self.xxxl,
+        }
+    }
 }
 
 /// One color scheme's tokens.
@@ -109,25 +175,17 @@ pub struct ColorTokens {
     pub danger: Color,
     pub success: Color,
     pub warning: Color,
+    pub glass_ultra_thin: Color,
+    pub glass_thin: Color,
+    pub glass_regular: Color,
+    pub glass_thick: Color,
+    pub glass_ultra_thick: Color,
 }
 
 #[elegance_macros::elg_builder]
 impl ColorTokens {
     pub fn get(&self, token: ThemeColor) -> Color {
-        match token {
-            ThemeColor::Background => self.background,
-            ThemeColor::Surface => self.surface,
-            ThemeColor::SurfaceRaised => self.surface_raised,
-            ThemeColor::Outline => self.outline,
-            ThemeColor::Primary => self.primary,
-            ThemeColor::Secondary => self.secondary,
-            ThemeColor::Tertiary => self.tertiary,
-            ThemeColor::Accent => self.accent,
-            ThemeColor::OnAccent => self.on_accent,
-            ThemeColor::Danger => self.danger,
-            ThemeColor::Success => self.success,
-            ThemeColor::Warning => self.warning,
-        }
+        self[token]
     }
 }
 
@@ -147,16 +205,22 @@ impl std::ops::Index<ThemeColor> for ColorTokens {
             ThemeColor::Danger => &self.danger,
             ThemeColor::Success => &self.success,
             ThemeColor::Warning => &self.warning,
+            ThemeColor::GlassUltraThin => &self.glass_ultra_thin,
+            ThemeColor::GlassThin => &self.glass_thin,
+            ThemeColor::GlassRegular => &self.glass_regular,
+            ThemeColor::GlassThick => &self.glass_thick,
+            ThemeColor::GlassUltraThick => &self.glass_ultra_thick,
         }
     }
 }
 
-/// Colors for both color schemes.
+/// Colors for both color schemes, and blur radii.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
     pub light: ColorTokens,
     pub dark: ColorTokens,
+    pub blur: BlurTokens,
 }
 
 impl Default for Theme {
@@ -190,6 +254,11 @@ impl Theme {
                 danger: Color::hex(0xFF3B30),
                 success: Color::hex(0x34C759),
                 warning: Color::hex(0xFF9F0A),
+                glass_ultra_thin: Color::new(0.97, 0.97, 0.98, 0.2),
+                glass_thin: Color::new(0.97, 0.97, 0.98, 0.38),
+                glass_regular: Color::new(0.97, 0.97, 0.98, 0.55),
+                glass_thick: Color::new(0.97, 0.97, 0.98, 0.72),
+                glass_ultra_thick: Color::new(0.97, 0.97, 0.98, 0.86),
             },
             dark: ColorTokens {
                 background: Color::hex(0x1C1C1E),
@@ -204,12 +273,18 @@ impl Theme {
                 danger: Color::hex(0xFF453A),
                 success: Color::hex(0x30D158),
                 warning: Color::hex(0xFFD60A),
+                glass_ultra_thin: Color::new(0.11, 0.11, 0.12, 0.3),
+                glass_thin: Color::new(0.11, 0.11, 0.12, 0.45),
+                glass_regular: Color::new(0.11, 0.11, 0.12, 0.6),
+                glass_thick: Color::new(0.11, 0.11, 0.12, 0.74),
+                glass_ultra_thick: Color::new(0.11, 0.11, 0.12, 0.86),
             },
+            blur: BlurTokens::standard(),
         }
     }
 
     pub(crate) fn c(&self) -> sys::ElgTheme {
-        // Same layout: 24 colors of four f32s.
+        // Same layout: 34 colors of four f32s, then 7 f32s.
         unsafe { std::mem::transmute::<Theme, sys::ElgTheme>(*self) }
     }
     pub(crate) fn from_c(c: sys::ElgTheme) -> Self {

@@ -372,6 +372,10 @@ fn controls() -> View {
                 .floating_container()
                 .popover_style(PlainPopoverStyle)
                 .tooltip_style(DefaultTooltipStyle)
+            Text("Glass")
+                .background_in(.glass_regular, RoundedRectangle(8))
+                .backdrop_blur(.xl, saturation: 1.8)
+                .blur(ThemeBlur::Xs)
             Text("Effects")
                 .backdrop_blur_in(20, RoundedRectangle(8), |o| o.noise(0.02))
                 .border(.outline, 1)
@@ -393,6 +397,20 @@ fn controls_build() {
     // Each crosses into Elegance; a C++ exception would panic here.
     assert!(!controls().is_empty());
     assert!(EmptyView().is_empty());
+}
+
+#[test]
+fn theme_glass_and_blur() {
+    let theme = Theme::standard();
+    assert_eq!(theme.dark[ThemeColor::GlassRegular], Color::new(0.11, 0.11, 0.12, 0.6));
+    assert_eq!(theme.light.get(ThemeColor::GlassUltraThin), Color::new(0.97, 0.97, 0.98, 0.2));
+    assert_eq!(theme.blur[ThemeBlur::Xxl], 40.0);
+    // Round-trips through Elegance with the C++ layout.
+    let mut restyled = theme;
+    restyled.blur.xl = 30.0;
+    restyled.dark.glass_thick = Color::WHITE;
+    let view = Text("x").theme(restyled);
+    assert!(!view.is_empty());
 }
 
 #[test]

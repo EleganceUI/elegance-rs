@@ -927,8 +927,13 @@ pub struct ElgGridDesc {
     pub spacing_b: ElgOptLen,
 }
 
-/// `elg::Theme`: light then dark tokens, 12 colors each.
-pub type ElgTheme = [ElgColor; 24];
+/// `elg::Theme`: light then dark tokens, 17 colors each, then the blur radii.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ElgTheme {
+    pub colors: [ElgColor; 34],
+    pub blur: [f32; 7],
+}
 
 unsafe extern "C" {
     // --- core.cpp ---

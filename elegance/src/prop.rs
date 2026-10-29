@@ -18,7 +18,7 @@ use elegance_sys as sys;
 
 use crate::color::{
     AngularGradient, Color, ColorScheme, EllipticalGradient, LinearGradient, RadialGradient, ShapeStyle, Theme,
-    ThemeColor,
+    ThemeBlur, ThemeColor,
 };
 use crate::dot;
 use crate::environment::EnvironmentValues;
@@ -296,6 +296,13 @@ impl IntoProp<ShapeStyle> for ThemeColor {
     }
 }
 
+// Blur radii from the theme, for `.blur()` and `.backdrop_blur()`.
+impl IntoProp<f32> for ThemeBlur {
+    fn into_prop(self) -> Prop<f32> {
+        Prop::from_env(move |environment| environment.theme().blur[self])
+    }
+}
+
 impl IntoProp<ShapeStyle> for Color {
     fn into_prop(self) -> Prop<ShapeStyle> {
         Prop::Value(ShapeStyle::Color(self))
@@ -359,8 +366,19 @@ macro_rules! theme_markers {
 }
 theme_markers!(
     background, surface, surface_raised, outline, primary, secondary, tertiary, accent, on_accent, danger, success,
-    warning
+    warning, glass_ultra_thin, glass_thin, glass_regular, glass_thick, glass_ultra_thick
 );
+
+macro_rules! blur_markers {
+    ($($marker:ident),*) => {$(
+        impl IntoProp<f32> for dot::$marker {
+            fn into_prop(self) -> Prop<f32> {
+                ThemeBlur::from(self).into_prop()
+            }
+        }
+    )*};
+}
+blur_markers!(xs, sm, md, lg, xl, xxl, xxxl);
 
 macro_rules! color_markers {
     ($($marker:ident),*) => {$(

@@ -104,8 +104,8 @@ mod items {
     pub use crate::animation::{with_animation, Animation, AnimationValue, Pose, Transition};
     pub use crate::app::{post_to_ui_thread, version, App, AppHandle, TitleBar, WindowDesc};
     pub use crate::color::{
-        AngularGradient, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop,
-        LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeColor,
+        AngularGradient, BlurTokens, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop,
+        LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeBlur, ThemeColor,
     };
     pub use crate::environment::{Environment, EnvironmentKey, EnvironmentValues};
     pub use crate::error::{Error, ErrorKind};

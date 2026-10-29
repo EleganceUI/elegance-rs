@@ -12,7 +12,7 @@ using namespace elg;
 using namespace elg_shim;
 
 static_assert(sizeof(Color) == sizeof(ElgColor));
-static_assert(sizeof(Theme) == 24 * sizeof(ElgColor));
+static_assert(sizeof(Theme) == 34 * sizeof(ElgColor) + 7 * sizeof(float));
 static_assert(sizeof(Size) == sizeof(ElgSize));
 static_assert(sizeof(LayoutChild) == sizeof(void*), "Rust views a span of LayoutChild as a slice of pointers");
 
