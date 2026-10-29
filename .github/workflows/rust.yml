@@ -1,7 +1,8 @@
-# Checks, lints and tests the Rust crates on each desktop platform, against the prebuilt native
-# library (native.yml publishes it). A change to the shim or the Elegance pin has no prebuilt until
-# native.yml has run for it, so this fails on such a change rather than building Elegance from
-# source (about half an hour per platform); rerun it once native.yml has published the library.
+# Checks, lints and tests the Rust crates on each desktop platform, against the prebuilt C library
+# Elegance publishes for the commit elegance-sys/elegance-rev pins. The tests check that the
+# structs declared here have the C API's layouts (elg_layouts_*), so a pin bump that changes them
+# fails here, on its pull request. ELEGANCE_PREBUILT=1: a pin whose library isn't published fails
+# rather than building Elegance from source (about half an hour per platform).
 name: Rust
 
 on:
@@ -19,33 +20,7 @@ env:
     ELEGANCE_PREBUILT: "1"
 
 jobs:
-    # The shim must compile against the Elegance it pins. It doesn't when a branch made for a newer
-    # Elegance is merged by hand: update-elegance.yml merges those, together with the new pin,
-    # once that Elegance is on its main and its native library is built.
-    shim:
-        runs-on: ubuntu-24.04
-        steps:
-            - uses: actions/checkout@v7
-            - name: Pinned Elegance
-              id: rev
-              run: echo "rev=$(head -n 1 elegance-sys/native/elegance-rev | tr -d '\r[:space:]')" >> "$GITHUB_OUTPUT"
-            - uses: actions/checkout@v7
-              with:
-                  repository: ${{ github.repository_owner }}/elegance
-                  ref: ${{ steps.rev.outputs.rev }}
-                  path: upstream
-            - name: Compile the shim against it
-              env:
-                  CXX: g++-14
-                  REV: ${{ steps.rev.outputs.rev }}
-              run: |
-                  .github/scripts/check-shim.sh upstream || {
-                    echo "::error::The shim doesn't compile against the pinned Elegance (${REV:0:12}). If it's for a newer Elegance, don't merge it by hand: once that Elegance is on its main, update-elegance.yml builds this branch with it and merges both (or run it by hand with that rev and this branch)."
-                    exit 1
-                  }
-
     test:
-        needs: shim
         strategy:
             fail-fast: false
             matrix:

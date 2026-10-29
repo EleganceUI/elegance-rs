@@ -1,6 +1,7 @@
-// Links Elegance: a prebuilt library from this crate's GitHub release when there is one for the
-// target (build_prebuilt.rs: the shim and Elegance in one shared library, no C++ toolchain
-// needed), else the C++ shim built here against an Elegance build tree.
+// Links Elegance: the prebuilt library Elegance publishes for the pinned commit when there is one
+// for the target (build_prebuilt.rs: its C API and Elegance in one shared library, no C++
+// toolchain needed), else Elegance's C API (its c/ folder) built here against an Elegance build
+// tree.
 //
 // From source, Elegance is linked statically, from a static build (the dev-release-static preset):
 // the app is one executable plus the DLLs Elegance's dependencies come in. The `dynamic` feature
@@ -10,7 +11,7 @@
 // ELEGANCE_ROOT               the Elegance source tree (default: ../../elegance, a checkout beside this
 //                             workspace; without one, a clone of github.com/EleganceUI/elegance, see below)
 // ELEGANCE_GIT_REF            the commit, branch, or tag that clone checks out (default: the commit
-//                             native/elegance-rev pins, the one the prebuilt library has)
+//                             elegance-rev pins, the one the prebuilt library has)
 // ELEGANCE_CACHE_DIR          where clones go (default: the user cache folder's elegance/)
 // ELEGANCE_BUILD_DIR          a static build (default: $ELEGANCE_ROOT/build/dev-release-static if built)
 // ELEGANCE_SHARED_BUILD_DIR   a shared build, for `dynamic` (default: $ELEGANCE_ROOT/build/dev-release if built)
@@ -22,7 +23,7 @@
 // Elegance once into the user cache folder (%LOCALAPPDATA%\elegance\src or ~/.cache/elegance/src),
 // where every project that uses these bindings shares it and its build.
 //
-// The shim passes std::string and std::function across to Elegance, so it must use the same
+// The C API passes std::string and std::function across to Elegance, so it must use the same
 // compiler and C runtime. Rust links the release CRT (/MD), so use release-CRT builds of
 // Elegance, not dev-debug (/MDd).
 
@@ -36,13 +37,8 @@ mod cmake;
 #[path = "build_prebuilt.rs"]
 mod prebuilt;
 
-const SHIM_FILES: &[&str] = &[
-    "shim/core.cpp",
-    "shim/views.cpp",
-    "shim/ext.cpp",
-    "shim/platform.cpp",
-    "shim/styles.cpp",
-];
+/// Elegance's C API, in its source tree's c/ folder.
+const C_API_FILES: &[&str] = &["core.cpp", "views.cpp", "ext.cpp", "platform.cpp", "styles.cpp"];
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -65,9 +61,18 @@ fn main() {
     };
     println!("cargo:rerun-if-env-changed={build_var}");
     println!("cargo:rerun-if-env-changed=ELEGANCE_AUTO_BUILD");
-    println!("cargo:rerun-if-changed=shim/shim.h");
-    for file in SHIM_FILES {
-        println!("cargo:rerun-if-changed={file}");
+    let c_api = root.join("c");
+    if !c_api.join("shim.h").is_file() {
+        panic!(
+            "\n\nelegance-sys: {} has no C API (c/shim.h). Use an Elegance checkout at or after the commit \
+             elegance-rev pins.\n",
+            root.display()
+        );
+    }
+    let c_api_files: Vec<PathBuf> = C_API_FILES.iter().map(|file| c_api.join(file)).collect();
+    println!("cargo:rerun-if-changed={}", c_api.join("shim.h").display());
+    for file in &c_api_files {
+        println!("cargo:rerun-if-changed={}", file.display());
     }
 
     // An explicit build tree, else the preset's if it's built, else one this script builds.
@@ -103,7 +108,7 @@ fn main() {
 
     let mut shim = cc::Build::new();
     shim.cpp(true)
-        .files(SHIM_FILES)
+        .files(&c_api_files)
         .include(root.join("include"))
         .include(&generated)
         .define("NOMINMAX", None)

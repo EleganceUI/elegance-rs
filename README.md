@@ -28,7 +28,7 @@ fn main() -> Result<std::process::ExitCode, Error> {
 
 ## Crates
 
-- `elegance-sys`: a C++ shim (`shim/*.cpp`) giving Elegance's C++23 API a C ABI, and the raw FFI.
+- `elegance-sys`: the raw FFI to Elegance's C API, which lives in Elegance (`c/`).
 - `elegance`: the safe API: views, modifiers, reactive state, environment, styles, layouts, custom
   modifiers, effects, gestures, animation, media, GPU images, desktop, previews. Elegance has no
   network API: use a Rust HTTP or WebSocket crate and hand results to the UI with
@@ -47,33 +47,33 @@ elegance = { git = "https://github.com/EleganceUI/elegance-rs" }
 ```
 
 On Linux (x86_64, ARM64), macOS (Apple Silicon, Intel), and Windows (x64, ARM64, x86), the build
-downloads a prebuilt Elegance: one shared library (`elegance_native`) holding Elegance, its
-dependencies, and the C++ shim, which Cargo copies next to your binaries. You need no C++ compiler,
+downloads a prebuilt Elegance: one shared library (`elegance_c`) holding Elegance, its
+dependencies, and its C API, which Cargo copies next to your binaries. You need no C++ compiler,
 CMake, or vcpkg, only `curl` and `tar` (built into Windows 10+, macOS, and Linux distributions).
 Ship the library beside your executable; on Linux, also give the executable an rpath of `$ORIGIN`
 (`-C link-args=-Wl,-rpath,$ORIGIN`), or set `LD_LIBRARY_PATH`. The library needs glibc 2.35+ on
 Linux and macOS 13.3+.
 
-The library contains the Elegance commit pinned in `elegance-sys/native/elegance-rev`, and it's
-named after a hash of that pin and the shim sources. Prebuilt libraries are attached to GitHub
-releases: a `vX.Y.Z` release per version, and a `native-<hash>` prerelease for every pin and shim
-revision on `main` (CI builds them; see `.github/workflows/native.yml`). The build script only uses
-one whose hash matches its own. When there's none (a target without prebuilts, or a change CI
-hasn't built yet), it builds Elegance from source as described below.
+The library is the one Elegance publishes for the commit pinned in `elegance-sys/elegance-rev`:
+Elegance's CI builds it for every commit on its `main` and attaches it to a `c-<commit>` prerelease
+there (Elegance's `.github/workflows/c-api.yml`). The build script checks the archive was built
+from that commit. When there's none (a target without prebuilts), it builds Elegance from source
+as described below.
 
-Elegance improvements reach the bindings by moving the pin: `.github/workflows/update-elegance.yml`
-checks Elegance's `main` every six hours (or when run by hand), builds and publishes the library
-for a newer commit, and only then commits the new pin. With a git dependency, `cargo update -p
-elegance` picks it up; a release keeps the Elegance it pinned.
+Elegance improvements reach the bindings through pull requests: once Elegance publishes a newer
+commit's library, `.github/workflows/bump-elegance.yml` opens (or updates) one that moves the pin,
+and the tests run on it. If the C API changed, push the Rust side to that pull request's branch.
+With a git dependency, `cargo update -p elegance` picks up a merged pin; a release keeps the
+Elegance it pinned.
 
 | Variable | Effect |
 |---|---|
 | `ELEGANCE_PREBUILT=0` | never download: build from source |
 | `ELEGANCE_PREBUILT=1` | always use a prebuilt library, even beside an Elegance checkout; fail without one |
 | `ELEGANCE_NATIVE_DIR` | an extracted archive to use (offline builds, mirrors) |
-| `ELEGANCE_PREBUILT_URL` | a folder (`https://`, `file://`) holding `elegance-native-<target>.tar.gz` |
+| `ELEGANCE_PREBUILT_URL` | a folder (`https://`, `file://`) holding `elegance-c-<target>.tar.gz` |
 
-Downloads are cached in the user cache folder (`elegance/native/`) and shared by every project.
+Downloads are cached in the user cache folder (`elegance/c/`) and shared by every project.
 Previews (the `dynamic` feature) still build Elegance from source.
 
 ### Building from source
@@ -115,7 +115,7 @@ environment is found without a developer prompt. The choice of build is made whe
 runs: after building a tree of your own, `cargo clean -p elegance-sys` to switch to it.
 
 A build of your own must use the release C runtime (`/MD`) like Rust, not a Debug build's `/MDd`
-(the shim passes `std::string` and `std::function` to Elegance), and a static one needs
+(the C API passes `std::string` and `std::function` to Elegance), and a static one needs
 `-DELG_ACCESSKIT_SHARED=ON` (AccessKit's static library is a Rust staticlib, whose own Rust standard
 library clashes with the app's).
 

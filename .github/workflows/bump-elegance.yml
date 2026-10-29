@@ -1,0 +1,116 @@
+# Opens a pull request that moves the Elegance pin (elegance-sys/elegance-rev) to a newer commit
+# whose prebuilt C library Elegance has published, so Elegance's changes reach Rust users through
+# an ordinary, tested pull request. Nothing here pushes to main.
+#
+# Elegance's c-api.yml sends an elegance-published event once a commit's library is out (with the
+# ELEGANCE_RS_TOKEN secret there); the daily schedule catches anything else, and it can be run by
+# hand with a commit. Each run updates the one bump-elegance branch and its pull request: while the
+# pull request is open, the new pin goes on top of what's there, so fixes pushed to it for a C API
+# change are kept.
+#
+# Pushes made with the workflow's token start no workflows, so this starts rust.yml on the branch
+# itself; its checks show on the pull request.
+name: Bump Elegance
+
+on:
+    schedule:
+        - cron: "17 5 * * *"
+    workflow_dispatch:
+        inputs:
+            rev:
+                description: Elegance commit (full hash) to pin (default the newest one with a published library)
+                type: string
+                required: false
+    repository_dispatch:
+        types: [elegance-published]
+
+permissions:
+    contents: write
+    pull-requests: write
+    actions: write # starting rust.yml
+
+concurrency:
+    group: bump-elegance
+    cancel-in-progress: false
+
+env:
+    BRANCH: bump-elegance
+    PIN: elegance-sys/elegance-rev
+    ELEGANCE: ${{ github.repository_owner }}/elegance
+    GH_TOKEN: ${{ github.token }}
+
+jobs:
+    bump:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+
+            # The commit asked for, else the newest c-* prerelease. Either way, its library must be
+            # published for every target, or the pin would break builds.
+            - name: Commit to pin
+              id: rev
+              env:
+                  WANTED: ${{ inputs.rev || github.event.client_payload.rev }}
+              run: |
+                  if [ -n "$WANTED" ]; then
+                    tag="c-${WANTED:0:12}"
+                  else
+                    tag=$(gh release list -R "$ELEGANCE" --limit 50 --json tagName,createdAt \
+                      --jq '[.[] | select(.tagName | startswith("c-"))] | sort_by(.createdAt) | last | .tagName // empty')
+                  fi
+                  [ -n "$tag" ] || { echo "Elegance has published no C library yet."; exit 0; }
+                  assets=$(gh release view "$tag" -R "$ELEGANCE" --json assets --jq '[.assets[].name | select(startswith("elegance-c-"))] | length')
+                  if [ "${assets:-0}" -lt 6 ]; then
+                    echo "::notice::$tag has $assets of 6 archives: not pinning it."
+                    exit 0
+                  fi
+                  rev=$(gh release view "$tag" -R "$ELEGANCE" --json targetCommitish --jq .targetCommitish)
+                  pinned=$(git show "origin/main:$PIN" | tr -d '\r[:space:]')
+                  echo "Pinned: $pinned. Candidate: $rev ($tag)."
+                  if [ "$rev" = "$pinned" ]; then echo "Already pinned."; exit 0; fi
+                  echo "rev=$rev" >> "$GITHUB_OUTPUT"
+                  echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+
+            - name: Update the branch
+              if: steps.rev.outputs.rev != ''
+              id: push
+              env:
+                  REV: ${{ steps.rev.outputs.rev }}
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  open=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+                  if [ -n "$open" ]; then
+                    # Keep what's on the branch (fixes for this C API), with the newer pin on top.
+                    git checkout -B "$BRANCH" "origin/$BRANCH"
+                  else
+                    git checkout -B "$BRANCH" origin/main
+                  fi
+                  echo "$REV" > "$PIN"
+                  if git diff --quiet; then echo "The branch already pins ${REV:0:12}."; else
+                    git commit -am "Update Elegance to ${REV:0:12}" -m "See EleganceUI/elegance@$REV."
+                  fi
+                  if [ -n "$open" ]; then git push origin "$BRANCH"; else git push --force origin "$BRANCH"; fi
+                  echo "open=$open" >> "$GITHUB_OUTPUT"
+
+            - name: Open or update the pull request
+              if: steps.rev.outputs.rev != ''
+              env:
+                  REV: ${{ steps.rev.outputs.rev }}
+                  PINNED: ${{ steps.rev.outputs.pinned }}
+                  OPEN: ${{ steps.push.outputs.open }}
+              run: |
+                  body=$(cat <<EOF
+                  Moves the Elegance pin to EleganceUI/elegance@$REV, whose prebuilt C library is published ([changes](https://github.com/$ELEGANCE/compare/$PINNED...$REV)).
+
+                  If the C API changed, the build or the layout test fails here: push the Rust side of the change to this branch. Later Elegance commits move the pin on top of it until this is merged.
+                  EOF
+                  )
+                  if [ -n "$OPEN" ]; then
+                    gh pr edit "$OPEN" --title "Update Elegance to ${REV:0:12}" --body "$body"
+                  else
+                    gh pr create --base main --head "$BRANCH" --title "Update Elegance to ${REV:0:12}" --body "$body"
+                  fi
+                  gh workflow run rust.yml --ref "$BRANCH"
