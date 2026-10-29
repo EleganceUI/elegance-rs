@@ -27,7 +27,7 @@
 
 use crate::animation::{Animation, Transition};
 use crate::app::TitleBar;
-use crate::color::{Color, ColorScheme, ShapeStyle, ThemeColor};
+use crate::color::{Color, ColorScheme, ShapeStyle, ThemeBlur, ThemeColor};
 use crate::events::{Key, MouseButton, PointerStyle};
 use crate::font::{Font, Weight};
 use crate::geometry::{
@@ -287,10 +287,24 @@ dots! {
     danger { ThemeColor => ThemeColor::Danger }
     success { ThemeColor => ThemeColor::Success }
     warning { ThemeColor => ThemeColor::Warning }
+    glass_ultra_thin { ThemeColor => ThemeColor::GlassUltraThin }
+    glass_thin { ThemeColor => ThemeColor::GlassThin }
+    glass_regular { ThemeColor => ThemeColor::GlassRegular }
+    glass_thick { ThemeColor => ThemeColor::GlassThick }
+    glass_ultra_thick { ThemeColor => ThemeColor::GlassUltraThick }
     white { Color => Color::WHITE }
     clear { Color => Color::CLEAR }
     light { ColorScheme => ColorScheme::Light, Weight => Weight::Light }
     dark { ColorScheme => ColorScheme::Dark }
+
+    // Blur radii.
+    xs { ThemeBlur => ThemeBlur::Xs }
+    sm { ThemeBlur => ThemeBlur::Sm }
+    md { ThemeBlur => ThemeBlur::Md }
+    lg { ThemeBlur => ThemeBlur::Lg }
+    xl { ThemeBlur => ThemeBlur::Xl }
+    xxl { ThemeBlur => ThemeBlur::Xxl }
+    xxxl { ThemeBlur => ThemeBlur::Xxxl }
 
 
     // Blend modes.
