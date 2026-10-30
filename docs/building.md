@@ -2,39 +2,42 @@
 
 [← README](../README.md)
 
-Elegance's Rust bindings link to the native [Elegance](https://github.com/EleganceUI/elegance)
-framework. Linkage depends on the build path, not just whether the `dynamic` feature is enabled:
+elegance-sys links the native [Elegance](https://github.com/EleganceUI/elegance) framework
+through its C API. How it links depends on where Elegance comes from:
 
-| Build path | Elegance linkage | Runtime files |
+| Build path | Elegance linkage | Files to ship beside the executable |
 | --- | --- | --- |
-| Downloaded prebuilt (default without source overrides or a sibling checkout) | Static C API and Elegance archives linked into the Rust executable | Shared dependencies such as AccessKit; no Elegance shared library. |
-| Source build (default features) | Static Elegance library | Any shared dependencies listed by the native build. |
-| Source build with `dynamic` (including previews) | Shared Elegance library | Elegance and its shared dependencies. |
+| Prebuilt package (the default) | Static: one archive linked into the executable | AccessKit's shared library (and, on Windows, Dawn's shader compiler DLLs if present) |
+| Source build | Static Elegance library | Any shared dependencies the native build lists |
+| Source build with the `dynamic` feature (previews) | Shared Elegance library | Elegance and its shared dependencies |
 
-Static Elegance linkage does **not** imply a fully static, single-file executable.
+Cargo copies the files to ship next to your binaries in `target/<profile>/`. System libraries and
+frameworks remain ordinary platform dependencies, so a static Elegance doesn't make a fully
+static, single-file executable.
 
 ## Prebuilt libraries
 
-By default, `elegance-sys` downloads a package containing static `elegance_c`, Elegance, and
-native dependency archives, plus a relocatable `elegance-link.txt` manifest. Cargo links these
-archives into the final Rust executable in manifest order; the archives are not runtime files
-and do not need to ship with the application. This path requires `curl` and `tar`, but no C++
-compiler, CMake, or vcpkg.
+By default, elegance-sys downloads Elegance's static package for your target. It holds:
 
-The manifest separately lists shared runtime dependencies. AccessKit remains shared because
-its Rust static library includes a second Rust standard library that conflicts with the
-application's. System libraries and frameworks also remain platform dependencies.
+- `lib/libelegance_c.a` (`elegance_c.lib` on Windows): one archive that merges the C API,
+  Elegance, and every static dependency, Dawn included
+- the shared libraries that stay separate: AccessKit's, because its static library carries its
+  own copy of the Rust standard library, which would clash with your application's
+- `elegance-link.txt`: what linking the archive takes (system libraries and frameworks, and the
+  shared libraries above), with paths relative to the package
+
+Cargo links the archive into the final executable. The archive is not a runtime file and
+doesn't ship with your application. This path needs `curl` and `tar`, but no C++ compiler,
+CMake, or vcpkg.
 
 The native revision is pinned in [`elegance-sys/elegance-rev`](../elegance-sys/elegance-rev).
-Elegance's CI publishes archives for each commit on `main` as a `c-<commit>` prerelease, and
-the build script verifies that the archive matches the pinned commit. Downloads are cached
-under `elegance/c-static/` in the user cache directory and shared across projects.
+Elegance's CI builds the package for every commit on `main` and publishes it as
+`elegance-c-static-<target>.tar.gz` in a `c-<commit>` prerelease. The build script checks that
+the package's `BUILDINFO` names the pinned commit and `linkage static`, then caches it under
+`elegance/c-static/` in the user cache folder, shared by all your projects.
 
-Static packages are named `elegance-c-static-<target>.tar.gz` and include `linkage static` in
-`BUILDINFO`. Old shared packages are not accepted or silently linked dynamically. Until a static
-package is published for the pinned native revision, the normal build falls back to a static
-source build; `ELEGANCE_PREBUILT=1` instead fails. Updating the pin to a newly published static
-package is required to enable the download-only path for that revision.
+If no static package is published for the pinned revision and target, the build falls back to a
+source build; with `ELEGANCE_PREBUILT=1`, it fails instead.
 
 | Environment variable | Purpose |
 | --- | --- |
@@ -45,12 +48,29 @@ package is required to enable the download-only path for that revision.
 
 Previews use the `dynamic` feature and build Elegance from source.
 
+To build the static package yourself, for example for an unsupported target or a modified
+Elegance, configure Elegance's `c/` project with `ELG_C_STATIC`, then point
+`ELEGANCE_NATIVE_DIR` at the installed result:
+
+```sh
+cmake -S c -B build/c-static -G Ninja -DCMAKE_BUILD_TYPE=Release -DELG_C_STATIC=ON \
+      -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_MANIFEST_DIR=.
+cmake --build build/c-static
+cmake --install build/c-static --prefix build/c-static-dist
+```
+
+On Windows, add `-DVCPKG_TARGET_TRIPLET=x64-windows-static-md`: the archive must use the shared
+C runtime (`/MD`), as Rust does.
+
 ### Distributing an application
 
-Ship only the shared runtime dependencies copied beside your executable, not the static
-archives. Neither `elegance_c` nor Elegance requires a shared library in default builds.
-Linux executables need an rpath for the remaining shared dependencies of `$ORIGIN` (`-C link-args=-Wl,-rpath,$ORIGIN`) or an appropriate `LD_LIBRARY_PATH`.
-Prebuilt libraries require glibc 2.35+ on Linux and macOS 13.3+.
+Ship the executable together with the shared libraries Cargo copied beside it (AccessKit's).
+There is no Elegance shared library to ship.
+
+On Linux, the executable needs `$ORIGIN` in its rpath (`-C link-args=-Wl,-rpath,$ORIGIN`) to
+find them, or an appropriate `LD_LIBRARY_PATH`. The Linux package also links libstdc++
+statically, so apps need only glibc 2.35 or newer. On macOS the prebuilt libraries need macOS
+13.3 or newer.
 
 On macOS, `elegance-sys` stages dylibs with loader-relative install names and ad-hoc signs the
 staged copies before linking and copying them beside Cargo's binaries. Executables can run

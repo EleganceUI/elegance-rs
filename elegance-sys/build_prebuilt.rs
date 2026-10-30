@@ -1,6 +1,7 @@
-// Prebuilt static C API, Elegance, and dependency archives. Rust links them into the final
-// executable without compiling C++ or running CMake/vcpkg. Shared runtime dependencies (not
-// Elegance itself) are listed separately in the relocatable elegance-link.txt manifest.
+// The prebuilt static package: one archive holding the C API, Elegance, and every static
+// dependency (Elegance's c/package-static.cmake merges it), which Rust links into the final
+// executable without compiling C++ or running CMake/vcpkg. Its relocatable elegance-link.txt
+// lists the system libraries it needs and the shared libraries that stay separate (AccessKit's).
 //
 // elegance-rev pins the Elegance commit whose C API this crate declares. Elegance's CI
 // (.github/workflows/c-api.yml there) builds the library for every commit on its main and attaches
@@ -219,7 +220,6 @@ pub fn link_manifest(native: &Path) -> Result<NativeLink, String> {
     })?;
     let mut link = NativeLink::default();
     let mut have_shim = false;
-    let mut have_elegance = false;
     for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
         let (kind, value) = line
             .split_once(' ')
@@ -249,7 +249,6 @@ pub fn link_manifest(native: &Path) -> Result<NativeLink, String> {
                     );
                 }
                 have_shim |= stem == "elegance_c";
-                have_elegance |= stem == "elegance";
                 link.libs
                     .push(("static", path.to_string_lossy().into_owned()));
             }
@@ -284,8 +283,9 @@ pub fn link_manifest(native: &Path) -> Result<NativeLink, String> {
             _ => return Err(format!("unknown static link manifest entry: {line}")),
         }
     }
-    if !have_shim || !have_elegance {
-        return Err("static package must contain both elegance_c and Elegance archives".into());
+    // Elegance itself is merged into elegance_c.
+    if !have_shim {
+        return Err("static package must contain the elegance_c archive".into());
     }
     Ok(link)
 }

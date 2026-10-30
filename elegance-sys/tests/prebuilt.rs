@@ -29,7 +29,6 @@ impl Package {
         fs::create_dir_all(root.join("lib")).unwrap();
         let package = Self(root);
         package.file("lib/libelegance_c.a", "");
-        package.file("lib/libelegance.a", "");
         package.manifest("");
         package
     }
@@ -39,7 +38,7 @@ impl Package {
     fn manifest(&self, extra: &str) {
         self.file(
             "elegance-link.txt",
-            &format!("static lib/libelegance_c.a\nstatic lib/libelegance.a\n{extra}"),
+            &format!("static lib/libelegance_c.a\n{extra}"),
         );
     }
 }
@@ -50,18 +49,17 @@ impl Drop for Package {
 }
 
 #[test]
-fn resolves_static_archives_in_link_order_and_separates_runtime() {
+fn resolves_the_archive_and_separates_runtime() {
     let package = Package::new();
     package.file("lib/libaccesskit.dylib", "");
     package.manifest("lib lib/libaccesskit.dylib\nruntime lib/libaccesskit.dylib\nlib -framework Foundation\nlib c++\n");
     let link = prebuilt::link_manifest(&package.0).unwrap();
     assert_eq!(
         link.libs.iter().map(|l| l.0).collect::<Vec<_>>(),
-        ["static", "static", "lib", "lib", "lib"]
+        ["static", "lib", "lib", "lib"]
     );
     assert!(link.libs[0].1.ends_with("/lib/libelegance_c.a"));
-    assert!(link.libs[1].1.ends_with("/lib/libelegance.a"));
-    assert_eq!(link.libs[3].1, "-framework Foundation");
+    assert_eq!(link.libs[2].1, "-framework Foundation");
     assert_eq!(link.runtime.len(), 1);
     assert!(link.runtime[0].ends_with("libaccesskit.dylib"));
 }
@@ -71,10 +69,10 @@ fn rejects_old_shared_packages_and_missing_archives() {
     let package = Package::new();
     package.file("elegance-link.txt", "lib elegance_c\n");
     assert!(prebuilt::link_manifest(&package.0).is_err());
-    package.file("elegance-link.txt", "static lib/libelegance_c.a\n");
+    package.file("elegance-link.txt", "lib m\n");
     assert!(prebuilt::link_manifest(&package.0).is_err());
     package.manifest("");
-    fs::remove_file(package.0.join("lib/libelegance.a")).unwrap();
+    fs::remove_file(package.0.join("lib/libelegance_c.a")).unwrap();
     assert!(prebuilt::link_manifest(&package.0).is_err());
 }
 
@@ -119,17 +117,13 @@ fn rejects_shared_elegance_and_accesskit_staticlib() {
 fn windows_static_archives_are_explicit_not_inferred_from_lib_extension() {
     let package = Package::new();
     package.file("lib/elegance_c.lib", "");
-    package.file("lib/elegance.lib", "");
     package.file(
         "elegance-link.txt",
-        "static lib/elegance_c.lib\nstatic lib/elegance.lib\nlib user32.lib\n",
+        "static lib/elegance_c.lib\nlib user32.lib\n",
     );
     let link = prebuilt::link_manifest(&package.0).unwrap();
     assert_eq!(link.libs[0].0, "static");
-    package.file(
-        "elegance-link.txt",
-        "lib lib/elegance_c.lib\nlib lib/elegance.lib\n",
-    );
+    package.file("elegance-link.txt", "lib lib/elegance_c.lib\n");
     assert!(prebuilt::link_manifest(&package.0).is_err());
 }
 
@@ -154,17 +148,21 @@ fn rust_executable_contains_prebuilt_code_after_package_is_removed() {
         "extern int elegance_value(void); int elg_value(void) { return elegance_value(); }\n",
     );
     package.file("core.c", "int elegance_value(void) { return 42; }\n");
-    for (source, name) in [("api", "elegance_c"), ("core", "elegance")] {
+    // Like the real package: the C API and Elegance merged into one archive.
+    let archive = package.0.join("lib/libelegance_c.a");
+    fs::remove_file(&archive).unwrap();
+    let mut ar = Command::new("ar");
+    ar.arg("crs").arg(&archive);
+    for source in ["api", "core"] {
         let object = package.0.join(format!("{source}.o"));
         run(Command::new("cc")
             .arg("-c")
             .arg(package.0.join(format!("{source}.c")))
             .arg("-o")
             .arg(&object));
-        let archive = package.0.join(format!("lib/lib{name}.a"));
-        fs::remove_file(&archive).unwrap();
-        run(Command::new("ar").arg("crs").arg(archive).arg(object));
+        ar.arg(object);
     }
+    run(&mut ar);
     // Prove that no build-machine absolute paths are needed after relocation.
     let relocated = Package(package.0.with_extension("relocated"));
     fs::rename(&package.0, &relocated.0).unwrap();
