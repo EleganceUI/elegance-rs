@@ -33,7 +33,13 @@ jobs:
               with:
                   components: clippy
             - uses: Swatinem/rust-cache@v2
-            # Cargo copies the library beside test binaries; on Linux they find it via an rpath.
+            - name: Static prebuilt regression tests
+              shell: bash
+              run: |
+                  mkdir -p target
+                  rustc --edition=2024 --test elegance-sys/tests/prebuilt.rs -o target/prebuilt-tests.exe
+                  ./target/prebuilt-tests.exe
+            # Cargo copies shared dependencies beside test binaries; Linux needs an rpath.
             - name: Linux rpath
               if: runner.os == 'Linux'
               shell: bash

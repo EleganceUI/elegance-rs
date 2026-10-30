@@ -1,5 +1,5 @@
 // Links Elegance: the prebuilt library Elegance publishes for the pinned commit when there is one
-// for the target (build_prebuilt.rs: its C API and Elegance in one shared library, no C++
+// for the target (build_prebuilt.rs: static C API, Elegance and dependency archives, no C++
 // toolchain needed), else Elegance's C API (its c/ folder) built here against an Elegance build
 // tree.
 //
@@ -38,16 +38,29 @@ mod cmake;
 mod prebuilt;
 
 /// Elegance's C API, in its source tree's c/ folder.
-const C_API_FILES: &[&str] = &["core.cpp", "views.cpp", "ext.cpp", "platform.cpp", "styles.cpp"];
+const C_API_FILES: &[&str] = &[
+    "core.cpp",
+    "views.cpp",
+    "ext.cpp",
+    "platform.cpp",
+    "styles.cpp",
+];
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let dynamic = env::var_os("CARGO_FEATURE_DYNAMIC").is_some();
     // `dynamic` is for previews, whose host comes from a source build.
     if let Some(native) = (!dynamic).then(|| prebuilt::find(&manifest)).flatten() {
-        let library = prebuilt::library(&native);
-        let runtime = copy_runtime_files(&[native.join("lib")]);
-        link_lib("lib", &library.to_string_lossy(), &runtime);
+        println!(
+            "cargo:rerun-if-changed={}",
+            native.join("elegance-link.txt").display()
+        );
+        let link = prebuilt::link_manifest(&native)
+            .unwrap_or_else(|error| panic!("\n\nelegance-sys: {error}\n"));
+        let runtime = copy_runtime_files(&link.runtime);
+        for (kind, library) in &link.libs {
+            link_lib(kind, library, &runtime);
+        }
         println!("cargo:native_dir={}", native.display());
         println!("cargo:dynamic=false");
         return;

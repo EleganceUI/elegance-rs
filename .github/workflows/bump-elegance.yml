@@ -61,7 +61,7 @@ jobs:
                       --jq '[.[] | select(.tagName | startswith("c-"))] | sort_by(.createdAt) | last | .tagName // empty')
                   fi
                   [ -n "$tag" ] || { echo "Elegance has published no C library yet."; exit 0; }
-                  assets=$(gh release view "$tag" -R "$ELEGANCE" --json assets --jq '[.assets[].name | select(startswith("elegance-c-"))] | length')
+                  assets=$(gh release view "$tag" -R "$ELEGANCE" --json assets --jq '[.assets[].name | select(startswith("elegance-c-static-"))] | length')
                   if [ "${assets:-0}" -lt 6 ]; then
                     echo "::notice::$tag has $assets of 6 archives: not pinning it."
                     exit 0

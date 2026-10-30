@@ -1,8 +1,50 @@
 # elegance-rs
 
-Rust bindings to [Elegance](https://github.com/EleganceUI/elegance), with `elg!`, a SwiftUI-style
-DSL. Examples are in [elegance-examples](https://github.com/EleganceUI/elegance-examples)
-(the `*-rs` folders).
+Rust bindings for [Elegance](https://github.com/EleganceUI/elegance), a cross-platform UI
+framework. Build desktop interfaces with a SwiftUI-style `elg!` DSL, composable views, and
+fine-grained reactive state.
+
+- **Declarative UI:** layouts, reusable components, typed modifiers, and named arguments.
+- **Reactive state:** one-way properties, two-way bindings, and derived values.
+- **Desktop tooling:** live previews and hot reload with `cargo elegance preview`.
+- **Rendering:** images, gradients, effects, gestures, animation, and optional wgpu integration.
+
+[Getting started](#getting-started) · [Core concepts](#core-concepts) ·
+[Examples](https://github.com/EleganceUI/elegance-examples) ·
+[Native build guide](docs/building.md) · [Contributing](#contributing)
+
+## Getting started
+
+### Requirements
+
+Use a current stable Rust toolchain. The workspace uses Rust edition 2024.
+Prebuilt native libraries are available for these targets:
+
+| Platform | Architectures | Minimum runtime |
+| --- | --- | --- |
+| Linux | x86_64, ARM64 | glibc 2.35+ |
+| macOS | Apple Silicon, Intel | macOS 13.3+ |
+| Windows (MSVC) | x64, ARM64 | — |
+
+By default, builds without a local Elegance checkout or source-build override download the
+pinned **static** native archives using `curl` and `tar`; no C++ toolchain is needed.
+Both prebuilt and source builds link Elegance and its C API into the final Rust executable
+by default. Shared dependencies such as AccessKit remain separate runtime files. The `dynamic`
+feature uses shared Elegance for previews and hot reload.
+See the [native build guide](docs/building.md) for build selection and toolchain requirements.
+
+### Installation
+
+Create a binary crate with `cargo new counter`, then add the Git dependency to `Cargo.toml`:
+
+```toml
+[dependencies]
+elegance = { git = "https://github.com/EleganceUI/elegance-rs" }
+```
+
+### A counter application
+
+Replace `src/main.rs` with:
 
 ```rust
 use elegance::prelude::*;
@@ -26,185 +68,137 @@ fn main() -> Result<std::process::ExitCode, Error> {
 }
 ```
 
-## Crates
+Run the application with `cargo run`.
 
-- `elegance-sys`: the raw FFI to Elegance's C API, which lives in Elegance (`c/`).
-- `elegance`: the safe API: views, modifiers, reactive state, environment, styles, layouts, custom
-  modifiers, effects, gestures, animation, media, GPU images, desktop, previews. Elegance has no
-  network API: use a Rust HTTP or WebSocket crate and hand results to the UI with
-  `post_to_ui_thread`.
-- `elegance-macros`: `elg!`, `#[component]`, and `#[preview]`.
-- `cargo-elegance`: `cargo elegance preview`, the preview host runner.
-- `elegance-wgpu`: native Rust wgpu → Elegance GPU-image sharing, on wgpu 30.0.1 from
-  crates.io. Metal is hardware-tested here, while DX12/Vulkan still require platform
-  validation.
-
-## Using it
+**Linux:** add a loader-relative rpath to `.cargo/config.toml` before running:
 
 ```toml
-[dependencies]
-elegance = { git = "https://github.com/EleganceUI/elegance-rs" }
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-args=-Wl,-rpath,$ORIGIN"]
 ```
 
-On Linux (x86_64, ARM64), macOS (Apple Silicon, Intel), and Windows (x64, ARM64, x86), the build
-downloads a prebuilt Elegance: one shared library (`elegance_c`) holding Elegance, its
-dependencies, and its C API, which Cargo copies next to your binaries. You need no C++ compiler,
-CMake, or vcpkg, only `curl` and `tar` (built into Windows 10+, macOS, and Linux distributions).
-Ship the library beside your executable; on Linux, also give the executable an rpath of `$ORIGIN`
-(`-C link-args=-Wl,-rpath,$ORIGIN`), or set `LD_LIBRARY_PATH`. The library needs glibc 2.35+ on
-Linux and macOS 13.3+.
+There is no `elegance_c` shared library to distribute. Cargo copies remaining shared runtime
+dependencies beside the executable. Keep those libraries with your application
+when distributing it. See the [native build guide](docs/building.md) for offline builds, source
+builds, library overrides, and packaging requirements.
 
-The library is the one Elegance publishes for the commit pinned in `elegance-sys/elegance-rev`:
-Elegance's CI builds it for every commit on its `main` and attaches it to a `c-<commit>` prerelease
-there (Elegance's `.github/workflows/c-api.yml`). The build script checks the archive was built
-from that commit. When there's none (a target without prebuilts), it builds Elegance from source
-as described below.
+## Core concepts
 
-Elegance improvements reach the bindings through pull requests: once Elegance publishes a newer
-commit's library, `.github/workflows/bump-elegance.yml` opens (or updates) one that moves the pin,
-and the tests run on it. If the C API changed, push the Rust side to that pull request's branch.
-With a git dependency, `cargo update -p elegance` picks up a merged pin; a release keeps the
-Elegance it pinned.
+### The `elg!` DSL
 
-| Variable | Effect |
-|---|---|
-| `ELEGANCE_PREBUILT=0` | never download: build from source |
-| `ELEGANCE_PREBUILT=1` | always use a prebuilt library, even beside an Elegance checkout; fail without one |
-| `ELEGANCE_NATIVE_DIR` | an extracted archive to use (offline builds, mirrors) |
-| `ELEGANCE_PREBUILT_URL` | a folder (`https://`, `file://`) holding `elegance-c-<target>.tar.gz` |
+`elg!` combines view construction with ordinary Rust expressions. Named arguments map to
+builder methods, and child blocks describe view content.
 
-Downloads are cached in the user cache folder (`elegance/c/`) and shared by every project.
-Previews (the `dynamic` feature) still build Elegance from source.
+| Syntax | Meaning |
+| --- | --- |
+| `Name(a, b)` | Construct an element through an `ElgNew` tuple implementation. |
+| `Name(a, key: v)` | Construct an element, then call its `.key(v)` builder method. |
+| `Name { ... }` | Supply children, such as a stack's views or a button's label. |
+| `ForEach(xs, id: \|x\| x.id) { x in ... }` | Build content for each item. |
+| `if cond { ... } else { ... }` | Select a view reactively. |
+| `match value { pat => View(), ... }` | Rebuild the selected view when a `Clone + PartialEq` value changes. |
+| `.leading`, `.accent`, `.bold`, `.infinity` | Resolve a named value using the parameter's expected type. |
+| `"{count} left"` | Interpolate text reactively. |
+| `"{size.0}x{size.1}"`, `"{user.name:>8}"`, `"{a + b}"` | Read state fields, apply formatting, or evaluate expressions in text. |
+| `{ expr }` or a variable | Insert a Rust value implementing `IntoView`. |
+| `(layout) { ... }` | Apply a custom `Layout` to children. |
+| `.m(a, key: v)` | Call `.m_with(a, \|o\| o.key(v))`, as in `.frame(max_width: .infinity)`. |
 
-### Building from source
+Content closures also support APIs such as `AsyncImage(url) { phase in ... }`.
 
-The first source build compiles Elegance itself (C++, with CMake and vcpkg), which takes a while:
-about half an hour when vcpkg has to build Dawn. `cargo build -vv` shows its progress. Later builds
-reuse it. You need Visual Studio's C++ workload, Xcode 26 on macOS, or GCC 14+ on Linux (set
-`CC=gcc-14 CXX=g++-14` where it isn't the default), and git; the rest is found or downloaded.
+### State and reactivity
 
-From source, Elegance is linked statically by default: an app is one executable plus the DLLs
-Elegance's dependencies come in, which are copied next to it. The `dynamic` feature links
-`elegance.dll` instead, which previews need.
+`State`, `Binding`, and `Computed` are `Copy` handles, so `move` closures can capture them
+without cloning. A component's body runs once; reactive closures update independently when
+the state they read changes.
 
-### Where Elegance comes from
-
-A source build happens when `ELEGANCE_ROOT` or `ELEGANCE_BUILD_DIR` is set, when there's an
-Elegance checkout beside this repository, or when no prebuilt library fits. It needs Elegance's
-source:
-
-1. `ELEGANCE_ROOT`, if set;
-2. a checkout beside this repository (`../elegance`), for working on both;
-3. otherwise a clone of `EleganceUI/elegance` at the pinned commit, in the user cache folder
-   (`%LOCALAPPDATA%\elegance\src\<commit>`, `~/.cache/elegance/src/<commit>`), made once and
-   shared by every project. `ELEGANCE_GIT_REF` picks another commit, branch, or tag (a branch's
-   clone isn't updated: delete its folder to get a newer one).
-
-Then a build of it to link, in this order:
-
-1. `ELEGANCE_BUILD_DIR` (static) / `ELEGANCE_SHARED_BUILD_DIR` (`dynamic`), if set;
-2. `build/dev-release-static` / `build/dev-release` in the source tree, if built;
-3. otherwise it builds one itself, into `build/cargo-release-static` (or `cargo-release`), and
-   rebuilds it when Elegance's sources change. Set `ELEGANCE_AUTO_BUILD=0` to get an error instead.
-
-For that build it uses the first vcpkg that has the baseline Elegance's `vcpkg.json` pins:
-`VCPKG_ROOT`, the `VCPKG_ROOT` Elegance's `CMakeUserPresets.json` sets, `vcpkg` on PATH, or a clone
-it bootstraps in `ELEGANCE_VCPKG_DIR` (default: the cache folder's `elegance/vcpkg`). CMake 4.3+
-and Ninja come from `CMAKE`/`NINJA`, PATH, Visual Studio's bundled copies, or `vcpkg fetch`; MSVC's
-environment is found without a developer prompt. The choice of build is made when the build script
-runs: after building a tree of your own, `cargo clean -p elegance-sys` to switch to it.
-
-A build of your own must use the release C runtime (`/MD`) like Rust, not a Debug build's `/MDd`
-(the C API passes `std::string` and `std::function` to Elegance), and a static one needs
-`-DELG_ACCESSKIT_SHARED=ON` (AccessKit's static library is a Rust staticlib, whose own Rust standard
-library clashes with the app's).
-
-On macOS, `elegance-sys` stages native dylibs with loader-relative install names and ad-hoc
-signs the staged copies before linking and copying them beside Cargo's binaries. Executables
-can run directly without an application build script, an rpath, or `DYLD_LIBRARY_PATH`. Keep
-the dylibs beside the executable when moving it. The original CMake build is not modified;
-distribution still requires your own signing and notarization.
-
-### Working on the bindings
-
-Check out [elegance](https://github.com/EleganceUI/elegance) beside this repository, and
-[elegance-examples](https://github.com/EleganceUI/elegance-examples) to try changes; to build the
-examples against this checkout instead of GitHub, add to `elegance-examples/.cargo/config.toml`:
-
-```toml
-[patch."https://github.com/EleganceUI/elegance-rs"]
-elegance = { path = "../elegance-rs/elegance" }
+```rust
+let todos = State::new(vec![todo]);
+todos.read().len();                     // Tracked read guard; also get() and with(...).
+todos.peek().len();                     // Read without subscribing.
+todos.write().push(another);            // Notify when the write guard drops.
+editing.toggle();                      // Available on State<bool>.
+let is_empty = todos.map(Vec::is_empty); // Derived Computed<bool>.
 ```
 
-## The `elg!` DSL
+Reads inside reactive arguments, `elg!` conditionals, computed values, and effects subscribe
+the enclosing reactive closure, including reads made through helper functions. Reads directly
+in the component body are one-time values. For a modifier to update, pass a closure or a
+derived value rather than an eagerly evaluated expression:
 
-| DSL | Means |
-|---|---|
-| `Name(a, b)` | an element; overloads are tuple impls of `ElgNew` |
-| `Name(a, key: v)` | the same, then the builder call `.key(v)` |
-| `Name { ... }` | its children, on the element's line: a stack's views, a button's label, ... |
-| `ForEach(xs, id: \|x\| x.id) { x in ... }` | a content closure per item (also `AsyncImage(url) { phase in ... }`) |
-| `if cond { ... } else { ... }` | a reactive `If` |
-| `match value { pat => View(), ... }` | the view for the current value, rebuilt when it changes (`Clone + PartialEq` values) |
-| `.leading`, `.accent`, `.bold`, `.infinity` | a value of the parameter's type, by name (see below) |
-| `"{count} left"` | text that updates when `count` changes |
-| `"{size.0}x{size.1}"`, `"{user.name:>8}"`, `"{a + b}"` | fields of state (read reactively) and any expression in a placeholder |
-| `{ expr }`, or a variable | any Rust value that is `IntoView` |
-| `(layout) { ... }` | a custom `Layout` over the children |
-| `.m(a, key: v)` | the modifier `.m_with(a, \|o\| o.key(v))`, e.g. `.frame(max_width: .infinity)` |
+```rust
+.disabled(move || draft.read().is_empty())
+.disabled(draft.map(String::is_empty))
+.popover(editing, content)                         // Dismissing writes false to editing.
+.popover(move || todos.read().is_empty(), content) // Read-only visibility.
+.popover(todos.map(Vec::is_empty), content)
+```
 
-### Leading-dot names
+- **One-way properties** (`impl IntoProp<T>`) accept a value, `State`, `Binding`, `Computed`,
+  or closure.
+- **Two-way arguments** (`impl IntoBinding<T>`) accept a `State` or `Binding` for read/write
+  access, or a `Computed` or closure for read-only access. These include `Toggle`, `Checkbox`,
+  `TextField`, `Slider`, `NumberInput`, `Picker`, `.popover`, `.selection`, and `.focused`.
+  Unlike one-way properties, they do not accept plain values such as `bool`.
 
-`.name` is a value whose type spells the name, and it converts into whatever type has a value
-by that name: `.leading` is `HorizontalAlignment::Leading` for a stack and `Alignment::LEADING`
-for a frame. Any crate can add names. `#[derive(DotValues)]` on an enum makes its unit
-variants names, in snake_case:
+State is scoped to the views that created it. Removing an `If` branch or `ForEach` item frees
+its local state; using a handle after that state is freed panics.
+
+Elegance does not provide a network API. Use a Rust HTTP or WebSocket library and deliver
+results to the UI with `post_to_ui_thread`.
+
+### Reusable components
+
+Annotate a function with `#[component]`, or implement `Component` for a struct. Function
+props receive builder methods automatically:
+
+- `Prop<T>` accepts reactive inputs, including values, state, closures, and interpolated text.
+- `Binding<T>` supports two-way updates; pass the parent's `State`.
+
+For a struct's builder implementation, `#[elg_builder(constructor)]` registers `fn new() -> Self`
+with `elg!` and enables typed dot completion without a handwritten `ElgNew<()>` implementation.
+Use `#[elg_builder]` for completion only, including on extension traits.
+
+See [`components-rs`](https://github.com/EleganceUI/elegance-examples/tree/main/components-rs)
+for examples of component props.
+
+### Leading-dot values and named arguments
+
+Leading-dot values are resolved by type: `.leading` can mean `HorizontalAlignment::Leading`
+for a stack or `Alignment::LEADING` for a frame. Derive `DotValues` to expose an enum's unit
+variants as snake_case names:
 
 ```rust
 #[derive(Clone, Copy, PartialEq, DotValues)]
-enum Density { Compact, Comfortable, ExtraRoomy }
-
-#[component]
-fn Row(title: String, #[prop(default = .comfortable)] density: Density) -> impl IntoView { ... }
-
-elg! { Row(title: "Inbox".into(), density: .extra_roomy) }
+enum Density {
+    Compact,
+    Comfortable,
+    ExtraRoomy,
+}
 ```
 
-The names work wherever the parameter is a `Density`, an `impl Into<Density>`, or an
-`impl IntoProp<Density>`, including on your own structs' builder methods with no attribute.
-A parameter of exactly `Density` (not `impl Into<..>`) also works when the method's impl has
-`#[elg_builder]`, as `#[component]` props always do. A name the type doesn't have is a compile
-error at that name.
+A component prop of type `Density` can then receive `density: .extra_roomy`, and
+`#[prop(default = .comfortable)]` can supply its default. These names also work with
+`impl Into<Density>` and `impl IntoProp<Density>`. For a builder method taking exactly
+`Density`, annotate its implementation with `#[elg_builder]`; component props already have
+this support. Unknown names produce compile errors.
 
-### Named arguments
+Named modifier arguments use an options builder. For example,
+`.popover(editing, content, edge: .top)` expands to
+`.popover_with(editing, content, |o| o.edge(.top))`, where `edge` is `PopoverOptions::edge`.
+Custom modifiers can support the same syntax by providing a `name_with` method that takes
+`impl FnOnce(Options) -> Options`.
 
-On an element, `Name(a, key: v)` calls the builder method `.key(v)`: `#[component]` makes one
-per prop. On a modifier, `.m(a, key: v)` calls `.m_with(a, |o| o.key(v))`, so the names are the
-builder methods of the options struct `m_with` takes: `.popover(editing, content, edge: .top)`
-is `.popover_with(editing, content, |o| o.edge(.top))`, and `edge` is `PopoverOptions::edge`. Your own modifiers get named arguments the same way: add a `name_with`
-method taking `impl FnOnce(Options) -> Options`.
+With rust-analyzer's proc macros enabled, leading-dot completion uses the expected parameter
+type, including imported names, aliases, and enums deriving `DotValues`. Property-name
+completion may insert method syntax such as `spacing(…)`; change it to `spacing: …` in the DSL.
 
-### Custom components and completion
+## Layout and rendering
 
-Use `#[component]` on a function, or implement `Component` for a struct. A prop of type
-`Prop<T>` is reactive: it takes anything a reactive argument takes (a value, a `State`, a
-closure, `"{interpolated}"` text). A `Binding<T>` prop is two-way: pass the parent's `State`.
-`components-rs` in elegance-examples shows every kind of prop. On a struct's
-builder impl, `#[elg_builder(constructor)]` registers `fn new() -> Self` with `elg!`
-and enables typed dot completion; no handwritten `ElgNew<()>` impl is needed.
-Use plain `#[elg_builder]` for completion only, including on extension traits.
+### Grids
 
-With rust-analyzer proc macros enabled, `VStack(alignment: .…)` suggests horizontal
-alignments, while `.font(.…)` suggests fonts, and a `#[derive(DotValues)]` enum's prop suggests
-its variants. Imports and aliases work too.
-
-Property prefixes such as `VStack(spa…)` and `.frame(wid…)` also complete, but may
-insert Rust method syntax (`spacing(…)`); change it to the DSL's `spacing: …`.
-
-## Grids
-
-`VGrid`/`HGrid` flow children into fixed, flexible, or adaptive tracks; `Grid` is a table of
-`GridRow`s (see `grids-rs` in elegance-examples, and Elegance's Grids guide):
+`VGrid` and `HGrid` arrange children in fixed, flexible, or adaptive tracks. `Grid` provides
+a table layout using `GridRow`:
 
 ```rust
 VGrid([GridItem::adaptive(150)], spacing: 12) {
@@ -212,56 +206,22 @@ VGrid([GridItem::adaptive(150)], spacing: 12) {
 }
 ```
 
-## Images
+### Images
 
-Put the app's own images in `<crate>/assets/` and compile them in with `asset!`, which works
-wherever the views run (the app, a preview, an installed copy):
+Place application assets in `<crate>/assets/` and embed them with `asset!`. Embedded assets
+work in the application, previews, and installed copies:
 
 ```rust
 Image(asset!("images/logo.png")).resizable().frame(96, 96)
 ```
 
-For images that only exist at runtime (files the user picks, downloads), use
-`ImageSource::file(path)` with an absolute path: Elegance resolves relative paths against the
-current directory.
+For runtime files, such as user-selected images or downloads, use `ImageSource::file(path)`
+with an absolute path. Relative paths are resolved against the current working directory.
 
-## Previews and hot reload
+### Effects
 
-Mark functions with `#[preview]` anywhere in an app; no library/binary split is needed:
-
-```rust
-#[preview("Counter")]
-fn counter() -> impl IntoView {
-    elg! { Counter() }
-}
-
-#[preview(root)] // the whole app, for `--root`
-fn app() -> impl IntoView {
-    elg! { Root() }
-}
-```
-
-Then run the preview host, which rebuilds and reloads the views as you edit:
-
-```sh
-cargo install --git https://github.com/EleganceUI/elegance-rs cargo-elegance
-cargo elegance preview            # the previews
-cargo elegance preview --root     # the root view
-cargo elegance preview -p my-app --bin my-app --release
-```
-
-`cargo elegance` builds the crate (its binary, or its library if it has no binary) a second time
-as a views module: a cdylib, with `elegance/preview` enabled, in `target/elegance-preview`. That
-build links the shared Elegance (`dynamic`), which the module and the host share. Without the
-`preview` feature, `#[preview]` functions register nothing, so the app itself carries no preview
-code. A reload rebuilds the views, so state in them starts over. `preview-rs` in elegance-examples
-is set up this way.
-
-## Effects
-
-Backdrop blur (frosted glass), blur, color adjustments, blend modes, inner shadows and spread,
-elliptical and angular gradients, rotation/scale effects, and masks (see `effects-rs` in
-elegance-examples):
+Effects include backdrop blur, color adjustments, blend modes, inner shadows and spread,
+elliptical and angular gradients, transforms, and masks:
 
 ```rust
 Text("Hi").padding(12)
@@ -271,52 +231,101 @@ tile().grayscale(1).blend_mode(.multiply).rotation_effect(15.0)
 backdrop().mask(LinearGradient::colors([Color::BLACK, Color::CLEAR]))
 ```
 
-### Shared GPU images
+### GPU images
 
-`GpuImage` represents externally produced GPU frames; `GpuImageView(&image)` displays
-it. For Rust wgpu rendering, `elegance-wgpu::Bridge` creates a compatible producer device,
-records frames through its safe render API, and publishes shared GPU memory without CPU pixel
-readback. GPU synchronization and frame retirement stay inside the bridge and native framework.
+`GpuImage` represents externally produced GPU frames; `GpuImageView(&image)` displays them.
+The optional [`elegance-wgpu`](elegance-wgpu/README.md) crate integrates native Rust wgpu
+30.0.1 with shared GPU memory and no CPU pixel readback. The bridge manages synchronization
+and frame retirement. `Bridge::resize` preserves the image handle; `.on_sized(...)` can forward
+physical-pixel layout dimensions to a producer thread.
 
-`Bridge::resize` changes subsequent frame dimensions without replacing the image handle.
-Use `.on_sized(...)` to send physical-pixel layout dimensions to the producer thread.
-Metal/IOSurface, DX12/DXGI, and Vulkan/opaque-FD transports are implemented; unsupported
+Metal/IOSurface, DX12/DXGI, and Vulkan/opaque-FD transports are implemented. **Only Metal has
+been hardware-tested**; native DX12 and Vulkan execution still require validation. Unsupported
 sharing returns an error rather than falling back to CPU copies. GL/GLES and D3D11 sharing
-are not implemented. The old same-device Dawn handle/reservation API has been removed.
+are not implemented. See the bridge's [documentation and safety requirements](elegance-wgpu/README.md)
+before integrating a renderer.
 
-## State
+## Previews and hot reload
 
-State (`State`, `Binding`, `Computed`) is made of `Copy` handles, so `move` closures capture them
-without cloning. State lives as long as the views that made it: when an `If` branch switches or a
-`ForEach` item goes, the state created inside it is freed, and using a freed handle panics.
-
-```rust
-let todos = State::new(vec![todo]);
-todos.read().len();                 // a guard (tracked); also todos.get(), todos.with(|t| ..)
-todos.peek().len();                 // the same without subscribing
-todos.write().push(another);        // notifies when the guard drops; also set(..), update(|t| ..)
-editing.toggle();                   // State<bool>
-let is_empty = todos.map(Vec::is_empty); // a Computed<bool>
-```
-
-Elegance is fine-grained: a component's body runs once, and what updates later is each closure
-Elegance runs reactively — a reactive argument, `if`/`match` in `elg!`, a `Computed`, an `effect`.
-A read inside such a closure subscribes it wherever the closure was written (in `elg!`, a helper
-function, a variable). A read directly in the body, or an expression evaluated once as an
-argument (`.disabled(todos.read().is_empty())`), is a one-time value, so pass a closure or a
-derived value instead (`.popover` doesn't accept a plain `bool` at all):
+Annotate functions with `#[preview]` anywhere in an application; no library/binary split is
+required:
 
 ```rust
-.disabled(move || draft.read().is_empty())
-.disabled(draft.map(String::is_empty))
-.popover(editing, content)                         // two-way: dismissing sets `editing` to false
-.popover(move || todos.read().is_empty(), content) // read-only: shown while the list is empty
-.popover(todos.map(Vec::is_empty), content)
+#[preview("Counter")]
+fn counter() -> impl IntoView {
+    elg! { Counter() }
+}
+
+#[preview(root)]
+fn app() -> impl IntoView {
+    elg! { Root() }
+}
 ```
 
-Two-way arguments (Toggle, Checkbox, TextField, Slider, NumberInput, Picker, `.popover`,
-`.selection`, `.focused`, ...) take
-`impl IntoBinding<T>`: a `State` or `Binding` (two-way: `Toggle("Wi-Fi", wifi)`), or, read-only,
-a `Computed` or a closure.
-Reactive one-way arguments take `impl IntoProp<T>`: a value, a `State`/`Binding`/`Computed`, or a
-closure.
+Install the preview runner, then run it from your application's directory:
+
+```sh
+cargo install --git https://github.com/EleganceUI/elegance-rs cargo-elegance
+cargo elegance preview
+cargo elegance preview --root
+cargo elegance preview -p my-app --bin my-app --release
+```
+
+The runner rebuilds and reloads views as you edit. It builds the binary (or library, if there
+is no binary) as a views module (`cdylib`) with `elegance/preview` enabled, under
+`target/elegance-preview`. The module and host share a dynamically linked Elegance runtime,
+which requires a [source build](docs/building.md#building-from-source).
+
+Reloads reset view state. Without the `preview` feature, preview functions register nothing
+and the application carries no preview code.
+
+## Examples
+
+The [elegance-examples](https://github.com/EleganceUI/elegance-examples) repository contains
+runnable Rust applications in its `*-rs` directories. Start with `components-rs` for component
+props, `grids-rs` for layouts, `effects-rs` for rendering effects, or `preview-rs` for previews.
+
+## Workspace crates
+
+| Crate | Purpose |
+| --- | --- |
+| [`elegance`](elegance) | Safe API for views, state, environment, styles, layouts, modifiers, gestures, animation, media, and desktop integration. |
+| [`elegance-sys`](elegance-sys) | Raw FFI bindings to Elegance's C API, maintained in the native framework's `c/` directory. |
+| [`elegance-macros`](elegance-macros) | The `elg!` DSL and component, preview, and builder macros. |
+| [`cargo-elegance`](cargo-elegance) | Preview host runner for `cargo elegance preview`. |
+| [`elegance-wgpu`](elegance-wgpu) | Optional native wgpu integration for shared GPU images. |
+
+## Contributing
+
+Bug reports and pull requests are welcome. [Open an issue](https://github.com/EleganceUI/elegance-rs/issues)
+with a minimal reproduction, your platform, Rust version, and relevant build output.
+
+For native framework changes, check out [Elegance](https://github.com/EleganceUI/elegance)
+beside this repository. To test these bindings with the examples, add the following to
+`elegance-examples/.cargo/config.toml` in a sibling examples checkout:
+
+```toml
+[patch."https://github.com/EleganceUI/elegance-rs"]
+elegance = { path = "../elegance-rs/elegance" }
+```
+
+Run the same lint and test commands used by CI from this repository:
+
+```sh
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+CI runs on Linux, macOS, and Windows with `ELEGANCE_PREBUILT=1`. Local builds beside an Elegance
+checkout use source builds by default; set that variable to match CI. Linux runs also need
+the rpath configuration shown in [Getting started](#getting-started).
+
+See the [native build guide](docs/building.md) for source and build overrides and the
+[native revision update process](docs/building.md#updating-the-native-revision).
+
+## License
+
+The Rust workspace is licensed under the
+[Mozilla Public License 2.0 (MPL-2.0)](https://www.mozilla.org/MPL/2.0/), as declared in
+[`Cargo.toml`](Cargo.toml). Native Elegance and third-party dependencies are subject to their
+respective licenses.

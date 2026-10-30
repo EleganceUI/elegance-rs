@@ -1,5 +1,6 @@
-// The prebuilt C library: Elegance's C API (its c/ folder) and Elegance in one shared library, so
-// apps need no C++ compiler, CMake, or vcpkg.
+// Prebuilt static C API, Elegance, and dependency archives. Rust links them into the final
+// executable without compiling C++ or running CMake/vcpkg. Shared runtime dependencies (not
+// Elegance itself) are listed separately in the relocatable elegance-link.txt manifest.
 //
 // elegance-rev pins the Elegance commit whose C API this crate declares. Elegance's CI
 // (.github/workflows/c-api.yml there) builds the library for every commit on its main and attaches
@@ -38,14 +39,18 @@ const ELEGANCE_REV: &str = "elegance-rev";
 pub fn pinned_elegance(manifest: &Path) -> String {
     println!("cargo:rerun-if-changed={ELEGANCE_REV}");
     let path = manifest.join(ELEGANCE_REV);
-    let text =
-        fs::read_to_string(&path).unwrap_or_else(|e| panic!("elegance-sys: can't read {}: {e}", path.display()));
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("elegance-sys: can't read {}: {e}", path.display()));
     text.trim().to_owned()
 }
 
 /// The folder of a prebuilt library to link, or None to build from source.
 pub fn find(manifest: &Path) -> Option<PathBuf> {
-    for var in ["ELEGANCE_NATIVE_DIR", "ELEGANCE_PREBUILT", "ELEGANCE_PREBUILT_URL"] {
+    for var in [
+        "ELEGANCE_NATIVE_DIR",
+        "ELEGANCE_PREBUILT",
+        "ELEGANCE_PREBUILT_URL",
+    ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
     if let Some(dir) = env::var_os("ELEGANCE_NATIVE_DIR").filter(|d| !d.is_empty()) {
@@ -91,20 +96,24 @@ fn source_requested(manifest: &Path) -> bool {
 /// cache folder (one folder per commit): from ELEGANCE_PREBUILT_URL, else that commit's prerelease.
 fn download(target: &str, rev: &str) -> Result<PathBuf, String> {
     if rev.len() < 12 {
-        return Err(format!("elegance-rev holds `{rev}`, not a full commit hash"));
+        return Err(format!(
+            "elegance-rev holds `{rev}`, not a full commit hash"
+        ));
     }
     let short = &rev[..12];
     let dir = crate::cmake::cache_dir()
         .ok_or("no user cache folder to put the prebuilt Elegance in")?
         .join("elegance")
-        .join("c")
+        .join("c-static")
         .join(short)
         .join(target);
-    let file = format!("elegance-c-{target}.tar.gz");
+    let file = format!("elegance-c-static-{target}.tar.gz");
     let base = env::var("ELEGANCE_PREBUILT_URL")
         .ok()
         .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| format!("https://github.com/EleganceUI/elegance/releases/download/c-{short}"));
+        .unwrap_or_else(|| {
+            format!("https://github.com/EleganceUI/elegance/releases/download/c-{short}")
+        });
     fetch(&dir, &format!("{}/{file}", base.trim_end_matches('/')), rev)
 }
 
@@ -119,20 +128,32 @@ fn fetch(dir: &Path, url: &str, rev: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(&partial).map_err(|e| format!("can't create {}: {e}", partial.display()))?;
     let archive = partial.join("archive.tar.gz");
     run(
-        Command::new(system_tool("curl")).args(["-fsSL", "--retry", "3", "-o"]).arg(&archive).arg(url),
-        &format!("downloading {url} (Elegance's CI may not have published this commit's library yet)"),
+        Command::new(system_tool("curl"))
+            .args(["-fsSL", "--retry", "3", "-o"])
+            .arg(&archive)
+            .arg(url),
+        &format!(
+            "downloading {url} (Elegance's CI may not have published this commit's library yet)"
+        ),
     )?;
     run(
-        Command::new(system_tool("tar")).arg("-xzf").arg(&archive).arg("-C").arg(&partial),
+        Command::new(system_tool("tar"))
+            .arg("-xzf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&partial),
         &format!("extracting {}", archive.display()),
     )?;
     let _ = fs::remove_file(&archive);
     if !built_from(&partial, rev) {
         let _ = fs::remove_dir_all(&partial);
-        return Err(format!("the prebuilt Elegance at {url} wasn't built from the commit elegance-rev pins ({rev})"));
+        return Err(format!(
+            "the prebuilt Elegance at {url} is not a valid static package for the pinned commit ({rev})"
+        ));
     }
     let _ = fs::remove_dir_all(&dir);
-    fs::rename(&partial, &dir).map_err(|e| format!("can't move the prebuilt Elegance to {}: {e}", dir.display()))?;
+    fs::rename(&partial, &dir)
+        .map_err(|e| format!("can't move the prebuilt Elegance to {}: {e}", dir.display()))?;
     println!("cargo:warning=using the prebuilt Elegance from {url}");
     Ok(dir)
 }
@@ -141,20 +162,25 @@ fn fetch(dir: &Path, url: &str, rev: &str) -> Result<PathBuf, String> {
 // the system's own: Git for Windows puts GNU tar on PATH, which takes `C:\...` for a remote host.
 fn system_tool(name: &str) -> PathBuf {
     if cfg!(windows)
-        && let Some(root) = env::var_os("SystemRoot") {
-            let exe = Path::new(&root).join("System32").join(format!("{name}.exe"));
-            if exe.is_file() {
-                return exe;
-            }
+        && let Some(root) = env::var_os("SystemRoot")
+    {
+        let exe = Path::new(&root)
+            .join("System32")
+            .join(format!("{name}.exe"));
+        if exe.is_file() {
+            return exe;
         }
+    }
     PathBuf::from(name)
 }
 
 /// Whether `dir` holds an extracted archive built from Elegance commit `rev` (its BUILDINFO says).
 fn built_from(dir: &Path, rev: &str) -> bool {
-    fs::read_to_string(dir.join("BUILDINFO"))
-        .is_ok_and(|text| text.lines().any(|line| line.trim() == format!("elegance {rev}")))
-        && dir.join("lib").is_dir()
+    fs::read_to_string(dir.join("BUILDINFO")).is_ok_and(|text| {
+        text.lines()
+            .any(|line| line.trim() == format!("elegance {rev}"))
+            && text.lines().any(|line| line.trim() == "linkage static")
+    }) && link_manifest(dir).is_ok()
 }
 
 fn run(command: &mut Command, what: &str) -> Result<(), String> {
@@ -169,12 +195,125 @@ fn run(command: &mut Command, what: &str) -> Result<(), String> {
     }
 }
 
-/// The library in an extracted archive's lib/: the import library on Windows.
-pub fn library(native: &Path) -> PathBuf {
-    let lib = native.join("lib");
-    ["elegance_c.lib", "libelegance_c.so", "libelegance_c.dylib"]
-        .iter()
-        .map(|file| lib.join(file))
-        .find(|file| file.is_file())
-        .unwrap_or_else(|| panic!("\n\nelegance-sys: no elegance_c library in {}.\n", lib.display()))
+#[derive(Default, Debug)]
+pub struct NativeLink {
+    pub libs: Vec<(&'static str, String)>,
+    pub runtime: Vec<PathBuf>,
+}
+
+/// Read only relocatable static packages. In particular, never treat an old Windows DLL's
+/// elegance_c.lib import library as a static prebuilt merely because its filename matches.
+pub fn link_manifest(native: &Path) -> Result<NativeLink, String> {
+    let root = fs::canonicalize(native).map_err(|e| {
+        format!(
+            "cannot open static native package {}: {e}",
+            native.display()
+        )
+    })?;
+    let file = root.join("elegance-link.txt");
+    let text = fs::read_to_string(&file).map_err(|e| {
+        format!(
+            "cannot read {}: {e}; a static prebuilt package is required",
+            file.display()
+        )
+    })?;
+    let mut link = NativeLink::default();
+    let mut have_shim = false;
+    let mut have_elegance = false;
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let (kind, value) = line
+            .split_once(' ')
+            .ok_or_else(|| format!("invalid static link manifest entry: {line}"))?;
+        let value = value.trim();
+        match kind {
+            "static" | "runtime" => {
+                let path = package_file(&root, value)?;
+                if kind == "runtime" {
+                    if is_elegance_library(&path) {
+                        return Err(
+                            "static package must not contain shared Elegance libraries".into()
+                        );
+                    }
+                    link.runtime.push(path);
+                    continue;
+                }
+                let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                let stem = stem.strip_prefix("lib").unwrap_or(&stem);
+                if !matches!(path.extension().and_then(|s| s.to_str()), Some("a" | "lib")) {
+                    return Err(format!("not a static archive: {value}"));
+                }
+                if stem == "accesskit" {
+                    return Err(
+                        "AccessKit must be shared to avoid bundling a second Rust standard library"
+                            .into(),
+                    );
+                }
+                have_shim |= stem == "elegance_c";
+                have_elegance |= stem == "elegance";
+                link.libs
+                    .push(("static", path.to_string_lossy().into_owned()));
+            }
+            "lib" => {
+                if value.starts_with("lib/") {
+                    let path = package_file(&root, value)?;
+                    if is_elegance_library(&path) || path.extension().is_some_and(|ext| ext == "a")
+                    {
+                        return Err(format!("archive must be marked static, not lib: {value}"));
+                    }
+                    link.libs.push(("lib", path.to_string_lossy().into_owned()));
+                } else {
+                    let name = value.strip_prefix("-framework ").unwrap_or(value);
+                    if name.is_empty()
+                        || !name
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || "_-.+".contains(c))
+                    {
+                        return Err(format!("invalid system library in static package: {value}"));
+                    }
+                    if matches!(
+                        name.trim_start_matches("-l").trim_end_matches(".lib"),
+                        "elegance" | "elegance_c"
+                    ) {
+                        return Err("Elegance must be linked from static archives".into());
+                    }
+                    link.libs.push(("lib", value.to_owned()));
+                }
+            }
+            // Only source builds need the header compile definitions.
+            "define" => {}
+            _ => return Err(format!("unknown static link manifest entry: {line}")),
+        }
+    }
+    if !have_shim || !have_elegance {
+        return Err("static package must contain both elegance_c and Elegance archives".into());
+    }
+    Ok(link)
+}
+
+fn is_elegance_library(path: &Path) -> bool {
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    matches!(
+        stem.strip_prefix("lib").unwrap_or(&stem),
+        "elegance" | "elegance_c"
+    )
+}
+
+fn package_file(root: &Path, value: &str) -> Result<PathBuf, String> {
+    if !value.starts_with("lib/")
+        || value.contains('\\')
+        || Path::new(value)
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(format!("non-relocatable package dependency: {value}"));
+    }
+    let path = root.join(value);
+    let resolved =
+        fs::canonicalize(&path).map_err(|e| format!("missing package dependency {value}: {e}"))?;
+    if !resolved.starts_with(root) || !resolved.is_file() {
+        return Err(format!(
+            "package dependency escapes archive or is not a file: {value}"
+        ));
+    }
+    Ok(path)
 }
