@@ -58,7 +58,7 @@ fn resolves_the_archive_and_separates_runtime() {
         link.libs.iter().map(|l| l.0).collect::<Vec<_>>(),
         ["static", "lib", "lib", "lib"]
     );
-    assert!(link.libs[0].1.ends_with("/lib/libelegance_c.a"));
+    assert!(std::path::Path::new(&link.libs[0].1).ends_with("lib/libelegance_c.a"));
     assert_eq!(link.libs[2].1, "-framework Foundation");
     assert_eq!(link.runtime.len(), 1);
     assert!(link.runtime[0].ends_with("libaccesskit.dylib"));
