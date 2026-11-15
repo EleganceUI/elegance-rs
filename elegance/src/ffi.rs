@@ -41,6 +41,21 @@ unsafe extern "C" fn call_shared<F: Fn(*mut c_void, *mut c_void)>(data: *mut c_v
     }
 }}
 
+unsafe extern "C" fn call_fallible<F: Fn(*mut c_void, *mut c_void) -> bool>(
+    data: *mut c_void,
+    args: *mut c_void,
+    ret: *mut c_void,
+) -> bool { unsafe {
+    let f = &*(data as *const F);
+    match catch_unwind(AssertUnwindSafe(|| f(args, ret))) {
+        Ok(succeeded) => succeeded,
+        Err(payload) => {
+            store_panic(payload);
+            false
+        }
+    }
+}}
+
 unsafe extern "C" fn call_borrowed<F: FnMut(*mut c_void, *mut c_void)>(
     data: *mut c_void,
     args: *mut c_void,
@@ -78,6 +93,27 @@ where
         call: Some(call_shared::<F>),
         drop: Some(drop_box::<F>),
     }
+}
+
+/// Like `closure`, for a closure that tells C++ itself that it failed: false makes the call fail as
+/// a panic would, without a payload to resume.
+pub(crate) fn fallible_closure<F>(f: F) -> sys::ElgClosure
+where
+    F: Fn(*mut c_void, *mut c_void) -> bool + 'static,
+{
+    sys::ElgClosure {
+        data: Box::into_raw(Box::new(f)) as *mut c_void,
+        call: Some(call_fallible::<F>),
+        drop: Some(drop_box::<F>),
+    }
+}
+
+/// What a panic said: its message, if it was a string.
+pub(crate) fn panic_message(payload: &(dyn Any + Send)) -> Option<&str> {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
 }
 
 /// Like `closure`, for closures that may run on another thread.

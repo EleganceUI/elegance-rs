@@ -155,6 +155,18 @@ pub struct LayoutChild {
     pub element: *mut c_void,
 }
 
+/// An exception that escaped app code while the app ran, as elg_app_on_error()'s handler gets it.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ElgAppError {
+    /// The error's kind, numbered as elg_take_error() numbers them.
+    pub kind: i32,
+    /// What it says; valid only during the call.
+    pub message: ElgStr,
+    /// The kind of app code it escaped (elg::AppCode).
+    pub code: i32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ElgStr {
@@ -1024,6 +1036,8 @@ unsafe extern "C" {
     pub fn elg_app_window(app: *mut App, desc: *const ElgWindowDesc, content: ElgClosure);
     pub fn elg_app_run(app: *mut App) -> i32;
     pub fn elg_app_quit(app: *mut App);
+    /// handler: args `*const ElgAppError`, ret `*mut i32` (1: end the run).
+    pub fn elg_app_on_error(app: *mut App, handler: ElgClosure);
     pub fn elg_post_to_ui_thread(task: ElgClosure);
     pub fn elg_version() -> *const c_char;
 

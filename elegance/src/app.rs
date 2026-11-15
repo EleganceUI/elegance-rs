@@ -1,6 +1,7 @@
 //! The application: windows and the event loop.
 
 use std::cell::RefCell;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::ExitCode;
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
@@ -8,7 +9,7 @@ use std::rc::{Rc, Weak};
 use elegance_sys as sys;
 
 use crate::color::Color;
-use crate::error::{self, Error};
+use crate::error::{self, AppError, Error, ErrorAction};
 use crate::ffi as cffi;
 use crate::geometry::{Point, Size};
 use crate::view::IntoView;
@@ -134,6 +135,40 @@ impl Drop for AppPtr {
 /// ```
 pub struct App {
     inner: Rc<AppPtr>,
+    on_error: Rc<RefCell<Option<ErrorHandler>>>,
+}
+
+type ErrorHandler = Box<dyn FnMut(&AppError) -> ErrorAction>;
+
+// Hears each report for the app, with or without a handler of the app's: Elegance reported the
+// panic and the app goes on, so its payload goes too, or a later failure would resume it. It's kept
+// only when the handler ends the run, for `run` to resume.
+fn report_closure(slot: Rc<RefCell<Option<ErrorHandler>>>) -> sys::ElgClosure {
+    cffi::fallible_closure(move |args, ret| unsafe {
+        let error = &*(args as *const sys::ElgAppError);
+        let payload = if error.kind == 1 { cffi::take_panic() } else { None };
+        let Some(mut handler) = slot.borrow_mut().take() else {
+            return true;
+        };
+        let app_error = AppError::from_c(error, payload.as_deref().and_then(cffi::panic_message));
+        let action = catch_unwind(AssertUnwindSafe(|| handler(&app_error)));
+        let mut current = slot.borrow_mut();
+        if current.is_none() {
+            *current = Some(handler); // unless it set another
+        }
+        match action {
+            Ok(ErrorAction::Resume) => true,
+            Ok(ErrorAction::Quit) => {
+                *(ret as *mut i32) = 1;
+                if let Some(payload) = payload {
+                    cffi::store_panic(payload);
+                }
+                true
+            }
+            // Elegance logs that the handler panicked; the panic hook already printed what with.
+            Err(_) => false,
+        }
+    })
 }
 
 impl Default for App {
@@ -149,7 +184,12 @@ impl App {
         if let Err(error) = error::result() {
             panic!("elegance: couldn't start: {error}");
         }
-        Self { inner: Rc::new(AppPtr(NonNull::new(ptr).expect("elegance: no app"))) }
+        let app = Self {
+            inner: Rc::new(AppPtr(NonNull::new(ptr).expect("elegance: no app"))),
+            on_error: Rc::default(),
+        };
+        crate::error::ffi!(sys::elg_app_on_error(app.ptr(), report_closure(Rc::clone(&app.on_error))));
+        app
     }
 
     fn ptr(&self) -> *mut sys::App {
@@ -184,9 +224,22 @@ impl App {
         self
     }
 
+    /// Sets the error handler. It hears each panic and error that escapes the app's code while the
+    /// app runs (bodies, effects, handlers, tasks, timers), on the UI thread between events, after
+    /// Elegance logged it. Without a handler, the app goes on. Callable before or during `run`.
+    ///
+    /// The handler returns [`ErrorAction::Resume`] to go on, or [`ErrorAction::Quit`] to end the
+    /// run: `run` then resumes the panic or returns the error. What it panics with itself is only
+    /// logged.
+    pub fn on_error(&self, handler: impl FnMut(&AppError) -> ErrorAction + 'static) -> &Self {
+        *self.on_error.borrow_mut() = Some(Box::new(handler));
+        self
+    }
+
     /// Opens the windows and runs the event loop until the last window closes or `quit` is
-    /// called. Errors raised by Elegance come back here after a clean shutdown; a panic in a
-    /// callback resumes here.
+    /// called. A panic or an error in the app's code is logged and goes to `on_error`'s handler,
+    /// and the app goes on, unless the handler ends the run: then the panic resumes here, or the
+    /// error comes back here. So do Elegance's own errors, after a clean shutdown.
     pub fn run(&self) -> Result<ExitCode, Error> {
         let code = self.run_code()?;
         Ok(ExitCode::from(code.clamp(0, 255) as u8))
@@ -240,4 +293,87 @@ pub fn post_to_ui_thread(task: impl FnOnce() + Send + 'static) {
 pub fn version() -> &'static str {
     let ptr = unsafe { sys::elg_version() };
     unsafe { std::ffi::CStr::from_ptr(ptr) }.to_str().unwrap_or("")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::c_void;
+
+    use super::*;
+    use crate::error::AppCode;
+
+    // Calls the report closure as Elegance does: (whether it succeeded, what it set `ret` to).
+    fn report(closure: &sys::ElgClosure, kind: i32, code: i32) -> (bool, i32) {
+        let error = sys::ElgAppError { kind, message: cffi::s("a Rust callback panicked"), code };
+        let mut quit = 0i32;
+        let call = closure.call.expect("a closure");
+        let succeeded = unsafe {
+            call(closure.data, &error as *const sys::ElgAppError as *mut c_void, &mut quit as *mut i32 as *mut c_void)
+        };
+        (succeeded, quit)
+    }
+
+    fn free(closure: sys::ElgClosure) {
+        unsafe { (closure.drop.expect("owned"))(closure.data) }
+    }
+
+    fn panic_with(message: &'static str) {
+        cffi::store_panic(Box::new(message));
+    }
+
+    #[test]
+    fn a_reported_panic_goes_to_the_handler_and_doesnt_resume_later() {
+        let slot: Rc<RefCell<Option<ErrorHandler>>> = Rc::default();
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let record = Rc::clone(&heard);
+        *slot.borrow_mut() = Some(Box::new(move |error: &AppError| {
+            record.borrow_mut().push((error.message().to_owned(), error.code(), error.panicked()));
+            ErrorAction::Resume
+        }));
+        let closure = report_closure(Rc::clone(&slot));
+        panic_with("boom");
+        assert_eq!(report(&closure, 1, 0), (true, 0));
+        assert!(cffi::take_panic().is_none());
+        assert_eq!(report(&closure, 2, 4), (true, 0)); // a usage error, from a timer
+        assert_eq!(
+            *heard.borrow(),
+            vec![
+                ("boom".to_owned(), AppCode::Body, true),
+                ("a Rust callback panicked".to_owned(), AppCode::Timer, false),
+            ]
+        );
+        free(closure);
+    }
+
+    #[test]
+    fn without_a_handler_a_reported_panic_is_dropped() {
+        let closure = report_closure(Rc::default());
+        panic_with("boom");
+        assert_eq!(report(&closure, 1, 2), (true, 0));
+        assert!(cffi::take_panic().is_none());
+        free(closure);
+    }
+
+    #[test]
+    fn a_handler_that_quits_keeps_the_panic_for_run() {
+        let slot: Rc<RefCell<Option<ErrorHandler>>> = Rc::default();
+        *slot.borrow_mut() = Some(Box::new(|_: &AppError| ErrorAction::Quit));
+        let closure = report_closure(Rc::clone(&slot));
+        panic_with("boom");
+        assert_eq!(report(&closure, 1, 0), (true, 1));
+        let payload = cffi::take_panic().expect("kept");
+        assert_eq!(cffi::panic_message(payload.as_ref()), Some("boom"));
+        free(closure);
+    }
+
+    #[test]
+    fn a_handler_that_panics_fails_the_call_and_leaves_no_panic() {
+        let slot: Rc<RefCell<Option<ErrorHandler>>> = Rc::default();
+        *slot.borrow_mut() = Some(Box::new(|_: &AppError| panic!("the handler broke")));
+        let closure = report_closure(Rc::clone(&slot));
+        assert_eq!(report(&closure, 2, 0), (false, 0));
+        assert!(cffi::take_panic().is_none());
+        assert!(slot.borrow().is_some()); // still the handler
+        free(closure);
+    }
 }
