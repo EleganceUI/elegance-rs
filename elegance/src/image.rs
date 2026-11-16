@@ -235,7 +235,8 @@ impl<S: IntoProp<String>, I: Into<ImageSource>> ElgNew<(S, I)> for Label {
 /// The title is static or reactive.
 #[allow(non_snake_case)]
 pub fn Label(title: impl IntoProp<String>, icon: impl Into<ImageSource>) -> View {
-    let c = icon.into().c();
+    let icon = icon.into();
+    let c = icon.c();
     with_prop(title.into_prop(), |t| View::from_raw(ffi!(sys::elg_label(t, &c))))
 }
 
