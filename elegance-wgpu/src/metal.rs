@@ -120,7 +120,7 @@ unsafe fn released_inner(userdata: *mut c_void, release: *const Release) {
         if release.fence_count == 0 || !release.fences.is_null() {
             for i in 0..release.fence_count {
                 let fence = unsafe { &*release.fences.add(i) };
-                if fence.r#type != raw::FENCE_MTL_SHARED_EVENT || fence.handle.is_null() {
+                if fence.type_ != raw::FENCE_MTL_SHARED_EVENT || fence.handle.is_null() {
                     retired.failed = true;
                     continue;
                 }
@@ -312,7 +312,7 @@ impl Bridge {
             vk_old_layout: 0,
             vk_new_layout: 0,
             producer_fence: Fence {
-                r#type: raw::FENCE_MTL_SHARED_EVENT,
+                type_: raw::FENCE_MTL_SHARED_EVENT,
                 handle: Retained::as_ptr(&backing.producer).cast_mut().cast(),
                 fd: -1,
                 value: 1,
@@ -677,13 +677,13 @@ mod tests {
         backing.producer.setSignaledValue(1);
         let fences = [
             Fence {
-                r#type: raw::FENCE_MTL_SHARED_EVENT,
+                type_: raw::FENCE_MTL_SHARED_EVENT,
                 handle: Retained::as_ptr(&first).cast_mut().cast(),
                 fd: -1,
                 value: 3,
             },
             Fence {
-                r#type: raw::FENCE_MTL_SHARED_EVENT,
+                type_: raw::FENCE_MTL_SHARED_EVENT,
                 handle: Retained::as_ptr(&second).cast_mut().cast(),
                 fd: -1,
                 value: 5,

@@ -1200,7 +1200,7 @@ pub(crate) fn push_items<T: PartialEq + 'static>(
                 int_key,
                 string_key,
                 value: cffi::owner(value),
-                equals: items_equal::<T>,
+                equals: Some(items_equal::<T>),
                 view: cffi::closure(move |_, ret| unsafe { content(&shown).write_into(ret) }),
             }
         })

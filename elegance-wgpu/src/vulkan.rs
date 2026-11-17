@@ -217,7 +217,7 @@ unsafe extern "C" fn released(userdata: *mut c_void, release: *const Release) {
 // Never consume a callback's borrowed FD. Continue duplicating subsequent
 // fences even after a failure, and do no Vulkan work or GPU waits here.
 fn duplicate_fence(fence: &Fence) -> Result<OwnedFd, Error> {
-    if fence.r#type != raw::FENCE_VK_OPAQUE_FD || fence.fd < 0 || fence.value != 1 {
+    if fence.type_ != raw::FENCE_VK_OPAQUE_FD || fence.fd < 0 || fence.value != 1 {
         return Err(device_error(
             "invalid consumer Vulkan binary semaphore fence",
         ));
@@ -851,7 +851,7 @@ impl Bridge {
             vk_old_layout: HANDOFF.as_raw(),
             vk_new_layout: HANDOFF.as_raw(),
             producer_fence: Fence {
-                r#type: raw::FENCE_VK_OPAQUE_FD,
+                type_: raw::FENCE_VK_OPAQUE_FD,
                 handle: std::ptr::null_mut(),
                 fd: backing.allocation.producer_fd.as_ref().unwrap().as_raw_fd(),
                 value: 1,
@@ -1135,7 +1135,7 @@ mod tests {
     fn borrowed_fence_fd_is_duplicated_and_cloexec() {
         let (source, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
         let fence = Fence {
-            r#type: raw::FENCE_VK_OPAQUE_FD,
+            type_: raw::FENCE_VK_OPAQUE_FD,
             handle: std::ptr::null_mut(),
             fd: source.as_raw_fd(),
             value: 1,
@@ -1149,7 +1149,7 @@ mod tests {
         assert!(duplicate_fence(&Fence { value: 2, ..fence }).is_err());
         assert!(duplicate_fence(&Fence { fd: -1, ..fence }).is_err());
         assert!(duplicate_fence(&Fence {
-            r#type: raw::FENCE_NONE,
+            type_: raw::FENCE_NONE,
             ..fence
         })
         .is_err());

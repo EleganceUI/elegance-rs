@@ -39,7 +39,7 @@ use crate::ffi as cffi;
 struct Slot {
     generation: u32,
     value: Option<Rc<dyn Any>>,
-    node: *mut c_void,
+    node: u64,
 }
 
 #[derive(Default)]
@@ -68,13 +68,13 @@ fn reserve(value: Rc<dyn Any>) -> Handle {
             slot.value = Some(value);
             Handle { index, generation: slot.generation }
         } else {
-            arena.slots.push(Slot { generation: 0, value: Some(value), node: std::ptr::null_mut() });
+            arena.slots.push(Slot { generation: 0, value: Some(value), node: 0 });
             Handle { index: (arena.slots.len() - 1) as u32, generation: 0 }
         }
     })
 }
 
-fn set_node(handle: Handle, node: *mut c_void) {
+fn set_node(handle: Handle, node: u64) {
     ARENA.with(|arena| {
         let mut arena = arena.borrow_mut();
         let slot = &mut arena.slots[handle.index as usize];
@@ -94,7 +94,7 @@ fn free(handle: Handle) {
                 return None;
             }
             slot.generation = slot.generation.wrapping_add(1);
-            slot.node = std::ptr::null_mut();
+            slot.node = 0;
             let value = slot.value.take();
             arena.free.push(handle.index);
             value
@@ -105,7 +105,7 @@ fn free(handle: Handle) {
 }
 
 #[track_caller]
-fn lookup<T: 'static>(handle: Handle) -> (Rc<T>, *mut c_void) {
+fn lookup<T: 'static>(handle: Handle) -> (Rc<T>, u64) {
     let found = ARENA.with(|arena| {
         let arena = arena.borrow();
         arena
@@ -201,7 +201,7 @@ impl<T: 'static> State<T> {
     }
 
     #[track_caller]
-    fn cell(&self) -> (Rc<StateCell<T>>, *mut c_void) {
+    fn cell(&self) -> (Rc<StateCell<T>>, u64) {
         lookup(self.handle)
     }
 
@@ -370,7 +370,7 @@ impl<T: fmt::Debug + 'static> fmt::Debug for ReadRef<T> {
 /// A mutably borrowed state value, from [`State::write`]. Dropping it re-runs what read the state.
 pub struct WriteRef<T: 'static> {
     value: Option<RefMut<'static, T>>,
-    node: *mut c_void,
+    node: u64,
     _owner: Rc<dyn Any>,
 }
 

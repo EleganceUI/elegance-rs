@@ -179,7 +179,7 @@ unsafe extern "C" fn string_sink(ctx: *mut c_void, ptr: *const c_char, len: usiz
 /// Collects a string that C++ sends through a sink.
 pub(crate) fn read_string(f: impl FnOnce(sys::ElgStrSink, *mut c_void)) -> String {
     let mut result = String::new();
-    f(string_sink, &mut result as *mut String as *mut c_void);
+    f(Some(string_sink), &mut result as *mut String as *mut c_void);
     result
 }
 
