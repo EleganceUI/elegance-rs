@@ -180,6 +180,15 @@ impl Default for App {
 impl App {
     #[track_caller]
     pub fn new() -> Self {
+        // The library must be the one elegance-sys was generated for: other functions or structs
+        // would be called with the wrong arguments.
+        let library = unsafe { sys::elg_abi_version() };
+        if library != sys::ELG_ABI_VERSION {
+            panic!(
+                "elegance: the Elegance library has C API version {library}, but elegance-sys was made for version {}",
+                sys::ELG_ABI_VERSION
+            );
+        }
         let ptr = unsafe { sys::elg_app_new() };
         if let Err(error) = error::result() {
             panic!("elegance: couldn't start: {error}");
