@@ -7,9 +7,12 @@
 use crate::*;
 use core::mem::{align_of, offset_of, size_of};
 
-/// Each struct the C API passes, as Rust lays it out: its name, size and alignment, and each field's
-/// name (the C one) and offset, in order.
-pub const LAYOUTS: &[(&str, usize, usize, &[(&str, usize)])] = &[
+/// A struct as Rust lays it out: its name, size and alignment, and each field's name (the C one)
+/// and offset, in order.
+pub type Layout = (&'static str, usize, usize, &'static [(&'static str, usize)]);
+
+/// Each struct the C API passes.
+pub const LAYOUTS: &[Layout] = &[
     ("ElgGpuImageFence", size_of::<ElgGpuImageFence>(), align_of::<ElgGpuImageFence>(), &[("type", offset_of!(ElgGpuImageFence, type_)), ("handle", offset_of!(ElgGpuImageFence, handle)), ("fd", offset_of!(ElgGpuImageFence, fd)), ("value", offset_of!(ElgGpuImageFence, value))]),
     ("ElgGpuImageRelease", size_of::<ElgGpuImageRelease>(), align_of::<ElgGpuImageRelease>(), &[("status", offset_of!(ElgGpuImageRelease, status)), ("token", offset_of!(ElgGpuImageRelease, token)), ("fences", offset_of!(ElgGpuImageRelease, fences)), ("fence_count", offset_of!(ElgGpuImageRelease, fence_count)), ("vk_old_layout", offset_of!(ElgGpuImageRelease, vk_old_layout)), ("vk_new_layout", offset_of!(ElgGpuImageRelease, vk_new_layout))]),
     ("ElgGpuImageFrame", size_of::<ElgGpuImageFrame>(), align_of::<ElgGpuImageFrame>(), &[("transport", offset_of!(ElgGpuImageFrame, transport)), ("format", offset_of!(ElgGpuImageFrame, format)), ("width", offset_of!(ElgGpuImageFrame, width)), ("height", offset_of!(ElgGpuImageFrame, height)), ("handle", offset_of!(ElgGpuImageFrame, handle)), ("memory_fd", offset_of!(ElgGpuImageFrame, memory_fd)), ("vk_image_create_info", offset_of!(ElgGpuImageFrame, vk_image_create_info)), ("vk_memory_type_index", offset_of!(ElgGpuImageFrame, vk_memory_type_index)), ("vk_allocation_size", offset_of!(ElgGpuImageFrame, vk_allocation_size)), ("vk_dedicated_allocation", offset_of!(ElgGpuImageFrame, vk_dedicated_allocation)), ("vk_old_layout", offset_of!(ElgGpuImageFrame, vk_old_layout)), ("vk_new_layout", offset_of!(ElgGpuImageFrame, vk_new_layout)), ("producer_fence", offset_of!(ElgGpuImageFrame, producer_fence)), ("token", offset_of!(ElgGpuImageFrame, token)), ("userdata", offset_of!(ElgGpuImageFrame, userdata)), ("release", offset_of!(ElgGpuImageFrame, release))]),

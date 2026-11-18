@@ -11,7 +11,7 @@
 include!("bindings.rs");
 
 mod layouts;
-pub use layouts::LAYOUTS;
+pub use layouts::{LAYOUTS, Layout};
 
 pub mod gpu_image;
 

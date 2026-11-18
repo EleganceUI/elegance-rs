@@ -67,9 +67,12 @@ def layouts(bindings):
 use crate::*;
 use core::mem::{{align_of, offset_of, size_of}};
 
-/// Each struct the C API passes, as Rust lays it out: its name, size and alignment, and each field's
-/// name (the C one) and offset, in order.
-pub const LAYOUTS: &[(&str, usize, usize, &[(&str, usize)])] = &[
+/// A struct as Rust lays it out: its name, size and alignment, and each field's name (the C one)
+/// and offset, in order.
+pub type Layout = (&'static str, usize, usize, &'static [(&'static str, usize)]);
+
+/// Each struct the C API passes.
+pub const LAYOUTS: &[Layout] = &[
 {chr(10).join(entries)}
 ];
 """
