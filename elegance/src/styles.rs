@@ -1033,7 +1033,7 @@ impl NavigationStackConfiguration {
             titles.push(String::from_utf8_lossy(bytes).into_owned());
         }
         let mut titles = Vec::new();
-        ffi!(sys::elg_navigation_stack_config_titles(self.as_ptr(), push, (&raw mut titles).cast()));
+        ffi!(sys::elg_navigation_stack_config_titles(self.as_ptr(), Some(push), (&raw mut titles).cast()));
         titles
     }
     /// A page is pushed. A tracked read.

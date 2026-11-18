@@ -48,6 +48,8 @@ impl ImageSource {
             file: self.file.to_str().map(cffi::s).unwrap_or(sys::ElgStr::EMPTY),
             data: if self.data.is_empty() { sys::ElgBytes::EMPTY } else { sys::ElgBytes::new(&self.data) },
             scale: if self.scale > 0.0 { self.scale } else { 1.0 },
+            max_pixels: 0, // Elegance's defaults
+            max_side: 0,
         }
     }
 }
@@ -166,7 +168,7 @@ impl IntoView for AsyncImage {
         match self.content {
             None => {
                 let mode = self.content_mode.map_or(-1, |m| m as i32);
-                View::from_raw(ffi!(sys::elg_async_image(cffi::s(&self.url), self.scale, mode, self.disk_cache)))
+                View::from_raw(ffi!(sys::elg_async_image(cffi::s(&self.url), self.scale, mode, self.disk_cache, 0, 0)))
             }
             Some(content) => {
                 let content = cffi::closure(move |args, ret| unsafe {
@@ -182,7 +184,9 @@ impl IntoView for AsyncImage {
                     cffi::s(&self.url),
                     content,
                     self.scale,
-                    self.disk_cache
+                    self.disk_cache,
+                    0, // Elegance's default limits
+                    0,
                 )))
             }
         }

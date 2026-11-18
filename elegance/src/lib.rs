@@ -108,7 +108,7 @@ mod items {
         LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeBlur, ThemeColor,
     };
     pub use crate::environment::{Environment, EnvironmentKey, EnvironmentValues};
-    pub use crate::error::{Error, ErrorKind};
+    pub use crate::error::{AppCode, AppError, Error, ErrorAction, ErrorKind};
     pub use crate::events::{
         ClickEvent, ClickOptions, DragEvent, EventResult, GesturePhase, HoverDelay, Key, KeyEvent,
         KeyEventKind, KeyModifiers, MagnifyEvent, MouseButton, PixelSize, PointerEvent,

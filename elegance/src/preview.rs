@@ -103,7 +103,8 @@ mod entry {
             .iter()
             .map(|p| sys::ElgPreviewDesc { name: ffi::s(p.name), file: ffi::s(p.file), line: p.line as i32 })
             .collect();
-        unsafe { sys::elg_rust_module_entry(module.root.is_some(), descs.as_ptr(), descs.len(), build) }
+        // No app hash: the Rust API has none to give yet, and HotReload passes none either.
+        unsafe { sys::elg_rust_module_entry(module.root.is_some(), descs.as_ptr(), descs.len(), Some(build), 0) }.cast()
     }
 
     unsafe extern "C" fn build(index: i32, ret: *mut sys::View) -> bool {

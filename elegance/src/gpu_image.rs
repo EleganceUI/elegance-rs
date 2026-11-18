@@ -124,7 +124,7 @@ impl ElgNew<(GpuImage,)> for GpuImageView {
 
 impl IntoView for GpuImageView {
     fn into_view(self) -> View {
-        View::from_raw(ffi!(sys::gpu_image::elg_gpu_image_view(
+        View::from_raw(ffi!(sys::elg_gpu_image_view(
             self.image.as_raw(),
             self.mode as i32
         )))

@@ -71,6 +71,14 @@ impl IntoView for HotReload {
         let module = cffi::path_str(&self.module);
         let watch: Vec<String> = self.watch.iter().map(|p| cffi::path_str(p)).collect();
         let watch: Vec<sys::ElgStr> = watch.iter().map(|w| cffi::s(w)).collect();
-        View::from_raw(ffi!(sys::elg_hot_reload(cffi::s(&module), cffi::s(&self.build_command), watch.as_ptr(), watch.len(), self.show as i32)))
+        // No app hash: preview modules give none (preview.rs).
+        View::from_raw(ffi!(sys::elg_hot_reload(
+            cffi::s(&module),
+            cffi::s(&self.build_command),
+            watch.as_ptr(),
+            watch.len(),
+            self.show as i32,
+            0
+        )))
     }
 }

@@ -55,6 +55,7 @@ fn main() {
             "cargo:rerun-if-changed={}",
             native.join("elegance-link.txt").display()
         );
+        check_header(&native.join("include/elg-c/elegance.h"), &manifest);
         let link = prebuilt::link_manifest(&native)
             .unwrap_or_else(|error| panic!("\n\nelegance-sys: {error}\n"));
         let runtime = copy_runtime_files(&link.runtime);
@@ -82,6 +83,7 @@ fn main() {
             root.display()
         );
     }
+    check_header(&c_api.join("include/elg-c/elegance.h"), &manifest);
     let c_api_files: Vec<PathBuf> = C_API_FILES.iter().map(|file| c_api.join(file)).collect();
     println!("cargo:rerun-if-changed={}", c_api.join("shim.h").display());
     for file in &c_api_files {
@@ -154,6 +156,35 @@ fn main() {
 }
 
 // ELEGANCE_ROOT, else a checkout beside this workspace, else a clone in the user cache folder.
+/// Fails the build unless `header` is the C header src/bindings.rs was generated from: a library
+/// whose header differs has other functions or structs than those Rust declares.
+fn check_header(header: &Path, manifest: &Path) {
+    println!("cargo:rerun-if-changed={}", header.display());
+    let bytes = fs::read(header).unwrap_or_else(|error| {
+        panic!("\n\nelegance-sys: can't read Elegance's C header {}: {error}\n", header.display())
+    });
+    // 64-bit FNV-1a, as generate.py computes it, of the text without CRs: Windows' packages are
+    // built from a checkout that ends its lines with CR LF.
+    let hash = bytes
+        .iter()
+        .filter(|&&byte| byte != b'\r')
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, &byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
+    let bindings = fs::read_to_string(manifest.join("src/bindings.rs")).unwrap();
+    let expected = bindings
+        .lines()
+        .find_map(|line| line.strip_prefix("pub const ELEGANCE_HEADER_HASH: u64 = "))
+        .and_then(|value| u64::from_str_radix(value.trim_end_matches(';').trim_start_matches("0x"), 16).ok())
+        .expect("src/bindings.rs has no ELEGANCE_HEADER_HASH");
+    if hash != expected {
+        panic!(
+            "\n\nelegance-sys: {} isn't the header src/bindings.rs was generated from: regenerate the bindings \
+             with `python3 elegance-sys/generate.py {}`\n",
+            header.display(),
+            header.display()
+        );
+    }
+}
+
 fn elegance_root(manifest: &Path) -> PathBuf {
     println!("cargo:rerun-if-env-changed=ELEGANCE_ROOT");
     println!("cargo:rerun-if-env-changed=ELEGANCE_GIT_REF");

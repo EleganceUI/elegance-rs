@@ -135,7 +135,7 @@ unsafe fn released_inner(userdata: *mut c_void, release: *const Release) {
             if !release.fences.is_null() {
                 for i in 0..release.fence_count {
                     let fence = unsafe { &*release.fences.add(i) };
-                    if fence.r#type != raw::FENCE_DXGI_HANDLE
+                    if fence.type_ != raw::FENCE_DXGI_HANDLE
                         || fence.handle.is_null()
                         || fence.value == u64::MAX
                     {
@@ -414,7 +414,7 @@ impl Bridge {
             vk_old_layout: 0,
             vk_new_layout: 0,
             producer_fence: Fence {
-                r#type: raw::FENCE_DXGI_HANDLE,
+                type_: raw::FENCE_DXGI_HANDLE,
                 handle: retired.backing.producer_handle.as_raw_handle(),
                 fd: -1,
                 value: 1,
@@ -691,13 +691,13 @@ mod tests {
         drop(queue);
         let fences = [
             Fence {
-                r#type: raw::FENCE_DXGI_HANDLE,
+                type_: raw::FENCE_DXGI_HANDLE,
                 handle: first_handle.as_raw_handle(),
                 fd: -1,
                 value: 2,
             },
             Fence {
-                r#type: raw::FENCE_DXGI_HANDLE,
+                type_: raw::FENCE_DXGI_HANDLE,
                 handle: second_handle.as_raw_handle(),
                 fd: -1,
                 value: 4,
@@ -891,7 +891,7 @@ mod tests {
         let backing = &guard.0.as_ref().unwrap().backing;
         let handle = shared_handle(&backing.native_device, &backing.producer).unwrap();
         let valid = Fence {
-            r#type: raw::FENCE_DXGI_HANDLE,
+            type_: raw::FENCE_DXGI_HANDLE,
             handle: handle.as_raw_handle(),
             fd: -1,
             value: 1,

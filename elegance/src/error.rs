@@ -51,6 +51,110 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+impl ErrorKind {
+    // As elg_take_error() numbers them; 1 (a panic) is Other.
+    pub(crate) fn from_c(kind: i32) -> Self {
+        match kind {
+            2 => ErrorKind::Usage,
+            3 => ErrorKind::Resource,
+            4 => ErrorKind::Gpu,
+            5 => ErrorKind::Platform,
+            6 => ErrorKind::Elegance,
+            _ => ErrorKind::Other,
+        }
+    }
+}
+
+/// The kind of app code that a panic or an error escaped while the app ran (`elg::AppCode`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AppCode {
+    /// A view's body, while the view was mounted.
+    Body,
+    /// An effect, or the value of a reactive argument.
+    Effect,
+    /// An event handler, or a control's, menu's or shortcut's action.
+    EventHandler,
+    /// A task posted to the UI thread.
+    Task,
+    /// A timer's action.
+    Timer,
+    /// `on_appear` or `on_disappear`.
+    LifecycleAction,
+    /// A layout, a layout modifier, or a size observer.
+    Layout,
+    /// A canvas's draw function.
+    Drawing,
+    /// Another callback.
+    Callback,
+}
+
+impl AppCode {
+    fn from_c(code: i32) -> Self {
+        match code {
+            0 => AppCode::Body,
+            1 => AppCode::Effect,
+            2 => AppCode::EventHandler,
+            3 => AppCode::Task,
+            4 => AppCode::Timer,
+            5 => AppCode::LifecycleAction,
+            6 => AppCode::Layout,
+            7 => AppCode::Drawing,
+            _ => AppCode::Callback,
+        }
+    }
+}
+
+/// What the app's error handler decides (`App::on_error`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ErrorAction {
+    /// The app goes on.
+    Resume,
+    /// The run ends: `App::run` returns the error, or resumes the panic.
+    Quit,
+}
+
+/// A panic or an error that escaped the app's code while the app ran (`App::on_error`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppError {
+    kind: ErrorKind,
+    message: String,
+    code: AppCode,
+    panicked: bool,
+}
+
+impl AppError {
+    pub(crate) fn from_c(error: &sys::ElgAppError, panic_message: Option<&str>) -> Self {
+        let panicked = error.kind == 1;
+        let message = match panic_message {
+            Some(message) if panicked => message.to_owned(),
+            _ => unsafe { error.message.as_str() }.to_owned(),
+        };
+        Self { kind: ErrorKind::from_c(error.kind), message, code: AppCode::from_c(error.code), panicked }
+    }
+    /// The error's kind; `Other` for a panic.
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+    /// What the panic or the error said.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+    /// The kind of app code it escaped.
+    pub fn code(&self) -> AppCode {
+        self.code
+    }
+    /// Whether Rust code panicked.
+    pub fn panicked(&self) -> bool {
+        self.panicked
+    }
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 /// The pending error, if a shim call failed. A Rust panic that unwound through C++ resumes here.
 pub(crate) fn take() -> Option<Error> {
     let mut kind = 0;
@@ -63,12 +167,7 @@ pub(crate) fn take() -> Option<Error> {
             }
             ErrorKind::Other
         }
-        2 => ErrorKind::Usage,
-        3 => ErrorKind::Resource,
-        4 => ErrorKind::Gpu,
-        5 => ErrorKind::Platform,
-        6 => ErrorKind::Elegance,
-        _ => ErrorKind::Other,
+        kind => ErrorKind::from_c(kind),
     };
     Some(Error { kind, message })
 }
