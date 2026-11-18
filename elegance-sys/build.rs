@@ -163,9 +163,11 @@ fn check_header(header: &Path, manifest: &Path) {
     let bytes = fs::read(header).unwrap_or_else(|error| {
         panic!("\n\nelegance-sys: can't read Elegance's C header {}: {error}\n", header.display())
     });
-    // 64-bit FNV-1a, as generate.py computes it.
+    // 64-bit FNV-1a, as generate.py computes it, of the text without CRs: Windows' packages are
+    // built from a checkout that ends its lines with CR LF.
     let hash = bytes
         .iter()
+        .filter(|&&byte| byte != b'\r')
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, &byte| (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3));
     let bindings = fs::read_to_string(manifest.join("src/bindings.rs")).unwrap();
     let expected = bindings
