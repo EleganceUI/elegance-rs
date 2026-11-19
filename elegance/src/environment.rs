@@ -27,7 +27,10 @@ use crate::events::HoverDelay;
 use crate::ffi as cffi;
 use crate::font::Font;
 use crate::prop::{with_prop, Prop};
-use crate::styles::{AnyButtonStyle, AnyTextFieldStyle, AnyToggleStyle};
+use crate::styles::{
+    AnyButtonStyle, AnyTextFieldStyle, AnyToggleStyle, IntoButtonStyle, IntoTextFieldStyle, IntoToggleStyle,
+    ProminentButtonStyle, RoundedBorderTextFieldStyle, SwitchToggleStyle,
+};
 use crate::window::WindowHandle;
 
 /// The inherited values where a view is (`elg::EnvironmentValues`).
@@ -122,8 +125,12 @@ pub trait EnvironmentKey: 'static {
             .unwrap_or_else(|| Self::default_value(environment))
     }
 
+    /// Stores the value. One that depends on the environment (a theme color, [`Prop::from_env`])
+    /// is resolved against this environment as it was before the call, so a key's value never
+    /// depends on itself.
     #[doc(hidden)]
     fn write(environment: &mut EnvironmentValues, value: Prop<Self::Value>) {
+        let value = value.resolved_in(environment);
         let mut values = rust_values(environment).map(|values| (*values).clone()).unwrap_or_default();
         values.insert(TypeId::of::<Self>(), Rc::new(value));
         ffi!(sys::elg_env_set_rust_values(environment.as_ptr(), cffi::owner(Rc::new(values))));
@@ -327,8 +334,9 @@ impl EnvironmentKey for RowSelectedKey {
 pub struct ButtonStyleKey;
 impl EnvironmentKey for ButtonStyleKey {
     type Value = AnyButtonStyle;
-    fn default_value(environment: &EnvironmentValues) -> AnyButtonStyle {
-        Self::read(environment)
+    /// The built-in [`ProminentButtonStyle`].
+    fn default_value(_: &EnvironmentValues) -> AnyButtonStyle {
+        ProminentButtonStyle.into_button_style()
     }
     fn read(environment: &EnvironmentValues) -> AnyButtonStyle {
         AnyButtonStyle::from_raw(ffi!(sys::elg_env_button_style(environment.as_ptr())))
@@ -342,8 +350,9 @@ impl EnvironmentKey for ButtonStyleKey {
 pub struct ToggleStyleKey;
 impl EnvironmentKey for ToggleStyleKey {
     type Value = AnyToggleStyle;
-    fn default_value(environment: &EnvironmentValues) -> AnyToggleStyle {
-        Self::read(environment)
+    /// The built-in [`SwitchToggleStyle`].
+    fn default_value(_: &EnvironmentValues) -> AnyToggleStyle {
+        SwitchToggleStyle::default().into_toggle_style()
     }
     fn read(environment: &EnvironmentValues) -> AnyToggleStyle {
         AnyToggleStyle::from_raw(ffi!(sys::elg_env_toggle_style(environment.as_ptr())))
@@ -357,8 +366,9 @@ impl EnvironmentKey for ToggleStyleKey {
 pub struct TextFieldStyleKey;
 impl EnvironmentKey for TextFieldStyleKey {
     type Value = AnyTextFieldStyle;
-    fn default_value(environment: &EnvironmentValues) -> AnyTextFieldStyle {
-        Self::read(environment)
+    /// The built-in [`RoundedBorderTextFieldStyle`].
+    fn default_value(_: &EnvironmentValues) -> AnyTextFieldStyle {
+        RoundedBorderTextFieldStyle.into_text_field_style()
     }
     fn read(environment: &EnvironmentValues) -> AnyTextFieldStyle {
         AnyTextFieldStyle::from_raw(ffi!(sys::elg_env_text_field_style(environment.as_ptr())))

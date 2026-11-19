@@ -13,31 +13,64 @@ use crate::geometry::ContentMode;
 use crate::prop::{with_prop, IntoProp};
 use crate::view::{IntoView, View};
 
-/// Where an image comes from: an icon name (`"gear"`, `"heart-fill"`), a file (PNG, JPEG, SVG,
-/// ...), or encoded data in memory: owned, or `'static` bytes such as an [`asset!`](crate::asset)
-/// (Elegance copies it when it decodes).
-#[derive(Clone, Debug, Default, PartialEq)]
+/// Where an image comes from: an icon name (`"<set>.<icon>[.<variant>]"`, or `"<icon>[.<variant>]"`
+/// in the default set: `"gear"`, `"heart.fill"`), a raster image file (PNG, JPEG, GIF, BMP, TIFF,
+/// ICO; WebP, HEIF, and AVIF where the system has the codecs), or encoded data in memory: owned,
+/// or `'static` bytes such as an [`asset!`](crate::asset) (Elegance copies it when it decodes).
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImageSource {
     pub system_name: String,
     pub file: PathBuf,
     pub data: Cow<'static, [u8]>,
-    /// Pixels per point of a raster image (2 for @2x art).
+    /// Pixels per point of a raster image (2 for @2x art). 0 or less counts as 1.
     pub scale: f32,
+    /// Raster images: the most pixels (width times height) the image may have; one with more is
+    /// refused before it's decoded, like a file that can't be read. Lower it for images from
+    /// untrusted sources, or raise it for very large ones. 0: Elegance's default, 2^27.
+    pub max_pixels: u64,
+    /// Raster images: the longest side the image is decoded at. A larger image is scaled down while
+    /// decoding, keeping its aspect ratio; its size in points doesn't change. Still bounded by the
+    /// largest texture the GPU can hold. 0: Elegance's default, 8192.
+    pub max_side: u32,
+}
+
+impl Default for ImageSource {
+    /// Nothing to show, at scale 1 and Elegance's size limits.
+    fn default() -> Self {
+        Self {
+            system_name: String::new(),
+            file: PathBuf::new(),
+            data: Cow::Borrowed(&[]),
+            scale: 1.0,
+            max_pixels: 0,
+            max_side: 0,
+        }
+    }
 }
 
 #[elegance_macros::elg_builder]
 impl ImageSource {
     pub fn system(name: impl Into<String>) -> Self {
-        Self { system_name: name.into(), scale: 1.0, ..Default::default() }
+        Self { system_name: name.into(), ..Default::default() }
     }
     pub fn file(path: impl Into<PathBuf>) -> Self {
-        Self { file: path.into(), scale: 1.0, ..Default::default() }
+        Self { file: path.into(), ..Default::default() }
     }
     pub fn data(data: impl Into<Cow<'static, [u8]>>) -> Self {
-        Self { data: data.into(), scale: 1.0, ..Default::default() }
+        Self { data: data.into(), ..Default::default() }
     }
     pub fn scale(mut self, scale: f32) -> Self {
         self.scale = scale;
+        self
+    }
+    /// See [`ImageSource::max_pixels`].
+    pub fn max_pixels(mut self, max_pixels: u64) -> Self {
+        self.max_pixels = max_pixels;
+        self
+    }
+    /// See [`ImageSource::max_side`].
+    pub fn max_side(mut self, max_side: u32) -> Self {
+        self.max_side = max_side;
         self
     }
     /// The C form; borrows the strings and data. `file` is converted into a string kept in
@@ -48,8 +81,8 @@ impl ImageSource {
             file: self.file.to_str().map(cffi::s).unwrap_or(sys::ElgStr::EMPTY),
             data: if self.data.is_empty() { sys::ElgBytes::EMPTY } else { sys::ElgBytes::new(&self.data) },
             scale: if self.scale > 0.0 { self.scale } else { 1.0 },
-            max_pixels: 0, // Elegance's defaults
-            max_side: 0,
+            max_pixels: self.max_pixels,
+            max_side: self.max_side,
         }
     }
 }
@@ -121,13 +154,15 @@ pub struct AsyncImage {
     scale: f32,
     content_mode: Option<ContentMode>,
     disk_cache: bool,
+    max_pixels: u64,
+    max_side: u32,
     content: Option<Box<dyn Fn(&AsyncImagePhase) -> View>>,
 }
 
 #[elegance_macros::elg_builder]
 impl AsyncImage {
     pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into(), scale: 1.0, content_mode: None, disk_cache: true, content: None }
+        Self { url: url.into(), scale: 1.0, content_mode: None, disk_cache: true, max_pixels: 0, max_side: 0, content: None }
     }
     /// false: kept in memory only, never in the disk cache (private images whose server doesn't
     /// send `Cache-Control: no-store`).
@@ -138,6 +173,18 @@ impl AsyncImage {
     /// Pixels per point.
     pub fn scale(mut self, scale: f32) -> Self {
         self.scale = scale;
+        self
+    }
+    /// The most pixels (width times height) the image may have; one with more puts the view in
+    /// its failure phase. 0: Elegance's default, 2^27.
+    pub fn max_pixels(mut self, max_pixels: u64) -> Self {
+        self.max_pixels = max_pixels;
+        self
+    }
+    /// The longest side the image is decoded at; a larger one is scaled down to fit. 0: Elegance's
+    /// default, 8192.
+    pub fn max_side(mut self, max_side: u32) -> Self {
+        self.max_side = max_side;
         self
     }
     /// Resizable, keeping its proportions this way (without a content closure).
@@ -168,7 +215,7 @@ impl IntoView for AsyncImage {
         match self.content {
             None => {
                 let mode = self.content_mode.map_or(-1, |m| m as i32);
-                View::from_raw(ffi!(sys::elg_async_image(cffi::s(&self.url), self.scale, mode, self.disk_cache, 0, 0)))
+                View::from_raw(ffi!(sys::elg_async_image(cffi::s(&self.url), self.scale, mode, self.disk_cache, self.max_pixels, self.max_side)))
             }
             Some(content) => {
                 let content = cffi::closure(move |args, ret| unsafe {
@@ -185,8 +232,8 @@ impl IntoView for AsyncImage {
                     content,
                     self.scale,
                     self.disk_cache,
-                    0, // Elegance's default limits
-                    0,
+                    self.max_pixels,
+                    self.max_side,
                 )))
             }
         }
@@ -264,11 +311,35 @@ impl IconFont {
     pub fn is_empty(&self) -> bool {
         matches!(self, IconFont::None)
     }
+    /// The file, if it's one.
+    pub fn file(&self) -> Option<&Path> {
+        match self {
+            IconFont::File(path) => Some(path),
+            _ => None,
+        }
+    }
+    /// The data, if it's in memory.
+    pub fn data(&self) -> Option<&[u8]> {
+        match self {
+            IconFont::Data(data) => Some(data),
+            _ => None,
+        }
+    }
 }
 
 impl From<&str> for IconFont {
     fn from(file: &str) -> Self {
         IconFont::File(file.into())
+    }
+}
+impl From<String> for IconFont {
+    fn from(file: String) -> Self {
+        IconFont::File(file.into())
+    }
+}
+impl From<&Path> for IconFont {
+    fn from(file: &Path) -> Self {
+        IconFont::File(file.to_path_buf())
     }
 }
 impl From<PathBuf> for IconFont {
@@ -287,9 +358,10 @@ impl From<&[u8]> for IconFont {
     }
 }
 
-/// An icon style with its own font: `Image("brand-fill")` uses the "fill" variant.
+/// A variant of an icon set, with its own font: `Image("set.icon.fill")` uses the "fill" variant.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IconVariant {
+    /// The `<variant>` in icon names; not empty, no dots.
     pub name: String,
     pub font: IconFont,
     /// A names map of its own (empty: the set's).
@@ -313,10 +385,10 @@ pub struct IconSetOptions {
     pub replace: bool,
 }
 
-/// Registers an icon set; `Image("name:icon")` uses it, or plain names once it's the default.
+/// Registers an icon set; `Image("name.icon")` uses it, or plain names once it's the default.
 pub fn register_icon_set(name: &str, options: IconSetOptions) -> Result<(), Error> {
     let weights: Vec<sys::ElgIconWeight> =
-        options.weights.iter().map(|(weight, font)| sys::ElgIconWeight { weight: *weight as i32, font: font.c() }).collect();
+        options.weights.iter().map(|(weight, font)| sys::ElgIconWeight { weight: weight.c(), font: font.c() }).collect();
     let variant_names: Vec<String> = options.variants.iter().map(|v| v.names.to_string_lossy().into_owned()).collect();
     let variants: Vec<sys::ElgIconVariant> = options
         .variants

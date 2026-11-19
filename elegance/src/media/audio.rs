@@ -96,7 +96,7 @@ impl Sound {
     }
 }
 
-/// Streams a music file (MP3, FLAC, WAV, OGG): play, pause, seek, loop.
+/// Streams a music file (WAV, FLAC, MP3): play, pause, seek, loop.
 pub struct AudioPlayer {
     ptr: NonNull<sys::AudioPlayer>,
 }

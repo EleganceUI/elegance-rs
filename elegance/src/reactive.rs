@@ -648,7 +648,19 @@ impl<T: 'static> Clone for Computed<T> {
 impl<T: 'static> Copy for Computed<T> {}
 
 impl<T: PartialEq + 'static> Computed<T> {
+    /// A recomputation that gives a value equal to the last one changes nothing.
     pub fn new(function: impl Fn() -> T + 'static) -> Self {
+        Self::make(function, Some(<T as PartialEq>::eq))
+    }
+}
+
+impl<T: 'static> Computed<T> {
+    /// A computed value whose type can't be compared: every recomputation counts as a change.
+    pub fn always_notify(function: impl Fn() -> T + 'static) -> Self {
+        Self::make(function, None)
+    }
+
+    fn make(function: impl Fn() -> T + 'static, eq: Option<fn(&T, &T) -> bool>) -> Self {
         let cell = Rc::new(ComputedCell { value: RefCell::new(None), version: Cell::new(0), function: Box::new(function) });
         let handle = reserve(cell.clone());
         let owner = SlotOwner(handle);
@@ -658,12 +670,14 @@ impl<T: PartialEq + 'static> Computed<T> {
             let next = (cell.function)();
             let changed = {
                 let mut value = cell.value.borrow_mut();
-                if value.as_ref() == Some(&next) {
-                    false
-                } else {
+                let same = match (value.as_ref(), eq) {
+                    (Some(current), Some(eq)) => eq(current, &next),
+                    _ => false,
+                };
+                if !same {
                     *value = Some(next);
-                    true
                 }
+                !same
             };
             if changed {
                 cell.version.set(cell.version.get() + 1);

@@ -113,12 +113,19 @@ impl Notification {
     }
 }
 
+/// Shows a system notification (Windows: a toast, also kept in the notification center).
+/// Clicking it runs its own `on_click`, while the App runs.
+///
+/// On Windows, toasts show under the app's AppUserModelID, which Windows wants a Start menu
+/// shortcut to carry. An app that set its own (SetCurrentProcessExplicitAppUserModelID) needs
+/// such a shortcut, as its installer makes. Any other app gets an id made from its executable's
+/// name, and the first time it notifies, a shortcut to the executable in the person's Start menu,
+/// named after it.
 pub fn notify(notification: Notification) {
     ffi!(sys::elg_notify(cffi::s(&notification.title), cffi::s(&notification.body), cffi::optional_action(notification.on_click)));
 }
 
-/// An item of a tray icon's menu.
-#[derive(Default)]
+/// An item of a tray icon's menu. Its callbacks run on the UI thread.
 pub struct TrayMenuItem {
     /// Empty: a separator.
     pub title: String,
@@ -128,22 +135,30 @@ pub struct TrayMenuItem {
     pub checked: Option<bool>,
     /// Check boxes: when chosen, with the new state.
     pub toggled: Option<Box<dyn Fn(bool)>>,
+    /// False: shown dimmed, and can't be chosen. True by default.
     pub enabled: bool,
+    /// Not empty: the entry opens this menu instead.
     pub submenu: Vec<TrayMenuItem>,
+}
+
+impl Default for TrayMenuItem {
+    fn default() -> Self {
+        Self { title: String::new(), action: None, checked: None, toggled: None, enabled: true, submenu: Vec::new() }
+    }
 }
 
 impl TrayMenuItem {
     pub fn new(title: impl Into<String>, action: impl FnMut() + 'static) -> Self {
-        Self { title: title.into(), action: Some(Box::new(action)), enabled: true, ..Default::default() }
+        Self { title: title.into(), action: Some(Box::new(action)), ..Default::default() }
     }
     pub fn separator() -> Self {
-        Self { enabled: true, ..Default::default() }
+        Self::default()
     }
     pub fn check_box(title: impl Into<String>, checked: bool, toggled: impl Fn(bool) + 'static) -> Self {
-        Self { title: title.into(), checked: Some(checked), toggled: Some(Box::new(toggled)), enabled: true, ..Default::default() }
+        Self { title: title.into(), checked: Some(checked), toggled: Some(Box::new(toggled)), ..Default::default() }
     }
     pub fn submenu(title: impl Into<String>, items: Vec<TrayMenuItem>) -> Self {
-        Self { title: title.into(), submenu: items, enabled: true, ..Default::default() }
+        Self { title: title.into(), submenu: items, ..Default::default() }
     }
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
@@ -181,7 +196,7 @@ fn c_menu(items: Vec<TrayMenuItem>, titles: &mut Vec<String>) -> CMenu {
 
 #[derive(Default)]
 pub struct TrayIconOptions {
-    /// A file or data image; empty: a plain dot in the theme's accent color.
+    /// A file or data image; empty (or unreadable, with a warning in the log): a plain blue dot.
     pub icon: ImageSource,
     pub tooltip: String,
     pub menu: Vec<TrayMenuItem>,

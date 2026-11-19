@@ -144,15 +144,23 @@ impl IntoView for VideoView {
     }
 }
 
-/// Play/pause, a position slider, time, and volume for a VideoPlayer.
+/// Built-in controls for a VideoPlayer: play/pause, a scrubber, the time, and mute. Lay them over
+/// (or under) a VideoView.
 pub struct VideoControls {
     _private: (),
+}
+
+/// [`VideoControls`] outside `elg!`. White on a translucent black capsule; the time reads
+/// "Can't play this video" when the player has an error.
+#[allow(non_snake_case)]
+pub fn VideoControls(player: &VideoPlayer) -> View {
+    View::from_raw(ffi!(sys::elg_video_controls(player.as_ptr())))
 }
 
 impl ElgNew<(&VideoPlayer,)> for VideoControls {
     type Out = View;
     fn elg_new((player,): (&VideoPlayer,)) -> View {
-        View::from_raw(ffi!(sys::elg_video_controls(player.as_ptr())))
+        VideoControls(player)
     }
 }
 
@@ -258,6 +266,13 @@ impl ElgNew<(&VideoFeed,)> for VideoFeedView {
     type Out = VideoFeedView;
     fn elg_new((feed,): (&VideoFeed,)) -> Self {
         VideoFeedView::new(feed)
+    }
+}
+
+impl ElgNew<(VideoFeed,)> for VideoFeedView {
+    type Out = VideoFeedView;
+    fn elg_new((feed,): (VideoFeed,)) -> Self {
+        VideoFeedView::new(&feed)
     }
 }
 

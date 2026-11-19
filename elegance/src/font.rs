@@ -7,33 +7,49 @@ use elegance_sys as sys;
 use crate::error::{self, Error};
 use crate::ffi::{self, s};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum Weight {
-    UltraLight = 100,
-    Thin = 200,
-    Light = 300,
-    #[default]
-    Regular = 400,
-    Medium = 500,
-    Semibold = 600,
-    Bold = 700,
-    Heavy = 800,
-    Black = 900,
+/// A font weight: the named weights, and any between them (`Weight::new(550)`), from 1 to 1000.
+/// Variable fonts (macOS's system font, a variable file passed to [`register_font`]) draw each
+/// weight exactly; other fonts use their closest weight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Weight(u16);
+
+#[allow(non_upper_case_globals)]
+impl Weight {
+    pub const UltraLight: Weight = Weight(100);
+    pub const Thin: Weight = Weight(200);
+    pub const Light: Weight = Weight(300);
+    pub const Regular: Weight = Weight(400);
+    pub const Medium: Weight = Weight(500);
+    pub const Semibold: Weight = Weight(600);
+    pub const Bold: Weight = Weight(700);
+    pub const Heavy: Weight = Weight(800);
+    pub const Black: Weight = Weight(900);
+
+    /// A weight from 1 (thinnest) to 1000 (heaviest); values outside are clamped.
+    pub const fn new(value: u16) -> Self {
+        Weight(if value < 1 { 1 } else if value > 1000 { 1000 } else { value })
+    }
+    /// 1...1000; 400 is regular, 700 bold.
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+    pub(crate) fn from_c(value: i32) -> Self {
+        Weight::new(value.clamp(1, 1000) as u16)
+    }
+    pub(crate) fn c(self) -> i32 {
+        i32::from(self.0)
+    }
 }
 
-impl Weight {
-    pub(crate) fn from_c(value: i32) -> Self {
-        match value {
-            ..=150 => Weight::UltraLight,
-            151..=250 => Weight::Thin,
-            251..=350 => Weight::Light,
-            351..=450 => Weight::Regular,
-            451..=550 => Weight::Medium,
-            551..=650 => Weight::Semibold,
-            651..=750 => Weight::Bold,
-            751..=850 => Weight::Heavy,
-            _ => Weight::Black,
-        }
+impl Default for Weight {
+    fn default() -> Self {
+        Weight::Regular
+    }
+}
+
+impl From<u16> for Weight {
+    fn from(value: u16) -> Self {
+        Weight::new(value)
     }
 }
 
@@ -124,7 +140,7 @@ impl Font {
     }
 
     pub(crate) fn c(&self) -> sys::ElgFont {
-        sys::ElgFont { family: s(&self.family), size: self.size, weight: self.weight as i32, italic: self.italic }
+        sys::ElgFont { family: s(&self.family), size: self.size, weight: self.weight.c(), italic: self.italic }
     }
 
     pub(crate) fn from_parts(family: String, size: f32, weight: i32, italic: bool) -> Self {
@@ -136,13 +152,13 @@ impl Font {
 /// closest registered weight is used). Thread-safe.
 pub fn register_font(family: &str, file: impl AsRef<Path>, weight: impl Into<Weight>) -> Result<(), Error> {
     let file = ffi::path_str(file.as_ref());
-    unsafe { sys::elg_register_font_file(s(family), s(&file), weight.into() as i32) };
+    unsafe { sys::elg_register_font_file(s(family), s(&file), weight.into().c()) };
     error::result()
 }
 
 /// The same from font data in memory (copied).
 pub fn register_font_data(family: &str, data: &[u8], weight: impl Into<Weight>) -> Result<(), Error> {
-    unsafe { sys::elg_register_font_data(s(family), sys::ElgBytes::new(data), weight.into() as i32) };
+    unsafe { sys::elg_register_font_data(s(family), sys::ElgBytes::new(data), weight.into().c()) };
     error::result()
 }
 

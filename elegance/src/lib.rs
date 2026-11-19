@@ -83,6 +83,7 @@ pub mod media;
 pub mod modifier;
 pub mod navigation;
 pub mod path;
+pub mod platform;
 pub mod preview;
 pub mod prop;
 pub mod reactive;
@@ -106,6 +107,10 @@ mod items {
     pub use crate::color::{
         AngularGradient, BlurTokens, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop,
         LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeBlur, ThemeColor,
+    };
+    pub use crate::desktop::{
+        choose_files, choose_folders, choose_save_file, notify, ChooseFolderOptions, FileFilter,
+        Notification, OpenFilesOptions, SaveFileOptions, TrayIcon, TrayIconOptions, TrayMenuItem,
     };
     pub use crate::environment::{Environment, EnvironmentKey, EnvironmentValues};
     pub use crate::error::{AppCode, AppError, Error, ErrorAction, ErrorKind};
@@ -153,11 +158,26 @@ mod items {
         EffectModifier, Effects, EnvironmentModifier, EventHandler, EventModifier, LayoutModifier,
         Modifier, Placement, ViewModifier,
     };
+    // The built-in modifiers as values, for `.modifier(...)` (`elg::PaddingModifier`, ...).
+    pub use crate::modifier::{
+        AllowsHitTestingModifier, AspectRatioModifier, BackgroundModifier, BlendModeModifier,
+        BlurModifier, ButtonStyleModifier, ClickModifier, ClipShapeModifier, ColorFilterModifier,
+        ColorSchemeModifier, CompositingGroupModifier, ContentShapeModifier, DisabledModifier,
+        DragGestureModifier, EnvironmentKeyModifier, FixedSizeModifier, FocusableModifier,
+        FontModifier, ForegroundStyleModifier, FrameModifier, HoverDelayModifier, HoverModifier,
+        InnerShadowModifier, KeyEventModifier, LayoutPriorityModifier, LayoutValueModifier,
+        LongPressGestureModifier, MagnifyGestureModifier, MaskModifier, OffsetModifier,
+        OpacityModifier, OverlayModifier, PaddingModifier, PointerBoundaryModifier, PointerModifier,
+        PointerStyleModifier, RotateGestureModifier, RotationModifier, ScaleModifier,
+        ScrollModifier, ShadowModifier, TextFieldStyleModifier, TextInputModifier, ThemeModifier,
+        TintModifier, ToggleStyleModifier, TwoFingerDoubleTapModifier, ZIndexModifier,
+    };
     pub use crate::navigation::{
         ColumnWidth, HSplitView, NavigationSplitView, NavigationStack, PageTransition,
         SplitViewOptions, VSplitView,
     };
     pub use crate::path::{FillRule, LineCap, LineJoin, Path, Polyline, StrokeStyle};
+    pub use crate::platform::{current_platform, Platform};
     pub use crate::prop::{IntoProp, Prop, ResolveColor, ResolveStyle};
     pub use crate::reactive::{
         batch, computed, constant, effect, untrack, Binding, Computed, IntoBinding, ReadRef, Signal,

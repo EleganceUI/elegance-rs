@@ -141,7 +141,7 @@ impl RunStyle {
     pub(crate) fn c(&self) -> sys::ElgRunStyle {
         sys::ElgRunStyle {
             has_weight: self.weight.is_some(),
-            weight: self.weight.unwrap_or_default() as i32,
+            weight: self.weight.unwrap_or_default().c(),
             italic: self.italic,
             family: cffi::s(&self.family),
             has_color: self.color.is_some(),

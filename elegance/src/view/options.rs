@@ -129,6 +129,18 @@ impl PopupMotion {
     pub fn none() -> Self {
         Self { parts: None }
     }
+    /// The transition, or `None` for [`PopupMotion::none`].
+    pub fn transition(&self) -> Option<&Transition> {
+        self.parts.as_ref().map(|(transition, _)| transition)
+    }
+    /// The animation, or `None` for [`PopupMotion::none`].
+    pub fn animation(&self) -> Option<&Animation> {
+        self.parts.as_ref().map(|(_, animation)| animation)
+    }
+    /// Whether there's a transition to animate (false for [`PopupMotion::none`]).
+    pub fn animates(&self) -> bool {
+        self.parts.is_some()
+    }
 }
 
 /// The C form of an optional motion (None: the style's); borrows `motion`.
@@ -605,21 +617,24 @@ impl AspectRatioOptions {
 }
 
 /// What a view does with things dragged in from other apps. Handlers get what was dropped and
-/// where (in the view's coordinates); returning false means it wasn't wanted.
+/// where (in the view's coordinates). A drop goes to one view: the innermost enabled one under the
+/// pointer with a handler for it (on top, among siblings), whose handler runs.
 #[derive(Default)]
 pub struct DropOptions {
-    pub files: Option<Box<dyn Fn(Vec<PathBuf>, Point) -> bool>>,
-    pub text: Option<Box<dyn Fn(String, Point) -> bool>>,
+    /// Takes dropped files, by path. None: the view doesn't take files.
+    pub files: Option<Box<dyn Fn(Vec<PathBuf>, Point)>>,
+    /// Takes dropped text. None: the view doesn't take text.
+    pub text: Option<Box<dyn Fn(String, Point)>>,
     /// Set while a drag the view can take is over it (for a highlight).
     pub targeted: Option<Box<dyn Fn(bool)>>,
 }
 
 impl DropOptions {
-    pub fn files(mut self, f: impl Fn(Vec<PathBuf>, Point) -> bool + 'static) -> Self {
+    pub fn files(mut self, f: impl Fn(Vec<PathBuf>, Point) + 'static) -> Self {
         self.files = Some(Box::new(f));
         self
     }
-    pub fn text(mut self, f: impl Fn(String, Point) -> bool + 'static) -> Self {
+    pub fn text(mut self, f: impl Fn(String, Point) + 'static) -> Self {
         self.text = Some(Box::new(f));
         self
     }
