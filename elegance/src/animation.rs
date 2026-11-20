@@ -28,7 +28,7 @@ impl Drop for Animation {
 }
 
 impl Animation {
-    fn from_raw(ptr: *mut sys::Animation) -> Self {
+    pub(crate) fn from_raw(ptr: *mut sys::Animation) -> Self {
         Self { ptr: NonNull::new(ptr).expect("elegance: no animation") }
     }
     pub(crate) fn as_ptr(&self) -> *const sys::Animation {
@@ -61,9 +61,25 @@ impl Animation {
         let curve = cffi::closure(move |args, ret| unsafe { *(ret as *mut f64) = curve(*(args as *const f64)) });
         Self::from_raw(ffi!(sys::elg_animation_custom(curve, duration)))
     }
-    /// The same animation, starting `seconds` later.
+    /// A cubic Bézier through (0, 0), (x1, y1), (x2, y2) and (1, 1), like CSS's cubic-bezier():
+    /// `Animation::timing_curve(0.55, 0.1, 0.45, 0.9, 1.4)`. Times are clamped to 0...1; progress
+    /// outside it overshoots.
+    pub fn timing_curve(x1: f64, y1: f64, x2: f64, y2: f64, duration: f64) -> Self {
+        Self::from_raw(ffi!(sys::elg_animation_timing_curve(x1, y1, x2, y2, duration)))
+    }
+    /// The same animation, starting `seconds` later. A negative delay starts partway in, like CSS.
     pub fn delay(&self, seconds: f64) -> Self {
         Self::from_raw(unsafe { sys::elg_animation_delay(self.as_ptr(), seconds) })
+    }
+    /// Plays `count` times in all (less than 1 counts as 1), landing on the target. With
+    /// `autoreverses`, every other time runs backward.
+    pub fn repeat_count(&self, count: i32, autoreverses: bool) -> Self {
+        Self::from_raw(ffi!(sys::elg_animation_repeat_count(self.as_ptr(), count, autoreverses)))
+    }
+    /// Plays again and again until the value changes or the view goes away. A spinner turning
+    /// forever: rotation 0 to 360, linear, `autoreverses` false.
+    pub fn repeat_forever(&self, autoreverses: bool) -> Self {
+        Self::from_raw(ffi!(sys::elg_animation_repeat_forever(self.as_ptr(), autoreverses)))
     }
     /// Progress `seconds` after the start, 0...1 (springs may overshoot).
     pub fn progress(&self, seconds: f64) -> f64 {
@@ -149,7 +165,7 @@ impl Drop for Transition {
 }
 
 /// How a view looks partway through a transition. The default is the view in place: opacity and
-/// scale 1, no offset.
+/// scale 1, no offset, scaling around the middle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose {
     /// Multiplies the view's opacity.
@@ -159,17 +175,20 @@ pub struct Pose {
     /// Offset in points.
     pub x: f32,
     pub y: f32,
+    /// What it scales around, as fractions of its frame (0.5, 0.5: the middle).
+    pub anchor_x: f32,
+    pub anchor_y: f32,
 }
 
 impl Default for Pose {
     fn default() -> Self {
-        Self { opacity: 1.0, scale: 1.0, x: 0.0, y: 0.0 }
+        Self { opacity: 1.0, scale: 1.0, x: 0.0, y: 0.0, anchor_x: 0.5, anchor_y: 0.5 }
     }
 }
 
 #[elegance_macros::elg_builder]
 impl Transition {
-    fn from_raw(ptr: *mut sys::Transition) -> Self {
+    pub(crate) fn from_raw(ptr: *mut sys::Transition) -> Self {
         Self { ptr: NonNull::new(ptr).expect("elegance: no transition") }
     }
     pub(crate) fn as_ptr(&self) -> *const sys::Transition {
@@ -215,6 +234,6 @@ impl Transition {
     /// The pose at `progress` (0: hidden, 1: shown) of an insertion or removal.
     pub fn pose(&self, progress: f32, removal: bool, size: Size) -> Pose {
         let p = unsafe { sys::elg_transition_pose(self.as_ptr(), progress, removal, size.c()) };
-        Pose { opacity: p.opacity, scale: p.scale, x: p.x, y: p.y }
+        Pose { opacity: p.opacity, scale: p.scale, x: p.x, y: p.y, anchor_x: p.anchor_x, anchor_y: p.anchor_y }
     }
 }

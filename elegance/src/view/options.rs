@@ -504,6 +504,9 @@ impl Shadow {
         self.spread = spread.to_f32();
         self
     }
+    pub(crate) fn from_c(c: sys::ElgShadow) -> Self {
+        Self { color: Color::from_c(c.color), radius: c.radius, x: c.x, y: c.y, spread: c.spread }
+    }
     pub(crate) fn c(self) -> sys::ElgShadow {
         sys::ElgShadow {
             color: self.color.c(),

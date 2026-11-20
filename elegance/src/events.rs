@@ -99,6 +99,19 @@ keys!(
     Menu,
 );
 
+/// When a handler hears the events that travel in two phases: pointer downs, ups and hovers,
+/// scrolling, keys and text input. They go first through the capture handlers along their route,
+/// outermost view first, then through the bubble handlers, innermost first. The first handler
+/// that consumes an event, in either phase, ends it there.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum EventPhase {
+    /// On the way in, outermost first.
+    Capture,
+    /// On the way out, innermost first.
+    #[default]
+    Bubble,
+}
+
 /// Modifier keys held during an event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct KeyModifiers(pub u32);
@@ -117,11 +130,7 @@ impl KeyModifiers {
 
     /// The platform's shortcut modifier: Cmd on macOS, Ctrl elsewhere.
     pub fn primary() -> KeyModifiers {
-        if cfg!(target_os = "macos") {
-            KeyModifiers::SUPER
-        } else {
-            KeyModifiers::CONTROL
-        }
+        KeyModifiers(unsafe { sys::elg_primary_modifier() })
     }
 }
 

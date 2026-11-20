@@ -654,6 +654,21 @@ pub trait ViewExt: IntoView + Sized {
     fn on_double_click(self, action: impl Fn(&ClickEvent) + 'static) -> View {
         self.on_click_with(action, |o| o.count(2))
     }
+    /// Runs `action` once the view is added: its window opened, an If/ForEach showed it, or a lazy
+    /// stack built it as it scrolled near. It runs after the update that added it, before that
+    /// update is drawn, as the view's own: timers and effects started in it end with the view.
+    fn on_appear(self, action: impl FnMut() + 'static) -> View {
+        let action = cffi::action(action);
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_appear(v, action) })
+    }
+    /// Runs `action` once the view is gone: after its exit transition, or when its window closed.
+    /// Only for views that appeared.
+    fn on_disappear(self, action: impl FnMut() + 'static) -> View {
+        let action = cffi::action(action);
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_disappear(v, action) })
+    }
     /// The view's action, however it's used: a left click, Space or Enter while it has focus,
     /// or a screen reader's default action. Makes it focusable; ignored while disabled.
     fn on_activate(self, action: impl FnMut() + 'static) -> View {
@@ -707,6 +722,18 @@ pub trait ViewExt: IntoView + Sized {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_pointer(v, action) })
     }
+    /// Like `on_pointer`, in the capture phase ([`EventPhase`](crate::EventPhase)): sees a down,
+    /// up or hover on its way in, before the views inside it. Consuming a down captures the
+    /// pointer here.
+    fn on_pointer_capture(self, action: impl Fn(&PointerEvent) -> bool + 'static) -> View {
+        let action = cffi::closure(move |args, ret| unsafe {
+            *(ret as *mut bool) = action(&PointerEvent::from_c(
+                &*(args as *const sys::ElgPointerEvent),
+            ));
+        });
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_pointer_capture(v, action) })
+    }
     /// Wheel and trackpad scrolling over the view, located in its own coordinates. Return true
     /// to consume it (scroll views around it then don't scroll).
     fn on_scroll(self, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
@@ -716,6 +743,15 @@ pub trait ViewExt: IntoView + Sized {
         });
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_scroll(v, action) })
+    }
+    /// Like `on_scroll`, in the capture phase: sees scrolling before the views inside it.
+    fn on_scroll_capture(self, action: impl Fn(&ScrollEvent) -> bool + 'static) -> View {
+        let action = cffi::closure(move |args, ret| unsafe {
+            *(ret as *mut bool) =
+                action(&ScrollEvent::from_c(&*(args as *const sys::ElgScrollEvent)));
+        });
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_scroll_capture(v, action) })
     }
     /// The pointer's shape over the view, like CSS's `cursor`: `.pointer_style(.pointer)` over
     /// something to click. Views inside can set their own (a text field's I-beam). Reactive:
@@ -993,6 +1029,13 @@ pub trait ViewExt: IntoView + Sized {
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_key_press(v, key, action) })
     }
+    /// Like `on_key_press`, in the capture phase ([`EventPhase`](crate::EventPhase)): runs for a
+    /// press of `key` in a focused view inside this one, before that view sees it, and consumes it.
+    fn on_key_press_capture(self, key: impl Into<Key>, action: impl FnMut() + 'static) -> View {
+        let (key, action) = (key.into() as i32, cffi::action(action));
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_key_press_capture(v, key, action) })
+    }
     /// Sees every key down and up while the view (or something inside) has focus; return true
     /// if handled (unhandled keys bubble out).
     fn on_key(self, action: impl Fn(&KeyEvent) -> bool + 'static) -> View {
@@ -1002,6 +1045,16 @@ pub trait ViewExt: IntoView + Sized {
         });
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_key(v, action) })
+    }
+    /// Like `on_key`, in the capture phase: sees the keys of a focused view inside this one,
+    /// before that view. Return true if handled.
+    fn on_key_capture(self, action: impl Fn(&KeyEvent) -> bool + 'static) -> View {
+        let action = cffi::closure(move |args, ret| unsafe {
+            let event = KeyEvent::from_c(&*(args as *const sys::ElgKeyEvent));
+            *(ret as *mut bool) = action(&event);
+        });
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_key_capture(v, action) })
     }
     /// Makes the view focusable and sees the text typed while it has focus: commits, and an
     /// IME's compositions in progress. Keys still go to `on_key`. Return true if handled.
@@ -1013,6 +1066,17 @@ pub trait ViewExt: IntoView + Sized {
         });
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_text_input(v, action) })
+    }
+    /// Like `on_text_input`, in the capture phase: sees the text typed into a focused view inside
+    /// this one, before that view. It doesn't make this view focusable.
+    fn on_text_input_capture(self, action: impl Fn(&TextInputEvent) -> bool + 'static) -> View {
+        let action = cffi::closure(move |args, ret| unsafe {
+            *(ret as *mut bool) = action(&TextInputEvent::from_c(
+                &*(args as *const sys::ElgTextInputEvent),
+            ));
+        });
+        self.into_view()
+            .modify(|v| unsafe { sys::elg_mod_on_text_input_capture(v, action) })
     }
 
     // Selection.

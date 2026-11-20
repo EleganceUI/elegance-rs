@@ -10,6 +10,12 @@ pub const INFINITY: f32 = f32::INFINITY;
 /// The spacing stacks use when none is given.
 pub const DEFAULT_STACK_SPACING: f32 = 8.0;
 
+/// Elegance's spacing between stack children when none is given: [`DEFAULT_STACK_SPACING`],
+/// as the library reports it.
+pub fn default_stack_spacing() -> f32 {
+    unsafe { elegance_sys::elg_default_stack_spacing() }
+}
+
 /// Any number used as a length in points.
 pub trait Number: Copy {
     fn to_f32(self) -> f32;

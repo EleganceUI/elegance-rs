@@ -105,38 +105,43 @@ impl Font {
         self.italic
     }
 
+    // The text styles, as Elegance defines them (`Font::large_title`, ...).
     pub fn large_title() -> Self {
-        Self::system(30.0, Weight::Bold)
+        Self::text_style(0)
     }
     pub fn title() -> Self {
-        Self::system(24.0, Weight::Semibold)
+        Self::text_style(1)
     }
     pub fn title2() -> Self {
-        Self::system(20.0, Weight::Semibold)
+        Self::text_style(2)
     }
     pub fn title3() -> Self {
-        Self::system(17.0, Weight::Semibold)
+        Self::text_style(3)
     }
     pub fn headline() -> Self {
-        Self::system(15.0, Weight::Semibold)
+        Self::text_style(4)
     }
     pub fn body() -> Self {
-        Self::system(15.0, Weight::Regular)
+        Self::text_style(5)
     }
     pub fn callout() -> Self {
-        Self::system(14.0, Weight::Regular)
+        Self::text_style(6)
     }
     pub fn subheadline() -> Self {
-        Self::system(13.0, Weight::Regular)
+        Self::text_style(7)
     }
     pub fn footnote() -> Self {
-        Self::system(12.0, Weight::Regular)
+        Self::text_style(8)
     }
     pub fn caption() -> Self {
-        Self::system(12.0, Weight::Regular)
+        Self::text_style(9)
     }
     pub fn caption2() -> Self {
-        Self::system(11.0, Weight::Regular)
+        Self::text_style(10)
+    }
+    fn text_style(style: i32) -> Self {
+        let c = unsafe { sys::elg_font_text_style(style) };
+        Self::from_parts(unsafe { c.family.as_str() }.to_owned(), c.size, c.weight, c.italic)
     }
 
     pub(crate) fn c(&self) -> sys::ElgFont {

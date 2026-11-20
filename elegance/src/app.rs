@@ -11,6 +11,7 @@ use elegance_sys as sys;
 use crate::color::Color;
 use crate::error::{self, AppError, Error, ErrorAction};
 use crate::ffi as cffi;
+use crate::events::{Key, KeyModifiers};
 use crate::geometry::{Point, Size};
 use crate::view::IntoView;
 
@@ -29,6 +30,28 @@ pub enum TitleBar {
     /// drag with `.window_drag_area()`. Elsewhere the window keeps its system title bar (as
     /// `System`).
     Integrated,
+}
+
+/// A backdrop the system draws behind the window's content: the desktop and windows below,
+/// blurred and tinted. Where the content (and background) isn't opaque, it shows through, as with
+/// [`WindowDesc::transparent`]. Each platform uses its nearest match:
+///
+/// | | macOS (vibrancy) | Windows 11 (22H2 and later) |
+/// |---|---|---|
+/// | `Sidebar` | sidebar | Mica Alt (tabbed) |
+/// | `UnderWindow` | under-window background | Mica |
+/// | `Mica` | under-window background | Mica |
+/// | `Acrylic` | HUD window | Acrylic |
+///
+/// Elsewhere (Windows 10, Linux) the window stays opaque and draws its background as usual.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowMaterial {
+    #[default]
+    None,
+    Sidebar,
+    UnderWindow,
+    Mica,
+    Acrylic,
 }
 
 /// How a window opens.
@@ -50,6 +73,9 @@ pub struct WindowDesc {
     pub system_controls_position: Option<Point>,
     /// The desktop shows through wherever the content isn't opaque (with `TitleBar::Hidden`).
     pub transparent: bool,
+    /// The system's backdrop behind the content (see [`WindowMaterial`]). With one, the default
+    /// background is clear where the platform draws it.
+    pub material: WindowMaterial,
     /// The whole window's opacity, 0...1.
     pub opacity: f32,
     /// Covers the display it opens on, without a frame. width/height are its size after.
@@ -68,6 +94,7 @@ impl Default for WindowDesc {
             title_bar: TitleBar::System,
             system_controls_position: None,
             transparent: false,
+            material: WindowMaterial::None,
             opacity: 1.0,
             fullscreen: false,
         }
@@ -108,6 +135,10 @@ impl WindowDesc {
         self.transparent = transparent;
         self
     }
+    pub fn material(mut self, material: impl Into<WindowMaterial>) -> Self {
+        self.material = material.into();
+        self
+    }
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity;
         self
@@ -116,6 +147,172 @@ impl WindowDesc {
         self.fullscreen = fullscreen;
         self
     }
+}
+
+// --- Menu bar ---
+
+/// A key combination: `KeyboardShortcut::new(Key::S)` is Cmd+S on macOS and Ctrl+S elsewhere;
+/// `KeyboardShortcut::new(Key::S).modifiers(KeyModifiers::primary() | KeyModifiers::SHIFT)`
+/// adds Shift.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct KeyboardShortcut {
+    /// The key, by meaning.
+    pub key: Key,
+    /// Held with it; default: Cmd on macOS, Ctrl elsewhere.
+    pub modifiers: KeyModifiers,
+}
+
+impl KeyboardShortcut {
+    /// `key` with the primary modifier.
+    pub fn new(key: Key) -> Self {
+        Self { key, modifiers: KeyModifiers::primary() }
+    }
+    pub fn modifiers(mut self, modifiers: KeyModifiers) -> Self {
+        self.modifiers = modifiers;
+        self
+    }
+}
+
+/// What a menu item is to the system. Items with a role do the standard thing unless they have
+/// an action of their own, and take the standard title and shortcut if they have none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MenuRole {
+    /// An ordinary item or menu.
+    #[default]
+    None,
+    /// macOS's application menu (titled with the app's name; elsewhere its items join the first
+    /// menu).
+    App,
+    /// macOS lists the open windows in it.
+    Window,
+    /// macOS adds its search field.
+    Help,
+    /// macOS: the standard About panel.
+    About,
+    /// Cmd+, on macOS.
+    Settings,
+    /// Quits the app.
+    Quit,
+    /// macOS only (left out elsewhere): hide the app,
+    Hide,
+    /// the other apps,
+    HideOthers,
+    /// or show them all again.
+    ShowAll,
+    /// These send their shortcut to the focused view (a text field).
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+    /// The active window.
+    Minimize,
+    /// Maximize or restore it.
+    Zoom,
+    /// macOS only.
+    ToggleFullscreen,
+}
+
+/// An item of the menu bar ([`App::menu_bar`]): a top-level menu (with a submenu), a command, a
+/// check box, or a separator (an empty title and no role). Callbacks run on the UI thread.
+pub struct MenuBarItem {
+    /// Empty: the role's standard title (or, with no role, a separator).
+    pub title: String,
+    /// When chosen.
+    pub action: Option<Box<dyn FnMut()>>,
+    /// A check box, initially checked or not.
+    pub checked: Option<bool>,
+    /// Check boxes: when chosen, with the new state.
+    pub toggled: Option<Box<dyn Fn(bool)>>,
+    /// False: grayed out, and its shortcut does nothing. True by default.
+    pub enabled: bool,
+    /// Also works while the menu is closed.
+    pub shortcut: Option<KeyboardShortcut>,
+    /// What it is to the system.
+    pub role: MenuRole,
+    /// A menu's items.
+    pub submenu: Vec<MenuBarItem>,
+}
+
+impl Default for MenuBarItem {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            action: None,
+            checked: None,
+            toggled: None,
+            enabled: true,
+            shortcut: None,
+            role: MenuRole::None,
+            submenu: Vec::new(),
+        }
+    }
+}
+
+impl MenuBarItem {
+    /// A top-level menu, or a submenu.
+    pub fn menu(title: impl Into<String>, items: Vec<MenuBarItem>) -> Self {
+        Self { title: title.into(), submenu: items, ..Default::default() }
+    }
+    /// A command.
+    pub fn new(title: impl Into<String>, action: impl FnMut() + 'static) -> Self {
+        Self { title: title.into(), action: Some(Box::new(action)), ..Default::default() }
+    }
+    /// An item that does the standard thing for `role`, with its standard title and shortcut.
+    pub fn role(role: MenuRole) -> Self {
+        Self { role, ..Default::default() }
+    }
+    pub fn separator() -> Self {
+        Self::default()
+    }
+    pub fn check_box(title: impl Into<String>, checked: bool, toggled: impl Fn(bool) + 'static) -> Self {
+        Self { title: title.into(), checked: Some(checked), toggled: Some(Box::new(toggled)), ..Default::default() }
+    }
+    pub fn shortcut(mut self, shortcut: KeyboardShortcut) -> Self {
+        self.shortcut = Some(shortcut);
+        self
+    }
+    pub fn with_role(mut self, role: MenuRole) -> Self {
+        self.role = role;
+        self
+    }
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+// The C items of a menu; titles and submenus are borrowed from `titles` and `_submenus`.
+struct CMenuBar {
+    items: Vec<sys::ElgMenuBarItem>,
+    _submenus: Vec<CMenuBar>,
+}
+
+fn c_menu_bar(items: Vec<MenuBarItem>, titles: &mut Vec<String>) -> CMenuBar {
+    let mut c = Vec::new();
+    let mut submenus = Vec::new();
+    for item in items {
+        let sub = c_menu_bar(item.submenu, titles);
+        titles.push(item.title);
+        let title = titles.last().unwrap();
+        c.push(sys::ElgMenuBarItem {
+            // Strings in `titles` don't move: their buffers stay put as the Vec grows.
+            title: cffi::s(title),
+            action: cffi::optional_action(item.action),
+            checked: item.checked.map_or(-1, i32::from),
+            toggled: item.toggled.map(|f| cffi::consumer(move |b: bool| f(b))).unwrap_or(sys::ElgClosure::NONE),
+            enabled: item.enabled,
+            has_shortcut: item.shortcut.is_some(),
+            shortcut_key: item.shortcut.map_or(0, |s| s.key as i32),
+            shortcut_modifiers: item.shortcut.map_or(0, |s| s.modifiers.0),
+            role: item.role as i32,
+            submenu: if sub.items.is_empty() { std::ptr::null() } else { sub.items.as_ptr() },
+            submenu_count: sub.items.len(),
+        });
+        submenus.push(sub);
+    }
+    CMenuBar { items: c, _submenus: submenus }
 }
 
 struct AppPtr(NonNull<sys::App>);
@@ -226,6 +423,7 @@ impl App {
             has_system_controls_position: desc.system_controls_position.is_some(),
             system_controls_position: desc.system_controls_position.unwrap_or_default().c(),
             transparent: desc.transparent,
+            material: desc.material as i32,
             opacity: desc.opacity,
             fullscreen: desc.fullscreen,
         };
@@ -240,6 +438,18 @@ impl App {
     /// The handler returns [`ErrorAction::Resume`] to go on, or [`ErrorAction::Quit`] to end the
     /// run: `run` then resumes the panic or returns the error. What it panics with itself is only
     /// logged.
+    /// The menu bar: top-level menus, in order, each with its items as `submenu`. macOS: the app's
+    /// menu bar at the top of the screen (without one, a minimal app menu). Windows: a menu bar in
+    /// each window with a system title bar. Linux: a bar of menus drawn at the top of each window.
+    /// Its shortcuts work while a window of the app has the keyboard and no view took the key.
+    /// Callable while the app runs, replacing the menus.
+    pub fn menu_bar(&self, menus: Vec<MenuBarItem>) -> &Self {
+        let mut titles = Vec::new();
+        let menus = c_menu_bar(menus, &mut titles);
+        crate::error::ffi!(sys::elg_app_menu_bar(self.ptr(), menus.items.as_ptr(), menus.items.len()));
+        self
+    }
+
     pub fn on_error(&self, handler: impl FnMut(&AppError) -> ErrorAction + 'static) -> &Self {
         *self.on_error.borrow_mut() = Some(Box::new(handler));
         self
