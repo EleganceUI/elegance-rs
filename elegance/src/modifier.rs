@@ -23,6 +23,9 @@ use crate::events::{
 };
 use crate::ffi as cffi;
 use crate::geometry::{Alignment, ContentMode, EdgeInsets, Point, ProposedSize, Rect, Size, UnitPoint};
+use crate::gestures::{
+    DragGesture, Gesture, GestureOptions, LongPressGesture, MagnifyGesture, RotateGesture, TwoFingerDoubleTapGesture,
+};
 use crate::layout::LayoutChild;
 use crate::prop::{with_prop, IntoProp, Prop};
 use crate::shapes::Shape;
@@ -156,14 +159,17 @@ impl Effects {
             None => crate::error::ffi!(sys::elg_effects_set_rotation(self.ptr, std::ptr::null())),
         }
     }
-    /// Scale of the drawn content about the anchor, per axis.
-    pub fn set_scale(&mut self, scale: Option<(Prop<f32>, Prop<f32>)>) {
-        match scale {
-            Some((x, y)) => with_prop(x, |px| {
-                with_prop(y, |py| crate::error::ffi!(sys::elg_effects_set_scale(self.ptr, &px, &py)))
-            }),
-            None => crate::error::ffi!(sys::elg_effects_set_scale(self.ptr, std::ptr::null(), std::ptr::null())),
+    /// Horizontal and vertical scale of the drawn content about the anchor (1: as is); each is
+    /// unset by `None`, independently of the other.
+    pub fn set_scale(&mut self, x: Option<Prop<f32>>, y: Option<Prop<f32>>) {
+        fn with_optional(prop: Option<Prop<f32>>, f: impl FnOnce(*const sys::ElgProp)) {
+            match prop {
+                Some(prop) => with_prop(prop, |p| f(&p)),
+                None => f(std::ptr::null()),
+            }
         }
+        let ptr = self.ptr;
+        with_optional(x, |px| with_optional(y, |py| crate::error::ffi!(sys::elg_effects_set_scale(ptr, px, py))));
     }
     /// What rotation and scale pivot around.
     pub fn anchor(&self) -> UnitPoint {
@@ -558,6 +564,141 @@ pub struct FocusableModifier(pub bool);
 impl Modifier for FocusableModifier {
     fn apply(self, content: View) -> View {
         content.focusable(self.0)
+    }
+}
+
+/// Shows the content only where `view` (sized and aligned like an overlay) is opaque
+/// (`.mask_view()` as a value).
+pub struct MaskModifier {
+    pub view: View,
+    pub alignment: Alignment,
+}
+impl Modifier for MaskModifier {
+    fn apply(self, content: View) -> View {
+        let alignment = self.alignment;
+        content.mask_view_with(self.view, move |o| o.alignment(alignment))
+    }
+}
+
+pub struct InnerShadowModifier(pub Shadow);
+impl Modifier for InnerShadowModifier {
+    fn apply(self, content: View) -> View {
+        content.inner_shadow(self.0)
+    }
+}
+
+pub struct BlurModifier {
+    /// In points.
+    pub radius: Prop<f32>,
+    /// The content fills its bounds: edges stay sharp instead of fading out.
+    pub opaque: bool,
+}
+impl Modifier for BlurModifier {
+    fn apply(self, content: View) -> View {
+        let opaque = self.opaque;
+        content.blur_with(self.radius, move |o| o.opaque(opaque))
+    }
+}
+
+pub struct ColorFilterModifier(pub ColorFilter);
+impl Modifier for ColorFilterModifier {
+    fn apply(self, content: View) -> View {
+        content.color_filter(self.0)
+    }
+}
+
+pub struct BlendModeModifier(pub BlendMode);
+impl Modifier for BlendModeModifier {
+    fn apply(self, content: View) -> View {
+        content.blend_mode(self.0)
+    }
+}
+
+pub struct CompositingGroupModifier;
+impl Modifier for CompositingGroupModifier {
+    fn apply(self, content: View) -> View {
+        content.compositing_group()
+    }
+}
+
+/// Turns the drawn content `degrees` clockwise about `anchor`.
+pub struct RotationModifier {
+    pub degrees: Prop<f32>,
+    pub anchor: UnitPoint,
+}
+impl Modifier for RotationModifier {
+    fn apply(self, content: View) -> View {
+        let anchor = self.anchor;
+        content.rotation_effect_with(self.degrees, move |o| o.anchor(anchor))
+    }
+}
+
+/// Scales the drawn content about `anchor`, per axis.
+pub struct ScaleModifier {
+    pub x: Prop<f32>,
+    pub y: Prop<f32>,
+    pub anchor: UnitPoint,
+}
+impl Modifier for ScaleModifier {
+    fn apply(self, content: View) -> View {
+        let anchor = self.anchor;
+        content.scale_effect_xy_with(self.x, self.y, move |o| o.anchor(anchor))
+    }
+}
+
+pub struct DragGestureModifier {
+    pub gesture: DragGesture,
+    pub options: GestureOptions,
+}
+impl Modifier for DragGestureModifier {
+    fn apply(self, content: View) -> View {
+        self.gesture.attach(content, self.options)
+    }
+}
+
+pub struct LongPressGestureModifier {
+    pub gesture: LongPressGesture,
+    pub options: GestureOptions,
+}
+impl Modifier for LongPressGestureModifier {
+    fn apply(self, content: View) -> View {
+        self.gesture.attach(content, self.options)
+    }
+}
+
+pub struct MagnifyGestureModifier(pub MagnifyGesture);
+impl Modifier for MagnifyGestureModifier {
+    fn apply(self, content: View) -> View {
+        content.recognize(self.0)
+    }
+}
+
+pub struct RotateGestureModifier(pub RotateGesture);
+impl Modifier for RotateGestureModifier {
+    fn apply(self, content: View) -> View {
+        content.recognize(self.0)
+    }
+}
+
+pub struct TwoFingerDoubleTapModifier(pub TwoFingerDoubleTapGesture);
+impl Modifier for TwoFingerDoubleTapModifier {
+    fn apply(self, content: View) -> View {
+        content.recognize(self.0)
+    }
+}
+
+pub struct PointerStyleModifier(pub Prop<PointerStyle>);
+impl Modifier for PointerStyleModifier {
+    fn apply(self, content: View) -> View {
+        content.pointer_style(self.0)
+    }
+}
+
+/// Sets a layout value on the view for its parent's layout (`.layout_value::<K>(v)` as a value).
+pub struct LayoutValueModifier<K: crate::layout::LayoutValueKey>(pub K::Value);
+impl<K: crate::layout::LayoutValueKey> Modifier for LayoutValueModifier<K> {
+    fn apply(self, content: View) -> View {
+        content.layout_value::<K>(self.0)
     }
 }
 

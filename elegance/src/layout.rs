@@ -262,7 +262,7 @@ pub struct ZStackLayout {
 }
 
 macro_rules! stack_layout {
-    ($t:ident, $kind:expr_2021, |$s:ident| $alignment:expr_2021, $spacing:expr_2021) => {
+    ($t:ident, $kind:expr_2021, $axis:expr_2021, |$s:ident| $alignment:expr_2021, $spacing:expr_2021) => {
         impl $t {
             pub fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
                 let $s = self;
@@ -274,19 +274,32 @@ macro_rules! stack_layout {
                 let ptr = children.as_ptr() as *const sys::LayoutChild;
                 ffi!(sys::elg_stack_layout_place($kind, $alignment, $spacing, bounds.c(), proposal.c(), ptr, children.len()))
             }
+            /// The axis Spacers inside expand along.
+            pub fn spacer_axis(&self) -> Option<Axis> {
+                $axis
+            }
         }
-        impl ElgChildren for $t {
-            type Out = View;
-            fn elg_children(self, children: Vec<View>) -> View {
-                self.view(children)
+        /// As a [`Layout`], it can be used where any layout can; its views are the native stack.
+        impl Layout for $t {
+            fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
+                $t::size_that_fits(self, proposal, children)
+            }
+            fn place_children(&self, bounds: Rect, proposal: ProposedSize, children: &[LayoutChild]) {
+                $t::place_children(self, bounds, proposal, children)
+            }
+            fn spacer_axis(&self) -> Option<Axis> {
+                $t::spacer_axis(self)
+            }
+            fn view(self, children: Vec<View>) -> View {
+                $t::view(self, children)
             }
         }
     };
 }
 
-stack_layout!(VStackLayout, 0, |s| sys::ElgAlignment { horizontal: s.alignment as i32, vertical: 1 }, s.spacing.c());
-stack_layout!(HStackLayout, 1, |s| sys::ElgAlignment { horizontal: 1, vertical: s.alignment as i32 }, s.spacing.c());
-stack_layout!(ZStackLayout, 2, |s| s.alignment.c(), Len(None).c());
+stack_layout!(VStackLayout, 0, Some(Axis::Vertical), |s| sys::ElgAlignment { horizontal: s.alignment as i32, vertical: 1 }, s.spacing.c());
+stack_layout!(HStackLayout, 1, Some(Axis::Horizontal), |s| sys::ElgAlignment { horizontal: 1, vertical: s.alignment as i32 }, s.spacing.c());
+stack_layout!(ZStackLayout, 2, None, |s| s.alignment.c(), Len(None).c());
 
 #[elegance_macros::elg_builder]
 impl VStackLayout {

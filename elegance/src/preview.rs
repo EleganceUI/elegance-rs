@@ -7,7 +7,8 @@
 //!     elg! { Counter() }
 //! }
 //!
-//! // The whole app, for `cargo elegance preview --root`.
+//! // The whole app, for `cargo elegance preview --root`. A host that shares types with the module
+//! // gives their hash too: `#[preview(root, app_hash = elegance::layout_hash!(Store))]`.
 //! #[preview(root)]
 //! fn app() -> impl IntoView {
 //!     elg! { Root() }
@@ -32,6 +33,8 @@ pub struct PreviewItem {
     /// The module's root view (`#[preview(root)]`) rather than one of its previews.
     pub root: bool,
     pub body: fn() -> View,
+    /// The root's `app_hash` (see [`crate::layout_hash!`]); 0 for none.
+    pub app_hash: u64,
     pub file: &'static str,
     pub line: u32,
 }
@@ -43,12 +46,13 @@ inventory::collect!(PreviewItem);
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __preview {
-    ($name:expr, $root:expr, $function:path) => {
+    ($name:expr, $root:expr, $app_hash:expr, $function:path) => {
         $crate::__private::inventory::submit! {
             $crate::__private::PreviewItem {
                 name: $name,
                 root: $root,
                 body: || $crate::IntoView::into_view($function()),
+                app_hash: $app_hash,
                 file: ::std::file!(),
                 line: ::std::line!(),
             }
@@ -78,6 +82,7 @@ mod entry {
 
     struct Module {
         root: Option<fn() -> View>,
+        app_hash: u64,
         previews: Vec<&'static PreviewItem>,
     }
 
@@ -95,16 +100,22 @@ mod entry {
         let module = MODULE.get_or_init(|| {
             let mut items: Vec<&'static PreviewItem> = inventory::iter::<PreviewItem>.into_iter().collect();
             items.sort_by_key(|p| (p.file, p.line));
-            let root = items.iter().find(|p| p.root).map(|p| p.body);
-            Module { root, previews: items.into_iter().filter(|p| !p.root).collect() }
+            let root = items.iter().find(|p| p.root);
+            Module {
+                root: root.map(|p| p.body),
+                app_hash: root.map_or(0, |p| p.app_hash),
+                previews: items.into_iter().filter(|p| !p.root).collect(),
+            }
         });
         let descs: Vec<sys::ElgPreviewDesc> = module
             .previews
             .iter()
             .map(|p| sys::ElgPreviewDesc { name: ffi::s(p.name), file: ffi::s(p.file), line: p.line as i32 })
             .collect();
-        // No app hash: the Rust API has none to give yet, and HotReload passes none either.
-        unsafe { sys::elg_rust_module_entry(module.root.is_some(), descs.as_ptr(), descs.len(), Some(build), 0) }.cast()
+        unsafe {
+            sys::elg_rust_module_entry(module.root.is_some(), descs.as_ptr(), descs.len(), Some(build), module.app_hash)
+        }
+        .cast()
     }
 
     unsafe extern "C" fn build(index: i32, ret: *mut sys::View) -> bool {

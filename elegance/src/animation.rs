@@ -148,14 +148,23 @@ impl Drop for Transition {
     }
 }
 
-/// How a view looks partway through a transition.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// How a view looks partway through a transition. The default is the view in place: opacity and
+/// scale 1, no offset.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose {
+    /// Multiplies the view's opacity.
     pub opacity: f32,
+    /// Multiplies its size.
     pub scale: f32,
     /// Offset in points.
     pub x: f32,
     pub y: f32,
+}
+
+impl Default for Pose {
+    fn default() -> Self {
+        Self { opacity: 1.0, scale: 1.0, x: 0.0, y: 0.0 }
+    }
 }
 
 #[elegance_macros::elg_builder]

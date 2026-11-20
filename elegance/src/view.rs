@@ -736,7 +736,7 @@ pub trait ViewExt: IntoView + Sized {
     /// in a channel or a `Cell`) and render at that size; do not change layout or rebuild views
     /// synchronously from this callback. Place the modifier inside any padding or frame whose
     /// extra space should not be included in the observed size.
-    fn on_sized(self, action: impl Fn(PixelSize) + 'static) -> View {
+    fn on_size_change(self, action: impl Fn(PixelSize) + 'static) -> View {
         let action = cffi::consumer(move |size: sys::ElgPixelSize| {
             action(PixelSize {
                 width: size.width,
@@ -745,6 +745,11 @@ pub trait ViewExt: IntoView + Sized {
         });
         self.into_view()
             .modify(|v| unsafe { sys::elg_mod_on_size_change(v, action) })
+    }
+    /// The former name of [`ViewExt::on_size_change`].
+    #[deprecated(note = "renamed to on_size_change, as in Elegance")]
+    fn on_sized(self, action: impl Fn(PixelSize) + 'static) -> View {
+        self.on_size_change(action)
     }
 
     /// Called at once when the pointer comes over the view (its hit area): for highlights.
@@ -777,14 +782,17 @@ pub trait ViewExt: IntoView + Sized {
                     .iter()
                     .map(|p| PathBuf::from(p.as_str()))
                     .collect();
-                *(ret as *mut bool) = f(paths, Point::from_c(arg.location));
+                f(paths, Point::from_c(arg.location));
+                // Elegance ignores what a drop handler returns.
+                *(ret as *mut bool) = true;
             }),
             None => sys::ElgClosure::NONE,
         };
         let text = match options.text {
             Some(f) => cffi::closure(move |args, ret| unsafe {
                 let arg = &*(args as *const sys::ElgDropText);
-                *(ret as *mut bool) = f(arg.text.as_str().to_owned(), Point::from_c(arg.location));
+                f(arg.text.as_str().to_owned(), Point::from_c(arg.location));
+                *(ret as *mut bool) = true;
             }),
             None => sys::ElgClosure::NONE,
         };

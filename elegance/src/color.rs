@@ -4,7 +4,8 @@ use elegance_sys as sys;
 
 use crate::geometry::UnitPoint;
 
-/// A color in linear-light RGBA components 0...1 (as `elg::Color`).
+/// An sRGB color with straight (non-premultiplied) alpha; components are in 0...1 (as
+/// `elg::Color`). The default is opaque black.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Color {
     pub r: f32,

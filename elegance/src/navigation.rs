@@ -370,13 +370,14 @@ impl<R: PartialEq + Clone + 'static> IntoView for NavigationStack<R> {
             let routes = path.get(); // a tracked read: the stack follows the path
             push_items(ret, routes, &|index, _| ItemKey::Int(index as i64), &destination);
         });
-        let (root_title, title) = (self.root_title, self.title);
+        // A title from the environment (Prop::from_env) reads the one the stack is built in.
+        let root_title = match self.root_title.needs_environment() {
+            true => self.root_title.resolved_in(&crate::environment::EnvironmentValues::current()),
+            false => self.root_title,
+        };
+        let title = self.title;
         let titles = cffi::closure(move |_, ret| {
-            let mut names = vec![match &root_title {
-                Prop::Value(v) => v.clone(),
-                Prop::Fn(f) => f(),
-                _ => String::new(),
-            }];
+            let mut names = vec![root_title.try_get().unwrap_or_default()];
             for route in path.get() {
                 names.push(title.as_ref().map(|t| t(&route)).unwrap_or_default());
             }

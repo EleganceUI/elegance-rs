@@ -25,7 +25,7 @@ use crate::dsl::{ElgChildren, ElgNew};
 use crate::error::ffi;
 use crate::ffi as cffi;
 use crate::geometry::{Alignment, Len, Number, ProposedSize, Rect, Size, VerticalAlignment};
-use crate::layout::LayoutChild;
+use crate::layout::{Layout, LayoutChild};
 use crate::view::{raw_views, IntoView, View};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -222,7 +222,8 @@ macro_rules! line_grid {
             }
         }
 
-        /// The layout behind the grid, for custom layouts.
+        /// The layout behind the grid, for custom layouts. The default has one flexible track,
+        /// centered, with the default spacing.
         #[derive(Clone, Debug, PartialEq)]
         pub struct $layout {
             pub $tracks: Vec<GridItem>,
@@ -230,7 +231,33 @@ macro_rules! line_grid {
             pub spacing: Len,
         }
 
+        impl Default for $layout {
+            fn default() -> Self {
+                Self::new([GridItem::flexible()], Alignment::CENTER, Len(None))
+            }
+        }
+
+        /// As a [`Layout`], it can be used where any layout can; its views are the native grid.
+        impl Layout for $layout {
+            fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
+                $layout::size_that_fits(self, proposal, children)
+            }
+            fn place_children(&self, bounds: Rect, proposal: ProposedSize, children: &[LayoutChild]) {
+                $layout::place_children(self, bounds, proposal, children)
+            }
+            fn view(self, children: Vec<View>) -> View {
+                grid_view($kind, &self.$tracks, self.alignment, self.spacing, Len(None), children)
+            }
+        }
+
         impl $layout {
+            pub fn new(
+                $tracks: impl IntoIterator<Item = GridItem>,
+                alignment: impl Into<Alignment>,
+                spacing: impl Into<Len>,
+            ) -> Self {
+                Self { $tracks: $tracks.into_iter().collect(), alignment: alignment.into(), spacing: spacing.into() }
+            }
             pub fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
                 let c: Vec<sys::ElgGridItem> = self.$tracks.iter().map(GridItem::c).collect();
                 let d = desc($kind, &c, self.alignment, self.spacing, Len(None));
@@ -289,6 +316,10 @@ impl Grid {
         self.children.push(child.into_view());
         self
     }
+    pub fn children<V: IntoView>(mut self, children: impl IntoIterator<Item = V>) -> Self {
+        self.children.extend(children.into_iter().map(IntoView::into_view));
+        self
+    }
 }
 
 impl ElgNew<()> for Grid {
@@ -320,7 +351,23 @@ pub struct GridLayout {
     pub vertical_spacing: Len,
 }
 
+/// As a [`Layout`], it can be used where any layout can; its views are the native grid.
+impl Layout for GridLayout {
+    fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
+        GridLayout::size_that_fits(self, proposal, children)
+    }
+    fn place_children(&self, bounds: Rect, proposal: ProposedSize, children: &[LayoutChild]) {
+        GridLayout::place_children(self, bounds, proposal, children)
+    }
+    fn view(self, children: Vec<View>) -> View {
+        grid_view(2, &[], self.alignment, self.horizontal_spacing, self.vertical_spacing, children)
+    }
+}
+
 impl GridLayout {
+    pub fn new(alignment: impl Into<Alignment>, horizontal_spacing: impl Into<Len>, vertical_spacing: impl Into<Len>) -> Self {
+        Self { alignment: alignment.into(), horizontal_spacing: horizontal_spacing.into(), vertical_spacing: vertical_spacing.into() }
+    }
     pub fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
         let d = desc(2, &[], self.alignment, self.horizontal_spacing, self.vertical_spacing);
         Size::from_c(ffi!(sys::elg_grid_layout_size(&d, proposal.c(), children.as_ptr() as *const sys::LayoutChild, children.len())))
@@ -351,6 +398,10 @@ impl GridRow {
     }
     pub fn cell(mut self, cell: impl IntoView) -> Self {
         self.cells.push(cell.into_view());
+        self
+    }
+    pub fn cells<V: IntoView>(mut self, cells: impl IntoIterator<Item = V>) -> Self {
+        self.cells.extend(cells.into_iter().map(IntoView::into_view));
         self
     }
 }

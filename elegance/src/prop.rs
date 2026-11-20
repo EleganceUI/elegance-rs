@@ -92,6 +92,31 @@ impl<T: 'static> Prop<T> {
             }
         }
     }
+    /// Like [`Prop::get`], for props that don't need an environment: the current value (a
+    /// tracked read for reactive props), or `None` if this prop needs one
+    /// ([`Prop::needs_environment`]).
+    pub fn try_get(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        match self {
+            Prop::Value(v) => Some(v.clone()),
+            Prop::Fn(f) => Some(f()),
+            Prop::Env(_) | Prop::Theme(_) => None,
+        }
+    }
+    /// Binds an environment-dependent prop to `environment` (copied into the result), producing a
+    /// prop that no longer needs one; other props are returned unchanged.
+    pub fn resolved_in(self, environment: &EnvironmentValues) -> Prop<T>
+    where
+        T: Clone,
+    {
+        if !self.needs_environment() {
+            return self;
+        }
+        let environment = environment.clone();
+        Prop::Fn(Rc::new(move || self.get(&environment)))
+    }
 }
 
 /// Anything usable as a reactive argument of type `T`.
@@ -464,7 +489,7 @@ pod_value!(f32, f32, |v| *v);
 pod_value!(f64, f64, |v| *v);
 pod_value!(i32, i32, |v| *v);
 pod_value!(bool, bool, |v| *v);
-pod_value!(Weight, i32, |v| *v as i32);
+pod_value!(Weight, i32, |v| v.c());
 pod_value!(EdgeInsets, sys::ElgEdgeInsets, |v| v.c());
 pod_value!(Color, sys::ElgColor, |v| v.c());
 pod_value!(Size, sys::ElgSize, |v| v.c());

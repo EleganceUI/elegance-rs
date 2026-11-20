@@ -186,15 +186,15 @@ impl AnyButtonStyle {
 }
 
 builtin!(
-    /// Filled with the tint, white label: the default.
+    /// Filled with the tint, label in [`ThemeColor::OnAccent`](crate::ThemeColor): the default.
     ProminentButtonStyle => IntoButtonStyle::into_button_style -> AnyButtonStyle, sys::elg_button_style_builtin(0)
 );
 builtin!(
-    /// A tinted outline.
+    /// A raised surface with an outline, label in the tint.
     BorderedButtonStyle => IntoButtonStyle::into_button_style -> AnyButtonStyle, sys::elg_button_style_builtin(1)
 );
 builtin!(
-    /// Just the label (tinted), dimmed while pressed.
+    /// Just the label, in the colors around it (not the tint), dimmed while pressed or disabled.
     PlainButtonStyle => IntoButtonStyle::into_button_style -> AnyButtonStyle, sys::elg_button_style_builtin(2)
 );
 rust_style!(ButtonStyle, ButtonConfiguration, IntoButtonStyle::into_button_style -> AnyButtonStyle, elg_button_style_rust);

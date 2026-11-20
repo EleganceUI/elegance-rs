@@ -349,7 +349,7 @@ pub enum PointerEventKind {
     Hover,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PointerEvent {
     pub kind: PointerEventKind,
     /// In points: window coordinates for an [`crate::EventHandler`], the view's own for
@@ -362,6 +362,19 @@ pub struct PointerEvent {
     pub modifiers: KeyModifiers,
     /// Always in the window's coordinates.
     pub window_location: Point,
+}
+
+impl Default for PointerEvent {
+    fn default() -> Self {
+        Self {
+            kind: PointerEventKind::default(),
+            location: Point::default(),
+            button: MouseButton::default(),
+            click_count: 1,
+            modifiers: KeyModifiers::default(),
+            window_location: Point::default(),
+        }
+    }
 }
 
 impl PointerEvent {
@@ -384,7 +397,7 @@ impl PointerEvent {
 }
 
 /// A click on a view ([`crate::ViewExt::on_click`]): pressed and released inside it.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ClickEvent {
     /// Where it was released, in the view's own coordinates (0, 0: its top-leading corner).
     pub location: Point,
@@ -394,6 +407,18 @@ pub struct ClickEvent {
     pub modifiers: KeyModifiers,
     /// 2 for a double click, ...
     pub click_count: i32,
+}
+
+impl Default for ClickEvent {
+    fn default() -> Self {
+        Self {
+            location: Point::default(),
+            window_location: Point::default(),
+            button: MouseButton::default(),
+            modifiers: KeyModifiers::default(),
+            click_count: 1,
+        }
+    }
 }
 
 impl ClickEvent {

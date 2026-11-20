@@ -3,6 +3,8 @@
 //! Each is an element for `elg!` (see [`crate::dsl`]) and a builder for plain Rust:
 //! `VStack::new().spacing(8).child(Text::new("Hi"))`.
 
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::ops::Range;
 use std::ptr::NonNull;
@@ -18,7 +20,7 @@ use crate::ffi as cffi;
 use crate::geometry::{Alignment, Axis, HorizontalAlignment, Len, Number, VerticalAlignment};
 use crate::image::ImageSource;
 use crate::prop::{with_prop, IntoProp, OwnedProp, Prop};
-use crate::reactive::{untrack, Binding, Computed, IntoBinding, State};
+use crate::reactive::{untrack, Binding, Computed, IntoBinding, Signal, State};
 use crate::text::TextSpan;
 use crate::view::{c_motion, raw_views, FloatingEdge, FloatingPlacement, IntoView, PopupMotion, View};
 
@@ -52,6 +54,27 @@ impl IntoLabel for &String {
 impl<V: IntoView> IntoLabel for V {
     fn into_label(self) -> LabelArg {
         LabelArg::View(self.into_view())
+    }
+}
+/// A reactive title: `Button(Prop::from_fn(move || format!("Save {}", name.get())), save)`.
+impl IntoLabel for Prop<String> {
+    fn into_label(self) -> LabelArg {
+        LabelArg::Title(self)
+    }
+}
+impl IntoLabel for State<String> {
+    fn into_label(self) -> LabelArg {
+        LabelArg::Title(self.into_prop())
+    }
+}
+impl IntoLabel for Binding<String> {
+    fn into_label(self) -> LabelArg {
+        LabelArg::Title(self.into_prop())
+    }
+}
+impl IntoLabel for Computed<String> {
+    fn into_label(self) -> LabelArg {
+        LabelArg::Title(self.into_prop())
     }
 }
 
@@ -972,6 +995,13 @@ pub struct If {
     _private: (),
 }
 
+/// [`If`] outside `elg!`: `If(move || items.with(Vec::is_empty), Text("Nothing here"), ())`
+/// (`()`: nothing while the condition is false).
+#[allow(non_snake_case)]
+pub fn If(condition: impl IntoProp<bool>, then_view: impl IntoView, else_view: impl IntoView) -> View {
+    make_if(condition.into_prop(), then_view.into_view(), else_view.into_view())
+}
+
 impl<C: IntoProp<bool>, T: IntoView> ElgNew<(C, T)> for If {
     type Out = View;
     fn elg_new((condition, then_view): (C, T)) -> View {
@@ -1099,6 +1129,9 @@ pub struct NoKey;
 /// A ForEach keyed by a function of its items.
 pub struct KeyFn<T>(Rc<dyn Fn(&T) -> ItemKey>);
 
+// Builds a ForEach whose content takes a Signal, from its items and key.
+type SignalContent<T> = Rc<dyn Fn(Rc<dyn Fn() -> Vec<T>>, Rc<dyn Fn(&T) -> ItemKey>) -> View>;
+
 /// One view per item of a collection, identified by key. When the items change, items whose
 /// key and value are unchanged keep their views (and state); changed items are rebuilt, removed
 /// ones are removed. Inside a stack, the items are direct children of the stack.
@@ -1106,10 +1139,14 @@ pub struct KeyFn<T>(Rc<dyn Fn(&T) -> ItemKey>);
 /// ```ignore
 /// ForEach(todos, id: |t| t.id) { todo in TodoRow(todo: todo.clone()) }
 /// ```
+///
+/// With [`ForEach::content_signal`], each key's view stays for as long as the key is there, and
+/// reads the item through a [`Signal`] that follows its new values.
 pub struct ForEach<T: 'static, K = NoKey> {
     items: Rc<dyn Fn() -> Vec<T>>,
     key: K,
     content: Option<Rc<dyn Fn(&T) -> View>>,
+    signal_content: Option<SignalContent<T>>,
 }
 
 impl<T: 'static> ForEach<T, NoKey> {
@@ -1118,6 +1155,7 @@ impl<T: 'static> ForEach<T, NoKey> {
             items: items.into_items(),
             key: NoKey,
             content: None,
+            signal_content: None,
         }
     }
 }
@@ -1129,11 +1167,28 @@ impl<T: 'static, K> ForEach<T, K> {
             items: self.items,
             key: KeyFn(Rc::new(move |item| key(item).into_item_key())),
             content: self.content,
+            signal_content: self.signal_content,
         }
     }
     /// The view for an item.
     pub fn content<V: IntoView>(mut self, content: impl Fn(&T) -> V + 'static) -> Self {
         self.content = Some(Rc::new(move |item| content(item).into_view()));
+        self.signal_content = None;
+        self
+    }
+    /// The view for an item, from a [`Signal`] of it: each key's view is kept for as long as the
+    /// key is there, and the signal follows the item's new values.
+    ///
+    /// ```ignore
+    /// ForEach::new(todos).id(|t| t.id).content_signal(|t| Text(move || t.get().title))
+    /// ```
+    pub fn content_signal<V: IntoView>(mut self, content: impl Fn(Signal<T>) -> V + 'static) -> Self
+    where
+        T: Clone + PartialEq,
+    {
+        let content: Rc<dyn Fn(Signal<T>) -> View> = Rc::new(move |item| content(item).into_view());
+        self.signal_content = Some(Rc::new(move |items, key| for_each_signal_view(items, key, content.clone())));
+        self.content = None;
         self
     }
     /// `{ item in ... }` in `elg!`.
@@ -1152,19 +1207,22 @@ impl<S: ItemsSource> ElgNew<(S,)> for ForEach<S::Item, NoKey> {
 
 impl<T: IntoItemKey + Clone + PartialEq + 'static> IntoView for ForEach<T, NoKey> {
     fn into_view(self) -> View {
+        let key: Rc<dyn Fn(&T) -> ItemKey> = Rc::new(|item: &T| item.clone().into_item_key());
+        if let Some(signal_content) = self.signal_content {
+            return signal_content(self.items, key);
+        }
         let content = self
             .content
             .expect("elegance: ForEach needs content: ForEach(items) { item in ... }");
-        for_each_view(
-            self.items,
-            Rc::new(|item: &T| item.clone().into_item_key()),
-            content,
-        )
+        for_each_view(self.items, key, content)
     }
 }
 
 impl<T: PartialEq + 'static> IntoView for ForEach<T, KeyFn<T>> {
     fn into_view(self) -> View {
+        if let Some(signal_content) = self.signal_content {
+            return signal_content(self.items, self.key.0);
+        }
         let content = self
             .content
             .expect("elegance: ForEach needs content: ForEach(items, id: ...) { item in ... }");
@@ -1218,6 +1276,84 @@ pub(crate) fn for_each_view<T: PartialEq + 'static>(
     let produce = cffi::closure(move |_, ret| {
         let values = items(); // a tracked read: the ForEach updates when it changes
         push_items(ret, values, &|_, item| key(item), &content);
+    });
+    View::from_raw(ffi!(sys::elg_for_each(produce)))
+}
+
+// One key's item in a ForEach whose content takes a Signal: its latest value, and the State its
+// view reads (made in the view's scope, so it lives as long as the view).
+struct SignalItem<T: 'static> {
+    value: RefCell<T>,
+    state: Cell<Option<State<T>>>,
+}
+
+unsafe extern "C" fn always_equal(_: *mut c_void, _: *mut c_void) -> bool {
+    true
+}
+
+fn for_each_signal_view<T: Clone + PartialEq + 'static>(
+    items: Rc<dyn Fn() -> Vec<T>>,
+    key: Rc<dyn Fn(&T) -> ItemKey>,
+    content: Rc<dyn Fn(Signal<T>) -> View>,
+) -> View {
+    let cells: RefCell<HashMap<ItemKey, Rc<SignalItem<T>>>> = RefCell::new(HashMap::new());
+    let produce = cffi::closure(move |_, ret| {
+        let values = items(); // a tracked read: the ForEach updates when it changes
+        let mut seen = HashSet::new();
+        let mut keys = Vec::with_capacity(values.len());
+        let mut entries = Vec::with_capacity(values.len());
+        for value in values {
+            let item_key = key(&value);
+            let cell = if seen.insert(item_key.clone()) {
+                let existing = cells.borrow().get(&item_key).cloned();
+                match existing {
+                    Some(cell) => {
+                        // The kept view follows the new value through its State.
+                        if let Some(state) = cell.state.get().filter(State::is_alive) {
+                            state.set(value.clone());
+                        }
+                        *cell.value.borrow_mut() = value;
+                        cell
+                    }
+                    None => {
+                        let cell = Rc::new(SignalItem { value: RefCell::new(value), state: Cell::new(None) });
+                        cells.borrow_mut().insert(item_key.clone(), cell.clone());
+                        cell
+                    }
+                }
+            } else {
+                // A repeated key gets an item of its own each time.
+                Rc::new(SignalItem { value: RefCell::new(value), state: Cell::new(None) })
+            };
+            keys.push(item_key);
+            entries.push(cell);
+        }
+        cells.borrow_mut().retain(|item_key, _| seen.contains(item_key));
+        let items: Vec<sys::ElgForEachItem> = entries
+            .into_iter()
+            .zip(&keys)
+            .map(|(cell, item_key)| {
+                let content = content.clone();
+                let (key_is_string, int_key, string_key) = match item_key {
+                    ItemKey::Int(i) => (false, *i, sys::ElgStr::EMPTY),
+                    ItemKey::Str(s) => (true, 0, cffi::s(s)),
+                };
+                sys::ElgForEachItem {
+                    key_is_string,
+                    int_key,
+                    string_key,
+                    // The same "value" each time, so Elegance keeps the key's view.
+                    value: cffi::owner(()),
+                    equals: Some(always_equal),
+                    view: cffi::closure(move |_, ret| unsafe {
+                        let state = State::new(cell.value.borrow().clone());
+                        cell.state.set(Some(state));
+                        content(Signal::from(state)).write_into(ret)
+                    }),
+                }
+            })
+            .collect();
+        unsafe { sys::elg_for_each_items_push(ret as *mut sys::ForEachItems, items.as_ptr(), items.len()) };
     });
     View::from_raw(ffi!(sys::elg_for_each(produce)))
 }
@@ -1608,7 +1744,7 @@ fn item_key(key: &sys::ElgItemKey) -> ItemKey {
 /// A menu command. Choosing it closes the menu, then runs `action`.
 pub struct MenuItem {
     title: Prop<String>,
-    action: Box<dyn FnMut()>,
+    action: Option<Box<dyn FnMut()>>,
     shortcut: Prop<String>,
     destructive: Prop<bool>,
     checked: Option<Prop<bool>>,
@@ -1617,9 +1753,13 @@ pub struct MenuItem {
 
 impl MenuItem {
     pub fn new(title: impl IntoProp<String>, action: impl FnMut() + 'static) -> Self {
+        Self { action: Some(Box::new(action)), ..Self::without_action(title) }
+    }
+    /// An item with no action: choosing it only closes the menus.
+    pub fn without_action(title: impl IntoProp<String>) -> Self {
         Self {
             title: title.into_prop(),
-            action: Box::new(action),
+            action: None,
             shortcut: Prop::Value(String::new()),
             destructive: Prop::Value(false),
             checked: None,
@@ -1657,7 +1797,7 @@ impl<S: IntoProp<String>, F: FnMut() + 'static> ElgNew<(S, F)> for MenuItem {
 
 impl IntoView for MenuItem {
     fn into_view(self) -> View {
-        let action = cffi::action(self.action);
+        let action = cffi::optional_action(self.action);
         let image = self.image.as_ref().map(ImageSource::c);
         let image_ptr = image
             .as_ref()
@@ -1689,9 +1829,15 @@ pub struct Submenu {
 impl<S: IntoProp<String>, F: Fn() -> V + 'static, V: IntoView> ElgNew<(S, F)> for Submenu {
     type Out = View;
     fn elg_new((title, menu): (S, F)) -> View {
-        let menu = cffi::closure(move |_, ret| unsafe { menu().into_view().write_into(ret) });
-        with_prop(title.into_prop(), |t| View::from_raw(ffi!(sys::elg_submenu(t, menu))))
+        Submenu(title, menu)
     }
+}
+
+/// [`Submenu`] outside `elg!`: `menu` builds the submenu (a [`Menu`]) each time it opens.
+#[allow(non_snake_case)]
+pub fn Submenu<V: IntoView>(title: impl IntoProp<String>, menu: impl Fn() -> V + 'static) -> View {
+    let menu = cffi::closure(move |_, ret| unsafe { menu().into_view().write_into(ret) });
+    with_prop(title.into_prop(), |t| View::from_raw(ffi!(sys::elg_submenu(t, menu))))
 }
 
 /// The menu panel: items (MenuItem, Submenu, Separator, or any view) stacked in a styled panel.

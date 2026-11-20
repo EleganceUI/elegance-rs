@@ -39,11 +39,13 @@ jobs:
                   mkdir -p target
                   rustc --edition=2024 --test elegance-sys/tests/prebuilt.rs -o target/prebuilt-tests.exe
                   ./target/prebuilt-tests.exe
-            # Cargo copies shared dependencies beside test binaries; Linux needs an rpath.
+            # elegance-sys copies shared dependencies into target/<profile> (beside executables, and
+            # into deps/ and examples/); Linux needs an rpath. Cargo's newer build-dir layout runs
+            # test binaries from target/<profile>/build/<crate>/<hash>/out, four levels below.
             - name: Linux rpath
               if: runner.os == 'Linux'
               shell: bash
-              run: echo 'RUSTFLAGS=-C link-args=-Wl,-rpath,$ORIGIN' >> "$GITHUB_ENV"
+              run: echo 'RUSTFLAGS=-C link-args=-Wl,-rpath,$ORIGIN:$ORIGIN/../../../..' >> "$GITHUB_ENV"
             - name: Clippy
               run: cargo clippy --workspace --all-targets -- -D warnings
             - name: Test

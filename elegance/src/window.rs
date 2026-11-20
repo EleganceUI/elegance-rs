@@ -11,7 +11,7 @@ use crate::geometry::Rect;
 use crate::view::{IntoView, View};
 
 /// The window a view is in (`Environment::<WindowKey>`): close, minimize, maximize it.
-/// Methods do nothing on the empty handle.
+/// Methods do nothing on the empty handle ([`WindowHandle::none`], the default).
 pub struct WindowHandle {
     ptr: Option<NonNull<sys::WindowHandle>>,
 }
@@ -43,9 +43,31 @@ impl PartialEq for WindowHandle {
     }
 }
 
+impl Default for WindowHandle {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+impl Eq for WindowHandle {}
+
+impl std::fmt::Debug for WindowHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.ptr {
+            Some(ptr) => f.debug_tuple("WindowHandle").field(&ptr.as_ptr()).finish(),
+            None => f.write_str("WindowHandle(none)"),
+        }
+    }
+}
+
 impl WindowHandle {
-    pub(crate) fn none() -> Self {
+    /// The empty handle: no window.
+    pub fn none() -> Self {
         Self { ptr: None }
+    }
+    /// Whether this is the empty handle.
+    pub fn is_none(&self) -> bool {
+        self.ptr.is_none()
     }
     pub(crate) fn from_raw(ptr: *mut sys::WindowHandle) -> Self {
         Self { ptr: NonNull::new(ptr) }

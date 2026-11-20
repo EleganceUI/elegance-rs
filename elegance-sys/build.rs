@@ -379,8 +379,13 @@ fn link_lib(kind: &str, lib: &str, runtime: &[PathBuf]) {
 // Copy runtime libraries and the preview host to where Cargo puts binaries, tests, and examples.
 fn copy_runtime_files(runtime: &[PathBuf]) -> Vec<PathBuf> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    // OUT_DIR is target/<profile>/build/<crate>-<hash>/out.
-    let Some(profile_dir) = out_dir.ancestors().nth(3) else {
+    // OUT_DIR is target/<profile>/build/<crate>-<hash>/out, or with Cargo's newer build-dir layout
+    // target/<profile>/build/<crate>/<hash>/out: the profile folder is the one holding build/.
+    let Some(profile_dir) = out_dir
+        .ancestors()
+        .find(|dir| dir.file_name().is_some_and(|name| name == "build"))
+        .and_then(Path::parent)
+    else {
         return Vec::new();
     };
     let mut files = Vec::new();

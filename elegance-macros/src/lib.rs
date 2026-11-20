@@ -74,8 +74,10 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Registers a preview for the preview host (`cargo elegance preview`), named by the argument or
-/// the function; `#[preview(root)]` marks the app's root view instead (`--root`). The function
-/// takes nothing and returns a view. Only preview builds register previews.
+/// the function; `#[preview(root)]` marks the app's root view instead (`--root`), and
+/// `#[preview(root, app_hash = EXPR)]` gives the hash of the types the module shares with its host
+/// (`elegance::layout_hash!`). The function takes nothing and returns a view. Only preview builds
+/// register previews.
 ///
 /// ```ignore
 /// #[preview("Counter at 5")]
