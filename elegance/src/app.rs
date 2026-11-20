@@ -431,13 +431,6 @@ impl App {
         self
     }
 
-    /// Sets the error handler. It hears each panic and error that escapes the app's code while the
-    /// app runs (bodies, effects, handlers, tasks, timers), on the UI thread between events, after
-    /// Elegance logged it. Without a handler, the app goes on. Callable before or during `run`.
-    ///
-    /// The handler returns [`ErrorAction::Resume`] to go on, or [`ErrorAction::Quit`] to end the
-    /// run: `run` then resumes the panic or returns the error. What it panics with itself is only
-    /// logged.
     /// The menu bar: top-level menus, in order, each with its items as `submenu`. macOS: the app's
     /// menu bar at the top of the screen (without one, a minimal app menu). Windows: a menu bar in
     /// each window with a system title bar. Linux: a bar of menus drawn at the top of each window.
@@ -450,6 +443,13 @@ impl App {
         self
     }
 
+    /// Sets the error handler. It hears each panic and error that escapes the app's code while the
+    /// app runs (bodies, effects, handlers, tasks, timers), on the UI thread between events, after
+    /// Elegance logged it. Without a handler, the app goes on. Callable before or during `run`.
+    ///
+    /// The handler returns [`ErrorAction::Resume`] to go on, or [`ErrorAction::Quit`] to end the
+    /// run: `run` then resumes the panic or returns the error. What it panics with itself is only
+    /// logged.
     pub fn on_error(&self, handler: impl FnMut(&AppError) -> ErrorAction + 'static) -> &Self {
         *self.on_error.borrow_mut() = Some(Box::new(handler));
         self
