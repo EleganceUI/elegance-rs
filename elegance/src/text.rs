@@ -72,6 +72,16 @@ impl Text {
     pub fn multiline_text_alignment(self, alignment: impl Into<TextAlignment>) -> Text {
         Self::from_raw(ffi!(sys::elg_text_multiline_alignment(self.as_ptr(), alignment.into() as i32)))
     }
+    /// Lets the person using the app select the text with the pointer, and copy it (static or
+    /// reactive). Pressing and dragging selects; a double click selects a word, a triple click a
+    /// paragraph, and Shift+click extends the selection. The primary modifier with C copies it as
+    /// plain text, and with A selects all of it. A window has one selection: a press anywhere else
+    /// clears it, and so do a change of the text and the text becoming disabled, unselectable, or
+    /// removed. Inside a button or another control, it isn't selectable: presses go to the
+    /// control.
+    pub fn selectable(self, selectable: impl IntoProp<bool>) -> Text {
+        with_prop(selectable.into_prop(), |p| Self::from_raw(ffi!(sys::elg_text_selectable(self.as_ptr(), p))))
+    }
 }
 
 impl<S: IntoProp<String>> ElgNew<(S,)> for Text {

@@ -43,6 +43,7 @@
 extern crate self as elegance;
 
 mod ffi;
+mod named;
 
 /// An image compiled into the program from the crate's `assets/` folder:
 /// `Image(asset!("images/logo.png"))`. It works wherever the views run (the app, a preview,
@@ -90,6 +91,7 @@ pub mod reactive;
 pub mod shapes;
 pub mod styles;
 pub mod text;
+pub mod timer;
 pub mod view;
 pub mod views;
 pub mod window;
@@ -103,19 +105,23 @@ mod items {
     pub use elegance_macros::{component, elg, elg_builder, preview, DotValues};
 
     pub use crate::animation::{with_animation, Animation, AnimationValue, Pose, Transition};
-    pub use crate::app::{post_to_ui_thread, version, App, AppHandle, TitleBar, WindowDesc};
+    pub use crate::app::{
+        post_to_ui_thread, version, App, AppHandle, KeyboardShortcut, MenuBarItem, MenuRole, TitleBar, WindowDesc,
+        WindowMaterial,
+    };
     pub use crate::color::{
-        AngularGradient, BlurTokens, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop,
-        LinearGradient, RadialGradient, ShapeStyle, Theme, ThemeBlur, ThemeColor,
+        AngularGradient, BackdropFill, BlurTokens, Color, ColorScheme, ColorTokens, EllipticalGradient, GradientStop,
+        LinearGradient, RadialGradient, ShapeStyle, system_accent_color, Theme, ThemeBlur, ThemeColor,
     };
     pub use crate::desktop::{
-        choose_files, choose_folders, choose_save_file, notify, ChooseFolderOptions, FileFilter,
-        Notification, OpenFilesOptions, SaveFileOptions, TrayIcon, TrayIconOptions, TrayMenuItem,
+        choose_files, choose_folders, choose_save_file, notify, request_attention, set_badge,
+        set_progress, ChooseFolderOptions, FileFilter, Notification, OpenFilesOptions, ProgressState,
+        SaveFileOptions, TrayIcon, TrayIconOptions, TrayMenuItem,
     };
     pub use crate::environment::{Environment, EnvironmentKey, EnvironmentValues};
     pub use crate::error::{AppCode, AppError, Error, ErrorAction, ErrorKind};
     pub use crate::events::{
-        ClickEvent, ClickOptions, DragEvent, EventResult, GesturePhase, HoverDelay, Key, KeyEvent,
+        ClickEvent, ClickOptions, DragEvent, EventPhase, EventResult, GesturePhase, HoverDelay, Key, KeyEvent,
         KeyEventKind, KeyModifiers, MagnifyEvent, MouseButton, PixelSize, PointerEvent,
         PointerEventKind, PointerStyle, RotateEvent, ScrollEvent, TextInputEvent, TextInputKind,
     };
@@ -170,6 +176,9 @@ mod items {
         OpacityModifier, OverlayModifier, PaddingModifier, PointerBoundaryModifier, PointerModifier,
         PointerStyleModifier, RotateGestureModifier, RotationModifier, ScaleModifier,
         ScrollModifier, ShadowModifier, TextFieldStyleModifier, TextInputModifier, ThemeModifier,
+        CheckboxStyleModifier, MenuStyleModifier, NavigationStackStyleModifier,
+        NumberInputStyleModifier, PickerStyleModifier, PopoverStyleModifier, ProgressStyleModifier,
+        RowStyleModifier, SliderStyleModifier, TooltipStyleModifier,
         TintModifier, ToggleStyleModifier, TwoFingerDoubleTapModifier, ZIndexModifier,
     };
     pub use crate::navigation::{
@@ -209,6 +218,7 @@ mod items {
         TooltipConfiguration, TooltipStyle,
     };
     pub use crate::text::{RunStyle, StyledText, Text, TextAlignment, TextRun, TextSpan};
+    pub use crate::timer::{after, every, Timer};
     pub use crate::view::{
         AccessibilityRole, AnchorOptions, AspectRatioOptions, BackdropOptions, BlendMode,
         BlurOptions, ColorFilter, Component, DecorationOptions, DropOptions, FloatingAlignment,
@@ -230,8 +240,10 @@ mod items {
 /// and the environment keys.
 pub mod prelude {
     pub use crate::environment::{
-        ButtonStyleKey, ColorSchemeKey, DisabledKey, FontKey, ForegroundKey, HoverDelayKey,
-        RowSelectedKey, TextFieldStyleKey, ThemeKey, TintKey, ToggleStyleKey, WindowKey,
+        ButtonStyleKey, CheckboxStyleKey, ColorSchemeKey, DisabledKey, FontKey, ForegroundKey,
+        HoverDelayKey, MenuStyleKey, NavigationStackStyleKey, NumberInputStyleKey, PickerStyleKey,
+        PopoverStyleKey, ProgressStyleKey, RowSelectedKey, RowStyleKey, SliderStyleKey,
+        TextFieldStyleKey, ThemeKey, TintKey, ToggleStyleKey, TooltipStyleKey, WindowKey,
     };
     pub use crate::items::*;
 }

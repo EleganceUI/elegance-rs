@@ -405,8 +405,49 @@ impl AngularGradient {
     }
 }
 
-/// How a shape or background is filled: a color or a gradient. (Frosted glass is
-/// [`crate::ViewExt::backdrop_blur`].)
+/// What [`crate::ViewExt::backdrop_blur`] fills its shape with: what's drawn behind it in the
+/// window, blurred, then adjusted. Inside an offscreen group (opacity below 1, a shadow, a blur,
+/// ...) it sees only what the group drew behind it, as CSS's backdrop-filter does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BackdropFill {
+    /// Radius in points.
+    pub blur: f32,
+    /// 1 keeps the colors.
+    pub saturation: f32,
+    /// Added to each channel: -1 black ... 1 white.
+    pub brightness: f32,
+    /// Grain, 0...1, so smooth gradients don't band.
+    pub noise: f32,
+}
+
+impl Default for BackdropFill {
+    fn default() -> Self {
+        Self { blur: 0.0, saturation: 1.0, brightness: 0.0, noise: 0.0 }
+    }
+}
+
+#[elegance_macros::elg_builder]
+impl BackdropFill {
+    /// What's behind, blurred by `blur` points.
+    pub fn new(blur: f32) -> Self {
+        Self { blur, ..Default::default() }
+    }
+    pub fn saturation(mut self, saturation: f32) -> Self {
+        self.saturation = saturation;
+        self
+    }
+    pub fn brightness(mut self, brightness: f32) -> Self {
+        self.brightness = brightness;
+        self
+    }
+    pub fn noise(mut self, noise: f32) -> Self {
+        self.noise = noise;
+        self
+    }
+}
+
+/// How a shape or background is filled: a color, a gradient, or what's behind it in the window,
+/// blurred ([`BackdropFill`]).
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeStyle {
     Color(Color),
@@ -414,6 +455,13 @@ pub enum ShapeStyle {
     Radial(RadialGradient),
     Elliptical(EllipticalGradient),
     Angular(AngularGradient),
+    Backdrop(BackdropFill),
+}
+
+impl From<BackdropFill> for ShapeStyle {
+    fn from(b: BackdropFill) -> Self {
+        ShapeStyle::Backdrop(b)
+    }
 }
 
 impl From<Color> for ShapeStyle {
@@ -460,6 +508,10 @@ impl ShapeStyle {
             y1: 0.0,
             r0: 0.0,
             r1: 0.0,
+            blur: 0.0,
+            saturation: 1.0,
+            brightness: 0.0,
+            noise: 0.0,
         };
         let stops = match self {
             ShapeStyle::Color(color) => {
@@ -486,9 +538,22 @@ impl ShapeStyle {
                 (c.x0, c.y0, c.r0, c.r1) = (g.center.x, g.center.y, g.start_angle, g.end_angle);
                 c_stops(&g.stops)
             }
+            ShapeStyle::Backdrop(b) => {
+                c.kind = 5;
+                (c.blur, c.saturation, c.brightness, c.noise) = (b.blur, b.saturation, b.brightness, b.noise);
+                Vec::new()
+            }
         };
         c.stops = stops.as_ptr();
         c.stop_count = stops.len();
         f(&c)
     }
+}
+
+/// The accent color the person chose in the system's settings, or `None` where there's none (or
+/// the platform doesn't say). Reactive while an App runs (a tracked read, on the UI thread);
+/// without one it asks the system each time.
+pub fn system_accent_color() -> Option<Color> {
+    let mut color = sys::ElgColor::default();
+    crate::error::ffi!(sys::elg_system_accent_color(&mut color)).then(|| Color::from_c(color))
 }

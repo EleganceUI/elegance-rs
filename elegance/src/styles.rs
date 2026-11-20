@@ -24,13 +24,13 @@ use std::ptr::NonNull;
 
 use elegance_sys as sys;
 
-use crate::animation::Animation;
+use crate::animation::{Animation, Transition};
 use crate::color::Color;
 use crate::error::ffi;
 use crate::ffi as cffi;
 use crate::font::Font;
 use crate::geometry::{Axis, EdgeInsets, Number};
-use crate::prop::{IntoProp, OwnedProp, Prop};
+use crate::prop::{IntoProp, OwnedProp, Prop, PropValue};
 use crate::view::{c_motion, IntoView, PopupMotion, View};
 
 macro_rules! handle {
@@ -1450,5 +1450,87 @@ impl IntoRowStyle for HighlightRowStyle {
             padding: self.padding.c(),
         };
         AnyRowStyle::from_raw(ffi!(sys::elg_row_style_builtin(&options)))
+    }
+}
+
+// --- Styles as reactive values (environment keys) ---
+
+// A style handle as a prop value: its C form is the handle; a closure's result is written with
+// the family's assign function.
+macro_rules! style_prop_value {
+    ($($any:ident: $raw:ident, $assign:ident;)*) => {$(
+        impl PropValue for $any {
+            fn with_c<R>(&self, f: impl FnOnce(*const std::ffi::c_void) -> R) -> R {
+                f(self.as_ptr() as *const std::ffi::c_void)
+            }
+            unsafe fn write(&self, ret: *mut std::ffi::c_void) {
+                unsafe { sys::$assign(ret as *mut sys::$raw, self.as_ptr()) }
+            }
+        }
+    )*};
+}
+
+style_prop_value! {
+    AnyButtonStyle: ButtonStyle, elg_button_style_assign;
+    AnyToggleStyle: ToggleStyle, elg_toggle_style_assign;
+    AnyTextFieldStyle: TextFieldStyle, elg_text_field_style_assign;
+    AnyCheckboxStyle: CheckboxStyle, elg_checkbox_style_assign;
+    AnyNumberInputStyle: NumberInputStyle, elg_number_input_style_assign;
+    AnyProgressStyle: ProgressStyle, elg_progress_style_assign;
+    AnyPickerStyle: PickerStyle, elg_picker_style_assign;
+    AnySliderStyle: SliderStyle, elg_slider_style_assign;
+    AnyNavigationStackStyle: NavigationStackStyle, elg_navigation_stack_style_assign;
+    AnyPopoverStyle: PopoverStyle, elg_popover_style_assign;
+    AnyTooltipStyle: TooltipStyle, elg_tooltip_style_assign;
+    AnyMenuStyle: MenuStyle, elg_menu_style_assign;
+    AnyRowStyle: RowStyle, elg_row_style_assign;
+}
+
+fn style_animation(get: impl FnOnce(*mut *mut sys::Animation) -> bool) -> Option<Animation> {
+    let mut animation = std::ptr::null_mut();
+    (get(&mut animation) && !animation.is_null()).then(|| Animation::from_raw(animation))
+}
+
+fn style_motion(get: impl FnOnce(*mut *mut sys::Transition, *mut *mut sys::Animation) -> bool) -> PopupMotion {
+    let (mut transition, mut animation) = (std::ptr::null_mut(), std::ptr::null_mut());
+    if get(&mut transition, &mut animation) && !transition.is_null() && !animation.is_null() {
+        PopupMotion::new(Transition::from_raw(transition), Animation::from_raw(animation))
+    } else {
+        PopupMotion::none()
+    }
+}
+
+impl AnyToggleStyle {
+    /// How toggles of this style animate between their states; `None` if they don't.
+    pub fn animation(&self) -> Option<Animation> {
+        style_animation(|a| ffi!(sys::elg_toggle_style_animation(self.as_ptr(), a)))
+    }
+}
+
+impl AnyCheckboxStyle {
+    /// How check boxes of this style animate between their states; `None` if they don't.
+    pub fn animation(&self) -> Option<Animation> {
+        style_animation(|a| ffi!(sys::elg_checkbox_style_animation(self.as_ptr(), a)))
+    }
+}
+
+impl AnyPopoverStyle {
+    /// How popovers of this style open and close.
+    pub fn motion(&self) -> PopupMotion {
+        style_motion(|t, a| ffi!(sys::elg_popover_style_motion(self.as_ptr(), t, a)))
+    }
+}
+
+impl AnyTooltipStyle {
+    /// How tooltips of this style open and close.
+    pub fn motion(&self) -> PopupMotion {
+        style_motion(|t, a| ffi!(sys::elg_tooltip_style_motion(self.as_ptr(), t, a)))
+    }
+}
+
+impl AnyMenuStyle {
+    /// How menus of this style open and close.
+    pub fn motion(&self) -> PopupMotion {
+        style_motion(|t, a| ffi!(sys::elg_menu_style_motion(self.as_ptr(), t, a)))
     }
 }

@@ -28,8 +28,7 @@ use crate::ffi as cffi;
 use crate::font::Font;
 use crate::prop::{with_prop, Prop};
 use crate::styles::{
-    AnyButtonStyle, AnyTextFieldStyle, AnyToggleStyle, IntoButtonStyle, IntoTextFieldStyle, IntoToggleStyle,
-    ProminentButtonStyle, RoundedBorderTextFieldStyle, SwitchToggleStyle,
+    AnyButtonStyle, AnyCheckboxStyle, AnyMenuStyle, AnyNavigationStackStyle, AnyNumberInputStyle, AnyPickerStyle, AnyPopoverStyle, AnyProgressStyle, AnyRowStyle, AnySliderStyle, AnyTextFieldStyle, AnyToggleStyle, AnyTooltipStyle, BoxCheckboxStyle, BoxNumberInputStyle, DefaultMenuStyle, DefaultPopoverStyle, DefaultTooltipStyle, HighlightRowStyle, IntoButtonStyle, IntoCheckboxStyle, IntoMenuStyle, IntoNavigationStackStyle, IntoNumberInputStyle, IntoPickerStyle, IntoPopoverStyle, IntoProgressStyle, IntoRowStyle, IntoSliderStyle, IntoTextFieldStyle, IntoToggleStyle, IntoTooltipStyle, KnobSliderStyle, LinearProgressStyle, PlainNavigationStackStyle, ProminentButtonStyle, RoundedBorderTextFieldStyle, SegmentedPickerStyle, SwitchToggleStyle,
 };
 use crate::window::WindowHandle;
 
@@ -42,6 +41,12 @@ pub struct EnvironmentValues {
 impl Clone for EnvironmentValues {
     fn clone(&self) -> Self {
         Self { ptr: NonNull::new(unsafe { sys::elg_env_clone(self.ptr.as_ptr()) }).unwrap(), owned: true }
+    }
+}
+
+impl Default for EnvironmentValues {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -62,6 +67,11 @@ impl EnvironmentValues {
 
     pub(crate) fn as_ptr(&self) -> *mut sys::EnvironmentValues {
         self.ptr.as_ptr()
+    }
+
+    /// An empty environment: every key reads its default.
+    pub fn new() -> Self {
+        Self { ptr: NonNull::new(ffi!(sys::elg_env_new())).expect("elegance: no environment"), owned: true }
     }
 
     /// A copy of the environment of the view being built. Panics outside a view's body.
@@ -114,10 +124,18 @@ impl EnvironmentValues {
 /// defaults that store the value for Rust (the built-in keys override them).
 pub trait EnvironmentKey: 'static {
     type Value: Clone + 'static;
+    /// A stable, unique name (`"myapp.compact"`), for a key shared with C++ and other languages:
+    /// one whose value is a `bool`, `i32`, `i64`, `f32`, `f64`, [`Color`] or `String` is kept by
+    /// Elegance under the name, and matches a C++ key of the same name and value type. `None` (the
+    /// default), or another value type: the key is Rust's own.
+    const NAME: Option<&'static str> = None;
     fn default_value(environment: &EnvironmentValues) -> Self::Value;
 
     #[doc(hidden)]
     fn read(environment: &EnvironmentValues) -> Self::Value {
+        if let Some(value) = Self::NAME.and_then(|name| crate::named::env_get::<Self::Value>(environment, name)) {
+            return value.unwrap_or_else(|| Self::default_value(environment));
+        }
         rust_values(environment)
             .and_then(|values| values.get(&TypeId::of::<Self>()).cloned())
             .and_then(|value| value.downcast::<Prop<Self::Value>>().ok())
@@ -130,6 +148,13 @@ pub trait EnvironmentKey: 'static {
     /// depends on itself.
     #[doc(hidden)]
     fn write(environment: &mut EnvironmentValues, value: Prop<Self::Value>) {
+        let value = match Self::NAME {
+            Some(name) => match crate::named::env_set(environment, name, value) {
+                Ok(()) => return,
+                Err(value) => value,
+            },
+            None => value,
+        };
         let value = value.resolved_in(environment);
         let mut values = rust_values(environment).map(|values| (*values).clone()).unwrap_or_default();
         values.insert(TypeId::of::<Self>(), Rc::new(value));
@@ -331,50 +356,52 @@ impl EnvironmentKey for RowSelectedKey {
     }
 }
 
-pub struct ButtonStyleKey;
-impl EnvironmentKey for ButtonStyleKey {
-    type Value = AnyButtonStyle;
-    /// The built-in [`ProminentButtonStyle`].
-    fn default_value(_: &EnvironmentValues) -> AnyButtonStyle {
-        ProminentButtonStyle.into_button_style()
-    }
-    fn read(environment: &EnvironmentValues) -> AnyButtonStyle {
-        AnyButtonStyle::from_raw(ffi!(sys::elg_env_button_style(environment.as_ptr())))
-    }
-    fn write(environment: &mut EnvironmentValues, value: Prop<AnyButtonStyle>) {
-        let style = static_only(value, "button style");
-        ffi!(sys::elg_env_set_button_style(environment.as_ptr(), style.as_ptr()))
-    }
+// A style family's key: its value is the family's style handle, which may be reactive (a closure
+// returning one).
+macro_rules! style_keys {
+    ($($(#[$m:meta])* $key:ident: $any:ident = $default:expr_2021, $get:ident, $set:ident;)*) => {$(
+        $(#[$m])*
+        pub struct $key;
+        impl EnvironmentKey for $key {
+            type Value = $any;
+            fn default_value(_: &EnvironmentValues) -> $any {
+                $default
+            }
+            fn read(environment: &EnvironmentValues) -> $any {
+                $any::from_raw(ffi!(sys::$get(environment.as_ptr())))
+            }
+            fn write(environment: &mut EnvironmentValues, value: Prop<$any>) {
+                with_prop(value, |p| ffi!(sys::$set(environment.as_ptr(), p)))
+            }
+        }
+    )*};
 }
 
-pub struct ToggleStyleKey;
-impl EnvironmentKey for ToggleStyleKey {
-    type Value = AnyToggleStyle;
-    /// The built-in [`SwitchToggleStyle`].
-    fn default_value(_: &EnvironmentValues) -> AnyToggleStyle {
-        SwitchToggleStyle::default().into_toggle_style()
-    }
-    fn read(environment: &EnvironmentValues) -> AnyToggleStyle {
-        AnyToggleStyle::from_raw(ffi!(sys::elg_env_toggle_style(environment.as_ptr())))
-    }
-    fn write(environment: &mut EnvironmentValues, value: Prop<AnyToggleStyle>) {
-        let style = static_only(value, "toggle style");
-        ffi!(sys::elg_env_set_toggle_style(environment.as_ptr(), style.as_ptr()))
-    }
-}
-
-pub struct TextFieldStyleKey;
-impl EnvironmentKey for TextFieldStyleKey {
-    type Value = AnyTextFieldStyle;
-    /// The built-in [`RoundedBorderTextFieldStyle`].
-    fn default_value(_: &EnvironmentValues) -> AnyTextFieldStyle {
-        RoundedBorderTextFieldStyle.into_text_field_style()
-    }
-    fn read(environment: &EnvironmentValues) -> AnyTextFieldStyle {
-        AnyTextFieldStyle::from_raw(ffi!(sys::elg_env_text_field_style(environment.as_ptr())))
-    }
-    fn write(environment: &mut EnvironmentValues, value: Prop<AnyTextFieldStyle>) {
-        let style = static_only(value, "text field style");
-        ffi!(sys::elg_env_set_text_field_style(environment.as_ptr(), style.as_ptr()))
-    }
+style_keys! {
+    /// The style of buttons inside (default: the built-in [`ProminentButtonStyle`]).
+    ButtonStyleKey: AnyButtonStyle = ProminentButtonStyle.into_button_style(), elg_env_button_style, elg_env_set_button_style_prop;
+    /// The style of toggles inside (default: the built-in [`SwitchToggleStyle`]).
+    ToggleStyleKey: AnyToggleStyle = SwitchToggleStyle::default().into_toggle_style(), elg_env_toggle_style, elg_env_set_toggle_style_prop;
+    /// The style of text fields inside (default: the built-in [`RoundedBorderTextFieldStyle`]).
+    TextFieldStyleKey: AnyTextFieldStyle = RoundedBorderTextFieldStyle.into_text_field_style(), elg_env_text_field_style, elg_env_set_text_field_style_prop;
+    /// The style of checkboxs inside (default: the built-in [`BoxCheckboxStyle`]).
+    CheckboxStyleKey: AnyCheckboxStyle = BoxCheckboxStyle::default().into_checkbox_style(), elg_env_checkbox_style, elg_env_set_checkbox_style_prop;
+    /// The style of number inputs inside (default: the built-in [`BoxNumberInputStyle`]).
+    NumberInputStyleKey: AnyNumberInputStyle = BoxNumberInputStyle::default().into_number_input_style(), elg_env_number_input_style, elg_env_set_number_input_style_prop;
+    /// The style of progresss inside (default: the built-in [`LinearProgressStyle`]).
+    ProgressStyleKey: AnyProgressStyle = LinearProgressStyle::default().into_progress_style(), elg_env_progress_style, elg_env_set_progress_style_prop;
+    /// The style of pickers inside (default: the built-in [`SegmentedPickerStyle`]).
+    PickerStyleKey: AnyPickerStyle = SegmentedPickerStyle.into_picker_style(), elg_env_picker_style, elg_env_set_picker_style_prop;
+    /// The style of sliders inside (default: the built-in [`KnobSliderStyle`]).
+    SliderStyleKey: AnySliderStyle = KnobSliderStyle::default().into_slider_style(), elg_env_slider_style, elg_env_set_slider_style_prop;
+    /// The style of navigation stacks inside (default: the built-in [`PlainNavigationStackStyle`]).
+    NavigationStackStyleKey: AnyNavigationStackStyle = PlainNavigationStackStyle.into_navigation_stack_style(), elg_env_navigation_stack_style, elg_env_set_navigation_stack_style_prop;
+    /// The style of popovers inside (default: the built-in [`DefaultPopoverStyle`]).
+    PopoverStyleKey: AnyPopoverStyle = DefaultPopoverStyle.into_popover_style(), elg_env_popover_style, elg_env_set_popover_style_prop;
+    /// The style of tooltips inside (default: the built-in [`DefaultTooltipStyle`]).
+    TooltipStyleKey: AnyTooltipStyle = DefaultTooltipStyle.into_tooltip_style(), elg_env_tooltip_style, elg_env_set_tooltip_style_prop;
+    /// The style of menus inside (default: the built-in [`DefaultMenuStyle`]).
+    MenuStyleKey: AnyMenuStyle = DefaultMenuStyle.into_menu_style(), elg_env_menu_style, elg_env_set_menu_style_prop;
+    /// The style of rows inside (default: the built-in [`HighlightRowStyle`]).
+    RowStyleKey: AnyRowStyle = HighlightRowStyle::default().into_row_style(), elg_env_row_style, elg_env_set_row_style_prop;
 }

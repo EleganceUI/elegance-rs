@@ -17,7 +17,7 @@ use std::rc::Rc;
 use elegance_sys as sys;
 
 use crate::color::{
-    AngularGradient, Color, ColorScheme, EllipticalGradient, LinearGradient, RadialGradient, ShapeStyle, Theme,
+    AngularGradient, BackdropFill, Color, ColorScheme, EllipticalGradient, LinearGradient, RadialGradient, ShapeStyle, Theme,
     ThemeBlur, ThemeColor,
 };
 use crate::dot;
@@ -295,6 +295,11 @@ impl ResolveStyle for AngularGradient {
         ShapeStyle::Angular(self)
     }
 }
+impl ResolveStyle for BackdropFill {
+    fn resolve_style(self, _: &EnvironmentValues) -> ShapeStyle {
+        ShapeStyle::Backdrop(self)
+    }
+}
 
 // Closures may return theme colors, so color and style closures resolve in the environment.
 impl<F: Fn() -> R + 'static, R: ResolveColor> IntoProp<Color> for F {
@@ -355,6 +360,12 @@ impl IntoProp<ShapeStyle> for EllipticalGradient {
 impl IntoProp<ShapeStyle> for AngularGradient {
     fn into_prop(self) -> Prop<ShapeStyle> {
         Prop::Value(ShapeStyle::Angular(self))
+    }
+}
+
+impl IntoProp<ShapeStyle> for BackdropFill {
+    fn into_prop(self) -> Prop<ShapeStyle> {
+        Prop::Value(ShapeStyle::Backdrop(self))
     }
 }
 
@@ -488,6 +499,7 @@ macro_rules! pod_value {
 pod_value!(f32, f32, |v| *v);
 pod_value!(f64, f64, |v| *v);
 pod_value!(i32, i32, |v| *v);
+pod_value!(i64, i64, |v| *v);
 pod_value!(bool, bool, |v| *v);
 pod_value!(Weight, i32, |v| v.c());
 pod_value!(EdgeInsets, sys::ElgEdgeInsets, |v| v.c());
@@ -603,3 +615,33 @@ pub(crate) fn with_prop<T: PropValue, R>(prop: Prop<T>, f: impl FnOnce(sys::ElgP
         }),
     }
 }
+
+// --- Props read back from Elegance (Effects' fields) ---
+
+macro_rules! prop_handle {
+    ($handle:ident, $raw:ident, $t:ty, $get:ident, $free:ident, |$c:ident| $from_c:expr_2021) => {
+        struct $handle(*mut sys::$raw);
+        impl Drop for $handle {
+            fn drop(&mut self) {
+                unsafe { sys::$free(self.0) }
+            }
+        }
+        impl Prop<$t> {
+            /// Takes over an Elegance prop handle: a prop that reads it (a tracked read) in the
+            /// environment where it's used, as static, reactive, or environment-dependent as it is.
+            pub(crate) fn from_handle(ptr: *mut sys::$raw) -> Option<Self> {
+                if ptr.is_null() {
+                    return None;
+                }
+                let handle = $handle(ptr);
+                Some(Prop::Env(Rc::new(move |environment: &EnvironmentValues| {
+                    let $c = crate::error::ffi!(sys::$get(handle.0, environment.as_ptr()));
+                    $from_c
+                })))
+            }
+        }
+    };
+}
+
+prop_handle!(PropF32Handle, PropF32, f32, elg_prop_f32_get, elg_prop_f32_free, |c| c);
+prop_handle!(PropColorHandle, PropColor, Color, elg_prop_color_get, elg_prop_color_free, |c| Color::from_c(c));

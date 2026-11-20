@@ -125,6 +125,47 @@ pub fn notify(notification: Notification) {
     ffi!(sys::elg_notify(cffi::s(&notification.title), cffi::s(&notification.body), cffi::optional_action(notification.on_click)));
 }
 
+// --- Dock and taskbar ---
+
+/// What a progress bar on the app's icon says besides how far along it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ProgressState {
+    #[default]
+    Normal,
+    /// Windows: yellow; elsewhere drawn as normal.
+    Paused,
+    /// Windows: red; macOS: a red bar.
+    Error,
+    /// Busy, with no fraction: Windows animates it; macOS and Linux show it full.
+    Indeterminate,
+}
+
+/// A short label on the app's icon, like an unread count; `None` removes it. macOS: the Dock
+/// shows the text. Windows: a small badge over the taskbar button (about two characters). Linux:
+/// launchers that support it (Unity LauncherEntry: GNOME's Dash to Dock, KDE) show only a number,
+/// so other text is ignored. Panics when no App is running.
+#[track_caller]
+pub fn set_badge(text: Option<&str>) {
+    let text = text.map(cffi::s);
+    ffi!(sys::elg_set_badge(text.as_ref().map_or(std::ptr::null(), |t| t as *const sys::ElgStr)));
+}
+
+/// A progress bar on the app's icon: `fraction` 0...1 (clamped), or `None` to remove it. Windows
+/// shows it on every window's taskbar button; macOS on the Dock icon; Linux where the launcher
+/// supports it. Panics when no App is running.
+#[track_caller]
+pub fn set_progress(fraction: Option<f64>, state: ProgressState) {
+    ffi!(sys::elg_set_progress(fraction.is_some(), fraction.unwrap_or(0.0), state as i32));
+}
+
+/// Asks for the person's attention while the app is in the background: the Dock icon bounces
+/// (once, or until the app is active when `critical`), or the taskbar button flashes. Nothing
+/// happens while the app is in front. Panics when no App is running.
+#[track_caller]
+pub fn request_attention(critical: bool) {
+    ffi!(sys::elg_request_attention(critical));
+}
+
 /// An item of a tray icon's menu. Its callbacks run on the UI thread.
 pub struct TrayMenuItem {
     /// Empty: a separator.

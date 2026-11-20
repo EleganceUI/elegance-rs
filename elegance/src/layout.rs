@@ -61,6 +61,9 @@ impl LayoutChild {
     }
     /// The value set on this child with `.layout_value::<K>(...)`, else `K::default_value()`.
     pub fn value<K: LayoutValueKey>(&self) -> K::Value {
+        if let Some(value) = K::NAME.and_then(|name| crate::named::layout_get::<K::Value>(self.ptr(), name)) {
+            return value.unwrap_or_else(K::default_value);
+        }
         REQUESTED.with(|r| r.set(Some(TypeId::of::<K>())));
         let data = unsafe { sys::elg_layout_child_rust_value(self.ptr()) };
         REQUESTED.with(|r| r.set(None));
@@ -82,6 +85,11 @@ thread_local! {
 /// `struct Rank; impl LayoutValueKey for Rank { type Value = i32; fn default_value() -> i32 { 0 } }`
 pub trait LayoutValueKey: 'static {
     type Value: Clone + 'static;
+    /// A stable, unique name, for a key shared with C++ and other languages: one whose value is a
+    /// `bool`, `i32`, `i64`, `f32`, `f64`, [`Color`](crate::Color) or `String` is kept by Elegance
+    /// under the name, and matches a C++ key of the same name and value type. `None` (the
+    /// default), or another value type: the key is Rust's own.
+    const NAME: Option<&'static str> = None;
     fn default_value() -> Self::Value;
 }
 
@@ -91,6 +99,13 @@ struct LayoutValue {
 }
 
 pub(crate) fn layout_value<K: LayoutValueKey>(view: View, value: K::Value) -> View {
+    let (view, value) = match K::NAME {
+        Some(name) => match crate::named::layout_set(view, name, value) {
+            Ok(view) => return view,
+            Err(unnamed) => unnamed,
+        },
+        None => (view, value),
+    };
     let owner = LayoutValue { key: TypeId::of::<K>(), value: Box::new(value) };
     // The owner closure's data is the LayoutValue; calling it answers whether it's the wanted key.
     let data = Box::into_raw(Box::new(owner));

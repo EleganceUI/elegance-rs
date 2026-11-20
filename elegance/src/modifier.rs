@@ -18,7 +18,7 @@ use elegance_sys as sys;
 use crate::color::Color;
 use crate::environment::EnvironmentValues;
 use crate::events::{
-    ClickOptions, EventResult, HoverDelay, KeyEvent, MagnifyEvent, PointerEvent, PointerStyle, RotateEvent,
+    ClickOptions, EventPhase, EventResult, HoverDelay, PixelSize, KeyEvent, MagnifyEvent, PointerEvent, PointerStyle, RotateEvent,
     ScrollEvent, TextInputEvent,
 };
 use crate::ffi as cffi;
@@ -181,6 +181,89 @@ impl Effects {
     pub fn allows_hit_testing(&self) -> bool {
         unsafe { sys::elg_effects_allows_hit_testing(self.ptr) }
     }
+
+    // Reading what the effects already have, so a modifier can build on it. Props read the
+    // values in the environment where they're used (tracked reads, reactive as they are).
+
+    /// The clip shape, if any.
+    pub fn clip_shape(&self) -> Option<Shape> {
+        let mut shape = std::ptr::null_mut();
+        crate::error::ffi!(sys::elg_effects_clip_shape(self.ptr, &mut shape)).then(|| Shape::from_raw(shape))
+    }
+    /// The hit-test shape, if any.
+    pub fn content_shape(&self) -> Option<Shape> {
+        let mut shape = std::ptr::null_mut();
+        crate::error::ffi!(sys::elg_effects_content_shape(self.ptr, &mut shape)).then(|| Shape::from_raw(shape))
+    }
+    /// The opacity, to multiply: `effects.set_opacity(Prop::from_env(move |env| opacity.get(env) * 0.5))`.
+    pub fn opacity(&self) -> Prop<f32> {
+        Prop::<f32>::from_handle(crate::error::ffi!(sys::elg_effects_opacity(self.ptr))).unwrap_or(Prop::Value(1.0))
+    }
+    pub fn shadow(&self) -> Option<Shadow> {
+        let mut shadow = sys::ElgShadow::default();
+        crate::error::ffi!(sys::elg_effects_shadow(self.ptr, &mut shadow)).then(|| Shadow::from_c(shadow))
+    }
+    pub fn inner_shadow(&self) -> Option<Shadow> {
+        let mut shadow = sys::ElgShadow::default();
+        crate::error::ffi!(sys::elg_effects_inner_shadow(self.ptr, &mut shadow)).then(|| Shadow::from_c(shadow))
+    }
+    /// The blur radius in points, if there's a blur.
+    pub fn blur(&self) -> Option<Prop<f32>> {
+        let mut radius = std::ptr::null_mut();
+        crate::error::ffi!(sys::elg_effects_blur(self.ptr, &mut radius)).then(|| Prop::<f32>::from_handle(radius)).flatten()
+    }
+    /// The blurred content fills its bounds: edges stay sharp.
+    pub fn blur_opaque(&self) -> bool {
+        crate::error::ffi!(sys::elg_effects_blur_opaque(self.ptr))
+    }
+    pub fn color_filter(&self) -> Option<ColorFilter> {
+        let (mut kind, mut amount, mut color) = (0, std::ptr::null_mut(), std::ptr::null_mut());
+        if !crate::error::ffi!(sys::elg_effects_color_filter(self.ptr, &mut kind, &mut amount, &mut color)) {
+            return None;
+        }
+        let amount = Prop::<f32>::from_handle(amount).unwrap_or(Prop::Value(1.0));
+        let color = Prop::<Color>::from_handle(color).unwrap_or(Prop::Value(Color::WHITE));
+        Some(match kind {
+            0 => ColorFilter::Brightness(amount),
+            1 => ColorFilter::Contrast(amount),
+            2 => ColorFilter::Saturation(amount),
+            3 => ColorFilter::Grayscale(amount),
+            4 => ColorFilter::HueRotation(amount),
+            5 => ColorFilter::Sepia(amount),
+            6 => ColorFilter::Invert(amount),
+            7 => ColorFilter::Multiply(color),
+            _ => ColorFilter::LuminanceToAlpha,
+        })
+    }
+    /// The rotation in degrees, clockwise about the anchor, if set.
+    pub fn rotation(&self) -> Option<Prop<f32>> {
+        let mut degrees = std::ptr::null_mut();
+        crate::error::ffi!(sys::elg_effects_rotation(self.ptr, &mut degrees)).then(|| Prop::<f32>::from_handle(degrees)).flatten()
+    }
+    /// The horizontal and vertical scale about the anchor, each if set.
+    pub fn scale(&self) -> (Option<Prop<f32>>, Option<Prop<f32>>) {
+        let (mut x, mut y) = (std::ptr::null_mut(), std::ptr::null_mut());
+        crate::error::ffi!(sys::elg_effects_scale(self.ptr, &mut x, &mut y));
+        (Prop::<f32>::from_handle(x), Prop::<f32>::from_handle(y))
+    }
+    /// The offset of the drawn content.
+    pub fn offset(&self) -> (Prop<f32>, Prop<f32>) {
+        let (mut x, mut y) = (std::ptr::null_mut(), std::ptr::null_mut());
+        crate::error::ffi!(sys::elg_effects_offset(self.ptr, &mut x, &mut y));
+        (Prop::<f32>::from_handle(x).unwrap_or(Prop::Value(0.0)), Prop::<f32>::from_handle(y).unwrap_or(Prop::Value(0.0)))
+    }
+    /// The stacking order among siblings, if set.
+    pub fn z_index(&self) -> Option<Prop<f32>> {
+        let mut z = std::ptr::null_mut();
+        crate::error::ffi!(sys::elg_effects_z_index(self.ptr, &mut z)).then(|| Prop::<f32>::from_handle(z)).flatten()
+    }
+    /// Also calls `action` with the view's size in physical pixels, after the handler the effects
+    /// already have: after the first layout and whenever the size changes, on the UI thread,
+    /// before paint.
+    pub fn add_on_size_change(&mut self, action: impl Fn(PixelSize) + 'static) {
+        let action = cffi::consumer(move |size: sys::ElgPixelSize| action(PixelSize { width: size.width, height: size.height }));
+        crate::error::ffi!(sys::elg_effects_add_on_size_change(self.ptr, action))
+    }
     pub fn set_allows_hit_testing(&mut self, enabled: bool) {
         unsafe { sys::elg_effects_set_allows_hit_testing(self.ptr, enabled) }
     }
@@ -247,6 +330,11 @@ pub trait EventHandler: 'static {
     /// Hit everywhere in the view's frame, not just where its content draws.
     fn covers_frame(&self) -> bool {
         false
+    }
+    /// The phase in which it hears the events that have two ([`EventPhase`]): pointer downs, ups
+    /// and hovers, scrolling, keys and text input.
+    fn phase(&self) -> EventPhase {
+        EventPhase::Bubble
     }
 }
 
@@ -384,6 +472,7 @@ fn handle_event(handler: &std::cell::RefCell<Box<dyn EventHandler>>, args: *mut 
             11 => result(h.magnify(&MagnifyEvent::from_c(&call.magnify))),
             12 => result(h.rotate(&RotateEvent::from_c(&call.rotate))),
             13 => result(h.two_finger_double_tap(Point::from_c(call.location))),
+            14 => *(ret as *mut i32) = h.phase() as i32,
             _ => {}
         }
     }
@@ -539,24 +628,63 @@ impl Modifier for HoverModifier {
     }
 }
 
-pub struct PointerModifier(pub Box<dyn Fn(&PointerEvent) -> bool>);
+/// `.on_pointer(action)` as a value, in either phase.
+pub struct PointerModifier {
+    pub action: Box<dyn Fn(&PointerEvent) -> bool>,
+    pub phase: EventPhase,
+}
+impl PointerModifier {
+    /// In the bubble phase.
+    pub fn new(action: impl Fn(&PointerEvent) -> bool + 'static) -> Self {
+        Self { action: Box::new(action), phase: EventPhase::Bubble }
+    }
+}
 impl Modifier for PointerModifier {
     fn apply(self, content: View) -> View {
-        content.on_pointer(self.0)
+        match self.phase {
+            EventPhase::Bubble => content.on_pointer(self.action),
+            EventPhase::Capture => content.on_pointer_capture(self.action),
+        }
     }
 }
 
-pub struct ScrollModifier(pub Box<dyn Fn(&ScrollEvent) -> bool>);
+/// `.on_scroll(action)` as a value, in either phase.
+pub struct ScrollModifier {
+    pub action: Box<dyn Fn(&ScrollEvent) -> bool>,
+    pub phase: EventPhase,
+}
+impl ScrollModifier {
+    /// In the bubble phase.
+    pub fn new(action: impl Fn(&ScrollEvent) -> bool + 'static) -> Self {
+        Self { action: Box::new(action), phase: EventPhase::Bubble }
+    }
+}
 impl Modifier for ScrollModifier {
     fn apply(self, content: View) -> View {
-        content.on_scroll(self.0)
+        match self.phase {
+            EventPhase::Bubble => content.on_scroll(self.action),
+            EventPhase::Capture => content.on_scroll_capture(self.action),
+        }
     }
 }
 
-pub struct TextInputModifier(pub Box<dyn Fn(&TextInputEvent) -> bool>);
+/// `.on_text_input(action)` as a value, in either phase.
+pub struct TextInputModifier {
+    pub action: Box<dyn Fn(&TextInputEvent) -> bool>,
+    pub phase: EventPhase,
+}
+impl TextInputModifier {
+    /// In the bubble phase.
+    pub fn new(action: impl Fn(&TextInputEvent) -> bool + 'static) -> Self {
+        Self { action: Box::new(action), phase: EventPhase::Bubble }
+    }
+}
 impl Modifier for TextInputModifier {
     fn apply(self, content: View) -> View {
-        content.on_text_input(self.0)
+        match self.phase {
+            EventPhase::Bubble => content.on_text_input(self.action),
+            EventPhase::Capture => content.on_text_input_capture(self.action),
+        }
     }
 }
 
@@ -702,11 +830,23 @@ impl<K: crate::layout::LayoutValueKey> Modifier for LayoutValueModifier<K> {
     }
 }
 
-/// Key downs and ups while the view (or something inside) has focus.
-pub struct KeyEventModifier(pub Box<dyn Fn(&KeyEvent) -> bool>);
+/// Key downs and ups while the view (or something inside) has focus, in either phase.
+pub struct KeyEventModifier {
+    pub action: Box<dyn Fn(&KeyEvent) -> bool>,
+    pub phase: EventPhase,
+}
+impl KeyEventModifier {
+    /// In the bubble phase.
+    pub fn new(action: impl Fn(&KeyEvent) -> bool + 'static) -> Self {
+        Self { action: Box::new(action), phase: EventPhase::Bubble }
+    }
+}
 impl Modifier for KeyEventModifier {
     fn apply(self, content: View) -> View {
-        content.on_key(self.0)
+        match self.phase {
+            EventPhase::Bubble => content.on_key(self.action),
+            EventPhase::Capture => content.on_key_capture(self.action),
+        }
     }
 }
 
@@ -728,3 +868,13 @@ pub type ButtonStyleModifier = EnvironmentKeyModifier<crate::environment::Button
 pub type HoverDelayModifier = EnvironmentKeyModifier<crate::environment::HoverDelayKey>;
 pub type ToggleStyleModifier = EnvironmentKeyModifier<crate::environment::ToggleStyleKey>;
 pub type TextFieldStyleModifier = EnvironmentKeyModifier<crate::environment::TextFieldStyleKey>;
+pub type CheckboxStyleModifier = EnvironmentKeyModifier<crate::environment::CheckboxStyleKey>;
+pub type NumberInputStyleModifier = EnvironmentKeyModifier<crate::environment::NumberInputStyleKey>;
+pub type ProgressStyleModifier = EnvironmentKeyModifier<crate::environment::ProgressStyleKey>;
+pub type PickerStyleModifier = EnvironmentKeyModifier<crate::environment::PickerStyleKey>;
+pub type SliderStyleModifier = EnvironmentKeyModifier<crate::environment::SliderStyleKey>;
+pub type NavigationStackStyleModifier = EnvironmentKeyModifier<crate::environment::NavigationStackStyleKey>;
+pub type PopoverStyleModifier = EnvironmentKeyModifier<crate::environment::PopoverStyleKey>;
+pub type TooltipStyleModifier = EnvironmentKeyModifier<crate::environment::TooltipStyleKey>;
+pub type MenuStyleModifier = EnvironmentKeyModifier<crate::environment::MenuStyleKey>;
+pub type RowStyleModifier = EnvironmentKeyModifier<crate::environment::RowStyleKey>;
