@@ -68,6 +68,12 @@ impl GpuImage {
         })
     }
 
+    /// Whether the image's rows start at the bottom (it was created with
+    /// [`GpuImageOrigin::BottomLeft`]).
+    pub fn flipped(&self) -> bool {
+        unsafe { sys::elg_gpu_image_flipped(self.inner.ptr.as_ptr()) }
+    }
+
     /// Returns a borrowed native handle for unsafe low-level interop.
     ///
     /// Do not destroy it. Keep an owning clone alive for every raw call; the pointer does

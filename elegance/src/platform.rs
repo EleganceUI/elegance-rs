@@ -10,12 +10,10 @@ pub enum Platform {
 
 /// The platform the app was built for: [`Platform::Windows`], [`Platform::MacOS`] or
 /// [`Platform::Linux`] (anything else counts as Linux).
-pub const fn current_platform() -> Platform {
-    if cfg!(target_os = "windows") {
-        Platform::Windows
-    } else if cfg!(target_os = "macos") {
-        Platform::MacOS
-    } else {
-        Platform::Linux
+pub fn current_platform() -> Platform {
+    match unsafe { elegance_sys::elg_current_platform() } {
+        0 => Platform::Windows,
+        1 => Platform::MacOS,
+        _ => Platform::Linux,
     }
 }

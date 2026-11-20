@@ -359,7 +359,7 @@ impl EnvironmentKey for RowSelectedKey {
 // A style family's key: its value is the family's style handle, which may be reactive (a closure
 // returning one).
 macro_rules! style_keys {
-    ($($(#[$m:meta])* $key:ident: $any:ident = $default:expr_2021, $get:ident, $set:ident;)*) => {$(
+    ($($(#[$m:meta])* $key:ident: $any:ident = $default:expr_2021, $get:ident, $set:ident, $set_prop:ident;)*) => {$(
         $(#[$m])*
         pub struct $key;
         impl EnvironmentKey for $key {
@@ -371,7 +371,10 @@ macro_rules! style_keys {
                 $any::from_raw(ffi!(sys::$get(environment.as_ptr())))
             }
             fn write(environment: &mut EnvironmentValues, value: Prop<$any>) {
-                with_prop(value, |p| ffi!(sys::$set(environment.as_ptr(), p)))
+                match value {
+                    Prop::Value(style) => ffi!(sys::$set(environment.as_ptr(), style.as_ptr())),
+                    reactive => with_prop(reactive, |p| ffi!(sys::$set_prop(environment.as_ptr(), p))),
+                }
             }
         }
     )*};
@@ -379,29 +382,29 @@ macro_rules! style_keys {
 
 style_keys! {
     /// The style of buttons inside (default: the built-in [`ProminentButtonStyle`]).
-    ButtonStyleKey: AnyButtonStyle = ProminentButtonStyle.into_button_style(), elg_env_button_style, elg_env_set_button_style_prop;
+    ButtonStyleKey: AnyButtonStyle = ProminentButtonStyle.into_button_style(), elg_env_button_style, elg_env_set_button_style, elg_env_set_button_style_prop;
     /// The style of toggles inside (default: the built-in [`SwitchToggleStyle`]).
-    ToggleStyleKey: AnyToggleStyle = SwitchToggleStyle::default().into_toggle_style(), elg_env_toggle_style, elg_env_set_toggle_style_prop;
+    ToggleStyleKey: AnyToggleStyle = SwitchToggleStyle::default().into_toggle_style(), elg_env_toggle_style, elg_env_set_toggle_style, elg_env_set_toggle_style_prop;
     /// The style of text fields inside (default: the built-in [`RoundedBorderTextFieldStyle`]).
-    TextFieldStyleKey: AnyTextFieldStyle = RoundedBorderTextFieldStyle.into_text_field_style(), elg_env_text_field_style, elg_env_set_text_field_style_prop;
+    TextFieldStyleKey: AnyTextFieldStyle = RoundedBorderTextFieldStyle.into_text_field_style(), elg_env_text_field_style, elg_env_set_text_field_style, elg_env_set_text_field_style_prop;
     /// The style of checkboxs inside (default: the built-in [`BoxCheckboxStyle`]).
-    CheckboxStyleKey: AnyCheckboxStyle = BoxCheckboxStyle::default().into_checkbox_style(), elg_env_checkbox_style, elg_env_set_checkbox_style_prop;
+    CheckboxStyleKey: AnyCheckboxStyle = BoxCheckboxStyle::default().into_checkbox_style(), elg_env_checkbox_style, elg_env_set_checkbox_style, elg_env_set_checkbox_style_prop;
     /// The style of number inputs inside (default: the built-in [`BoxNumberInputStyle`]).
-    NumberInputStyleKey: AnyNumberInputStyle = BoxNumberInputStyle::default().into_number_input_style(), elg_env_number_input_style, elg_env_set_number_input_style_prop;
+    NumberInputStyleKey: AnyNumberInputStyle = BoxNumberInputStyle::default().into_number_input_style(), elg_env_number_input_style, elg_env_set_number_input_style, elg_env_set_number_input_style_prop;
     /// The style of progresss inside (default: the built-in [`LinearProgressStyle`]).
-    ProgressStyleKey: AnyProgressStyle = LinearProgressStyle::default().into_progress_style(), elg_env_progress_style, elg_env_set_progress_style_prop;
+    ProgressStyleKey: AnyProgressStyle = LinearProgressStyle::default().into_progress_style(), elg_env_progress_style, elg_env_set_progress_style, elg_env_set_progress_style_prop;
     /// The style of pickers inside (default: the built-in [`SegmentedPickerStyle`]).
-    PickerStyleKey: AnyPickerStyle = SegmentedPickerStyle.into_picker_style(), elg_env_picker_style, elg_env_set_picker_style_prop;
+    PickerStyleKey: AnyPickerStyle = SegmentedPickerStyle.into_picker_style(), elg_env_picker_style, elg_env_set_picker_style, elg_env_set_picker_style_prop;
     /// The style of sliders inside (default: the built-in [`KnobSliderStyle`]).
-    SliderStyleKey: AnySliderStyle = KnobSliderStyle::default().into_slider_style(), elg_env_slider_style, elg_env_set_slider_style_prop;
+    SliderStyleKey: AnySliderStyle = KnobSliderStyle::default().into_slider_style(), elg_env_slider_style, elg_env_set_slider_style, elg_env_set_slider_style_prop;
     /// The style of navigation stacks inside (default: the built-in [`PlainNavigationStackStyle`]).
-    NavigationStackStyleKey: AnyNavigationStackStyle = PlainNavigationStackStyle.into_navigation_stack_style(), elg_env_navigation_stack_style, elg_env_set_navigation_stack_style_prop;
+    NavigationStackStyleKey: AnyNavigationStackStyle = PlainNavigationStackStyle.into_navigation_stack_style(), elg_env_navigation_stack_style, elg_env_set_navigation_stack_style, elg_env_set_navigation_stack_style_prop;
     /// The style of popovers inside (default: the built-in [`DefaultPopoverStyle`]).
-    PopoverStyleKey: AnyPopoverStyle = DefaultPopoverStyle.into_popover_style(), elg_env_popover_style, elg_env_set_popover_style_prop;
+    PopoverStyleKey: AnyPopoverStyle = DefaultPopoverStyle.into_popover_style(), elg_env_popover_style, elg_env_set_popover_style, elg_env_set_popover_style_prop;
     /// The style of tooltips inside (default: the built-in [`DefaultTooltipStyle`]).
-    TooltipStyleKey: AnyTooltipStyle = DefaultTooltipStyle.into_tooltip_style(), elg_env_tooltip_style, elg_env_set_tooltip_style_prop;
+    TooltipStyleKey: AnyTooltipStyle = DefaultTooltipStyle.into_tooltip_style(), elg_env_tooltip_style, elg_env_set_tooltip_style, elg_env_set_tooltip_style_prop;
     /// The style of menus inside (default: the built-in [`DefaultMenuStyle`]).
-    MenuStyleKey: AnyMenuStyle = DefaultMenuStyle.into_menu_style(), elg_env_menu_style, elg_env_set_menu_style_prop;
+    MenuStyleKey: AnyMenuStyle = DefaultMenuStyle.into_menu_style(), elg_env_menu_style, elg_env_set_menu_style, elg_env_set_menu_style_prop;
     /// The style of rows inside (default: the built-in [`HighlightRowStyle`]).
-    RowStyleKey: AnyRowStyle = HighlightRowStyle::default().into_row_style(), elg_env_row_style, elg_env_set_row_style_prop;
+    RowStyleKey: AnyRowStyle = HighlightRowStyle::default().into_row_style(), elg_env_row_style, elg_env_set_row_style, elg_env_set_row_style_prop;
 }

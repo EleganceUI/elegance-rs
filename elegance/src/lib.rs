@@ -131,7 +131,7 @@ mod items {
     };
     pub use crate::font::{register_emoji_font, register_font, register_font_data, Font, Weight};
     pub use crate::geometry::{
-        aligned_position, Alignment, Axis, ContentMode, CornerRadii, EdgeInsets, Edges,
+        aligned_position, default_stack_spacing, Alignment, Axis, ContentMode, CornerRadii, EdgeInsets, Edges,
         HorizontalAlignment, Len, Number, Point, ProposedSize, Rect, Size, UnitPoint,
         VerticalAlignment, DEFAULT_STACK_SPACING, INFINITY,
     };

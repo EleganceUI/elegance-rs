@@ -277,7 +277,7 @@ pub struct ZStackLayout {
 }
 
 macro_rules! stack_layout {
-    ($t:ident, $kind:expr_2021, $axis:expr_2021, |$s:ident| $alignment:expr_2021, $spacing:expr_2021) => {
+    ($t:ident, $kind:expr_2021, |$s:ident| $alignment:expr_2021, $spacing:expr_2021) => {
         impl $t {
             pub fn size_that_fits(&self, proposal: ProposedSize, children: &[LayoutChild]) -> Size {
                 let $s = self;
@@ -291,7 +291,11 @@ macro_rules! stack_layout {
             }
             /// The axis Spacers inside expand along.
             pub fn spacer_axis(&self) -> Option<Axis> {
-                $axis
+                match unsafe { sys::elg_stack_layout_spacer_axis($kind) } {
+                    0 => Some(Axis::Horizontal),
+                    1 => Some(Axis::Vertical),
+                    _ => None,
+                }
             }
         }
         /// As a [`Layout`], it can be used where any layout can; its views are the native stack.
@@ -312,9 +316,9 @@ macro_rules! stack_layout {
     };
 }
 
-stack_layout!(VStackLayout, 0, Some(Axis::Vertical), |s| sys::ElgAlignment { horizontal: s.alignment as i32, vertical: 1 }, s.spacing.c());
-stack_layout!(HStackLayout, 1, Some(Axis::Horizontal), |s| sys::ElgAlignment { horizontal: 1, vertical: s.alignment as i32 }, s.spacing.c());
-stack_layout!(ZStackLayout, 2, None, |s| s.alignment.c(), Len(None).c());
+stack_layout!(VStackLayout, 0, |s| sys::ElgAlignment { horizontal: s.alignment as i32, vertical: 1 }, s.spacing.c());
+stack_layout!(HStackLayout, 1, |s| sys::ElgAlignment { horizontal: 1, vertical: s.alignment as i32 }, s.spacing.c());
+stack_layout!(ZStackLayout, 2, |s| s.alignment.c(), Len(None).c());
 
 #[elegance_macros::elg_builder]
 impl VStackLayout {

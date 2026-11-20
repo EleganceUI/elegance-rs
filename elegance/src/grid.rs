@@ -129,8 +129,16 @@ pub fn resolve_grid_tracks(items: &[GridItem], length: Option<f32>, spacing: imp
 
 /// The space `tracks` take, with the spacing between them.
 pub fn grid_tracks_length(tracks: &[GridTrack]) -> f32 {
-    let n = tracks.len();
-    tracks.iter().enumerate().map(|(i, t)| t.size + if i + 1 < n { t.spacing } else { 0.0 }).sum()
+    let c: Vec<sys::ElgGridTrack> = tracks
+        .iter()
+        .map(|t| sys::ElgGridTrack {
+            size: t.size,
+            spacing: t.spacing,
+            has_alignment: t.alignment.is_some(),
+            alignment: t.alignment.unwrap_or_default().c(),
+        })
+        .collect();
+    ffi!(sys::elg_grid_tracks_length(c.as_ptr(), c.len()))
 }
 
 fn alignment_from_c(a: sys::ElgAlignment) -> Alignment {

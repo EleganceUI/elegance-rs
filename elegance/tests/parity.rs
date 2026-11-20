@@ -246,3 +246,44 @@ fn milestone_13_type_checks(app: &App) -> impl IntoView {
 fn milestone_13_type_checks_compile() {
     let _ = milestone_13_type_checks;
 }
+
+// --- Milestone 13, part 3: values Rust had hard-coded now come from Elegance ---
+
+#[test]
+fn values_from_elegance_match_the_ones_rust_documents() {
+    assert_eq!(default_stack_spacing(), DEFAULT_STACK_SPACING);
+    assert_eq!(KeyModifiers::primary(), if cfg!(target_os = "macos") { KeyModifiers::SUPER } else { KeyModifiers::CONTROL });
+    // font.h's text styles: the system font, at these sizes and weights.
+    let styles = [
+        (Font::large_title(), 30.0, Weight::Bold),
+        (Font::title(), 24.0, Weight::Semibold),
+        (Font::title2(), 20.0, Weight::Semibold),
+        (Font::title3(), 17.0, Weight::Semibold),
+        (Font::headline(), 15.0, Weight::Semibold),
+        (Font::body(), 15.0, Weight::Regular),
+        (Font::callout(), 14.0, Weight::Regular),
+        (Font::subheadline(), 13.0, Weight::Regular),
+        (Font::footnote(), 12.0, Weight::Regular),
+        (Font::caption(), 12.0, Weight::Regular),
+        (Font::caption2(), 11.0, Weight::Regular),
+    ];
+    for (font, size, weight) in styles {
+        assert_eq!((font.family(), font.size(), font.font_weight(), font.is_italic()), ("", size, weight, false));
+    }
+}
+
+#[test]
+fn grid_track_lengths_include_the_spacing_between_tracks() {
+    let tracks = [
+        GridTrack { size: 10.0, spacing: 4.0, alignment: None },
+        GridTrack { size: 20.0, spacing: 6.0, alignment: Some(Alignment::CENTER) },
+    ];
+    assert_eq!(grid_tracks_length(&tracks), 34.0);
+    assert_eq!(grid_tracks_length(&[]), 0.0);
+}
+
+#[test]
+fn gpu_images_know_their_origin() {
+    assert!(!GpuImage::new(4, 4, GpuImageOrigin::TopLeft).unwrap().flipped());
+    assert!(GpuImage::new(4, 4, GpuImageOrigin::BottomLeft).unwrap().flipped());
+}

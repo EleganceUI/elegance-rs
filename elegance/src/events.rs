@@ -130,11 +130,7 @@ impl KeyModifiers {
 
     /// The platform's shortcut modifier: Cmd on macOS, Ctrl elsewhere.
     pub fn primary() -> KeyModifiers {
-        if cfg!(target_os = "macos") {
-            KeyModifiers::SUPER
-        } else {
-            KeyModifiers::CONTROL
-        }
+        KeyModifiers(unsafe { sys::elg_primary_modifier() })
     }
 }
 
