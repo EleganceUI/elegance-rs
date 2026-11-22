@@ -54,7 +54,7 @@ fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let dynamic = env::var_os("CARGO_FEATURE_DYNAMIC").is_some();
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("mikros") {
-        let lines = mikros::link_lines(|name| env::var(name).ok(), dynamic)
+        let lines = mikros::link_lines(|name| env::var_os(name).map(|v| v.to_string_lossy().into_owned()), dynamic)
             .unwrap_or_else(|error| panic!("\n\nelegance-sys: {error}\n"));
         for line in lines {
             println!("{line}");
