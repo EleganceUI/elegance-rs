@@ -39,6 +39,11 @@ jobs:
                   mkdir -p target
                   rustc --edition=2024 --test elegance-sys/tests/prebuilt.rs -o target/prebuilt-tests.exe
                   ./target/prebuilt-tests.exe
+            - name: Mikros link tests
+              shell: bash
+              run: |
+                  rustc --edition=2024 --test elegance-sys/tests/mikros.rs -o target/mikros-tests.exe
+                  ./target/mikros-tests.exe
             # elegance-sys copies shared dependencies into target/<profile> (beside executables, and
             # into deps/ and examples/); Linux needs an rpath. Cargo's newer build-dir layout runs
             # test binaries from target/<profile>/build/<crate>/<hash>/out, four levels below.

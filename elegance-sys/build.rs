@@ -26,6 +26,8 @@
 // The C API passes std::string and std::function across to Elegance, so it must use the same
 // compiler and C runtime. Rust links the release CRT (/MD), so use release-CRT builds of
 // Elegance, not dev-debug (/MDd).
+//
+// On Mikros, none of this: apps link the system's library (build_mikros.rs).
 
 use std::env;
 use std::fs;
@@ -34,6 +36,8 @@ use std::path::{Path, PathBuf};
 mod build_runtime;
 #[path = "build_cmake.rs"]
 mod cmake;
+#[path = "build_mikros.rs"]
+mod mikros;
 #[path = "build_prebuilt.rs"]
 mod prebuilt;
 
@@ -49,6 +53,14 @@ const C_API_FILES: &[&str] = &[
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let dynamic = env::var_os("CARGO_FEATURE_DYNAMIC").is_some();
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("mikros") {
+        let lines = mikros::link_lines(|name| env::var(name).ok(), dynamic)
+            .unwrap_or_else(|error| panic!("\n\nelegance-sys: {error}\n"));
+        for line in lines {
+            println!("{line}");
+        }
+        return;
+    }
     // `dynamic` is for previews, whose host comes from a source build.
     if let Some(native) = (!dynamic).then(|| prebuilt::find(&manifest)).flatten() {
         println!(
