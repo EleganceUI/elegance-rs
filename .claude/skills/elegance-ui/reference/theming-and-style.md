@@ -889,7 +889,7 @@ pub enum WindowControlsStyle { Automatic /* default */, Caption, TrafficLights }
 ## Platform conventions
 
 ```rust
-pub enum Platform { Windows, MacOS, Linux }       // no Mikros variant; anything else counts as Linux
+pub enum Platform { Windows, MacOS, Linux, Mikros, Unknown(i32) }  // #[non_exhaustive]; a value the binding doesn't name is Unknown
 pub fn current_platform() -> Platform             // an ordinary runtime function
 ```
 
@@ -911,7 +911,7 @@ Notes:
 - Word-wise caret movement uses Ctrl+arrows (Alt on macOS) (design.md).
 - Branch on `current_platform()` for chrome differences (e.g. leading vs trailing window controls, Cmd vs Ctrl labels in hints), at runtime; it is not a compile-time constant.
 - Elegance draws all controls itself, so look and metrics are the same on every platform; only fonts, window chrome, materials, and shortcuts follow the platform.
-- Mikros: `Platform` has no Mikros variant and the Rust sources mention none. Per the doc comment, any other platform counts as Linux in `current_platform()`; chrome/material behavior there is unverified.
+- Mikros: `Platform::Mikros`; a value the binding doesn't name is `Platform::Unknown(value)`. Chrome/material behavior on Mikros is unverified.
 
 ---
 

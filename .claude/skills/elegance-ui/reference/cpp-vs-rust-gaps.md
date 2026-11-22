@@ -21,7 +21,7 @@ public C++ view/modifier/state/window/menu/tray/media/capture/gesture/style/them
 ## 2. C++ features with no Rust counterpart
 | C++ name (header) | What | In C API? | Docs say C++-only? |
 |---|---|---|---|
-| `Platform::mikros` (platform.h) | 4th platform | yes (value 3) | no mention anywhere |
+| `Platform::mikros` (platform.h) | 4th platform | yes (value 3) | covered: `Platform::Mikros` |
 | `EnvironmentValues::get_named<T>/set_named<T>(name)`, `LayoutChild::value_named<T>` (environment.h, layout.h; worktree only) | read/set a key by name without a key type; T in bool,int,i32/i64,f32,f64,String,Color | yes (`elg_env_get_named_*`, `elg_env_set_named_*`, `elg_layout_child_value_*`) | yes: environment.mdx cpp-only block. Rust uses them internally (named.rs): a Rust `EnvironmentKey` whose Value is one of those types interoperates by name, but `get_named`/`set_named` are not public |
 | `ELG_MODULE`, `ELG_MODULE_WITH_APP_HASH`, `ELG_PREVIEW`, `HotReloadOptions`, `layout_hash<T...>()`, CMake `elegance_views_module`, `elegance_hot_reload`, `elg_add_application` (hot_reload.h, CMake) | views-module authoring, build glue | C API has `elg_hot_reload(...)` only | yes (hot-reload.mdx, desktop.mdx). Rust equivalents: `#[preview]`, `#[preview(root, app_hash = ...)]`, `layout_hash!`, `cargo elegance`, `HotReload` (feature `dynamic`) |
 | `ELG_TRACY` profiling, `ELG_ACCESSIBILITY` option, ELG_SANITIZER, `ELG_BUILD_SHARED` (CMake) | build options | n/a | yes (debugging.mdx, installation.mdx cpp-only). Prebuilt Rust package has accessibility on, no Tracy |
@@ -82,7 +82,7 @@ from elegance-rs except user-defined ones, so snippets are consistent. Inline Ru
 4. README prebuilt table: Windows aarch64 and Linux aarch64 listed; "Ships beside the executable" row says only
    "Linux x86_64 | libaccesskit.so". On Linux ARM64 AccessKit is built from source by CI (c-api.yml l.117) so the aarch64 Linux
    package's shipped libs are unstated. CI of elegance-rs tests only Linux x86_64 (ubuntu-22.04), macos-15, windows-2025.
-5. Docs/README list platforms Windows/macOS/Linux only; the worktree C API/C++ also target Mikros (section 1); `Platform`
+5. Docs (windows.mdx, outside this repo) may list platforms Windows/macOS/Linux only; the worktree C API/C++ also target Mikros (section 1); `Platform`
    in docs (windows.mdx l.153) has 3 variants.
 6. docs guides/grids.mdx l.143: `resolve_grid_tracks` is mentioned for C++ only; Rust also exports `resolve_grid_tracks` and
    `grid_tracks_length`.
