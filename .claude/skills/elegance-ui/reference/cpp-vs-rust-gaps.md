@@ -8,14 +8,14 @@ public C++ view/modifier/state/window/menu/tray/media/capture/gesture/style/them
 
 ## 1. Headline finding: Mikros
 - Worktree C++ adds `Platform::mikros` (include/elg/platform.h); C API `elg_current_platform()` returns 0 windows, 1 macos,
-  2 linux, 3 mikros. Rust `Platform` has only `Windows|MacOS|Linux` and `current_platform()` maps `_ => Linux`
-  (elegance/src/platform.rs), so on Mikros Rust reports Linux. C++ doc comment says later ABI levels may add platforms.
+  2 linux, 3 mikros. Rust `Platform` has `Mikros` too, and returns other values as `Unknown(i32)`
+  (elegance/src/platform.rs).
 - On Mikros the C++ headers say these throw `PlatformError`: audio output (`Sound`, `AudioPlayer`, `AudioStream`), audio
   recording (`AudioRecorder`), `Camera`, video playback (`VideoPlayer` when it would play), `notify`, `TrayIcon`.
   Rust wrappers returning `Result` surface it; ones returning `()` (`notify`, `AudioStream::start`, `Sound::play`, ...) go
-  through `ffi!` and panic. Neither the Rust docs nor README mention Mikros anywhere (grep: zero hits in elegance-rs, docs).
-- Mikros build: c/CMakeLists.txt builds `eleganceui.<major>.dlib` exporting only `elg_*` (c/exports.map). elegance-sys has no
-  Mikros target: not in `TARGETS` (build_prebuilt.rs), `vcpkg_triplet()` returns None for it (build_cmake.rs).
+  through `ffi!` and panic. docs/building.md describes the Mikros build.
+- Mikros build: c/CMakeLists.txt builds `eleganceui.<major>.dlib` exporting only `elg_*` (c/exports.map). elegance-sys links
+  it dynamically for the Mikros target (build_mikros.rs) and refuses every other way of getting Elegance there.
 - No Rust API for the Mikros-specific bits at all; nothing in the C API is Mikros-only beyond the platform value.
 
 ## 2. C++ features with no Rust counterpart
@@ -59,7 +59,7 @@ field), `WindowHandle` (every method), `WindowMaterial`, `TitleBar`, text editin
 | `EnvironmentValues::current_environment()` / `Environment<Key>()` | `EnvironmentValues::current()`, `Environment::<K>::new()` |
 | exceptions (`throws UsageError`) | panics, or `Result<_, Error>` from constructors/`run`; `notify` panics without an app bundle |
 | `App::window(desc, ContentFunction)` | `App::window(&self, desc, impl IntoView)`; `App::run() -> Result<ExitCode, Error>`; Rust-only `run_code()`, `handle() -> AppHandle`, `post_to_ui_thread` needs `Send` |
-| `Platform::windows/macos/linux` | `Platform::Windows/MacOS/Linux` (no Mikros) |
+| `Platform::windows/macos/linux/mikros` | `Platform::Windows/MacOS/Linux/Mikros`, plus `Unknown(i32)` |
 | `ELG_MODULE(Root)` / `ELG_MODULE(nullptr)` | `#[preview(root)]` / no root; `HotReload::new(path).build_command(..).watch([..]).show(..).app_hash(..)` exists only with cargo feature `dynamic` (`cargo elegance preview` sets `preview` = `dynamic`) |
 | Rust-only: `asset!`, `layout_hash!`, `DotValues`, `#[component]`, `#[elg_builder]`, `elg!`, `State::always_notify`, `Binding::read_only`, `Sound::load_data`, `VideoPlayer::file`, `WindowDesc::new(..).size(..)` builders |
 

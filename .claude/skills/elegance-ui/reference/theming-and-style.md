@@ -47,7 +47,7 @@ All items are in `elegance::prelude::*` (via `elegance::*` re-exports) unless no
 | Frosted glass panel | `.background_in(.glass_regular, shape).backdrop_blur_in(.xl, shape, \|o\| ...)` |
 | Whole-window translucent system backdrop | `WindowDesc::material(WindowMaterial::Sidebar)` (macOS, Windows 11 only) |
 | Rounded/shaped window, own title bar | `WindowDesc::transparent(true).title_bar(TitleBar::Hidden)` + `WindowControls` |
-| Platform-dependent code | `current_platform()` (`Platform::Windows`/`MacOS`/`Linux`) |
+| Platform-dependent code | `current_platform()` (`Platform::Windows`/`MacOS`/`Linux`/`Mikros`, or `Unknown(i32)`; non-exhaustive) |
 | Shortcut that is Cmd on Mac, Ctrl elsewhere | `KeyboardShortcut::new(Key::S)` / `KeyModifiers::primary()` |
 
 ---

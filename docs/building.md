@@ -10,6 +10,7 @@ through its C API. How it links depends on where Elegance comes from:
 | Prebuilt package (the default) | Static: one archive linked into the executable | AccessKit's shared library (and, on Windows, Dawn's shader compiler DLLs if present) |
 | Source build | Static Elegance library | Any shared dependencies the native build lists |
 | Source build with the `dynamic` feature (previews) | Shared Elegance library | Elegance and its shared dependencies |
+| Mikros (`x86_64-unknown-mikros`) | The system's shared library, `eleganceui.0.dlib` | Nothing: the system has it |
 
 Cargo copies the files to ship next to your binaries in `target/<profile>/`. System libraries and
 frameworks remain ordinary platform dependencies, so a static Elegance doesn't make a fully
@@ -146,6 +147,21 @@ On Windows, use the release C runtime (`/MD`), not the debug runtime (`/MDd`), t
 The C API passes `std::string` and `std::function` to Elegance, so runtime compatibility matters.
 Static builds also require `-DELG_ACCESSKIT_SHARED=ON`: AccessKit's static library is a Rust
 `staticlib`, whose bundled Rust standard library would conflict with the application's.
+
+## Mikros
+
+For `x86_64-unknown-mikros`, elegance-sys links the system's Elegance, `eleganceui.<major>.dlib`
+(today `eleganceui.0.dlib`), dynamically. It downloads, configures and compiles nothing, and
+checks no header: `App::new` compares the library's ABI version with the bindings'.
+
+The build fails on Mikros when it's asked for any other Elegance: `ELEGANCE_ROOT`,
+`ELEGANCE_GIT_REF`, `ELEGANCE_BUILD_DIR`, `ELEGANCE_SHARED_BUILD_DIR`, `ELEGANCE_NATIVE_DIR`,
+`ELEGANCE_PREBUILT`, `ELEGANCE_PREBUILT_URL`, and the `dynamic` feature (and so `preview`).
+
+The linker looks for the library in the sysroot and in the folders given with `-L`; with a copy
+of the library outside the sysroot, add its folder, for example with
+`RUSTFLAGS="-L native=<folder>"`. At run time the library needs the system's libc, libc++,
+libc++abi, libunwind, libwayland and libxkbcommon.
 
 ## Updating the native revision
 
