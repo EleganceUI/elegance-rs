@@ -13,3 +13,19 @@ version = "0.2.2"
 edition = "2024"
 license = "MPL-2.0"
 repository = "https://github.com/EleganceUI/elegance-rs"
+
+# wgpu has no Vulkan backend on Mikros, and neither ash nor libloading know its library name and
+# dlopen flags: these forks add them (one commit each on the tag that Cargo.lock had, branch `mikros`).
+# The crates of the wgpu repository are patched together, so that they all come from one checkout.
+[patch.crates-io]
+wgpu = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+wgpu-core = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+wgpu-core-deps-apple = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+wgpu-core-deps-windows-linux-android = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+wgpu-hal = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+wgpu-naga-bridge = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+wgpu-types = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+naga = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+naga-types = { git = "https://github.com/EleganceUI/wgpu", rev = "b2137664d4e491cfb5bef04f19d40e985857d6dc" }
+ash = { git = "https://github.com/EleganceUI/ash", rev = "95519e87b209793ccc24e45c4681be1463c60538" }
+libloading = { git = "https://github.com/EleganceUI/rust_libloading", rev = "8751af6fcdb939be6fff7e33fa5ccf892a8bc5cd" }

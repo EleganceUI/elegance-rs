@@ -27,7 +27,7 @@ windows = { version = "0.62", default-features = false, features = [
     "Win32_System_Threading",
 ] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "mikros"))'.dependencies]
 ash = "0.38"
 libc = "0.2"
 
@@ -36,3 +36,6 @@ objc2 = "0.6.3"
 objc2-core-foundation = "0.3.2"
 objc2-io-surface = "0.3.2"
 objc2-metal = { version = "0.3.2", features = ["objc2-io-surface"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("mikros"))'] }
