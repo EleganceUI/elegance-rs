@@ -98,11 +98,12 @@ pub(super) fn create_producer_semaphore(device: &ash::Device) -> Result<vk::Sema
     .map_err(device_error)
 }
 
-/// A semaphore for a consumer's, which `import_semaphore` fills.
+/// Memory is allocated from any memory type.
 pub(super) fn memory_type_allowed(_: vk::MemoryPropertyFlags) -> bool {
     true
 }
 
+/// A semaphore for a consumer's, which `import_semaphore` fills.
 pub(super) fn create_consumer_semaphore(device: &ash::Device) -> Result<vk::Semaphore, Error> {
     unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None) }
         .map_err(device_error)

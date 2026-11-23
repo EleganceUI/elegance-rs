@@ -1027,13 +1027,15 @@ fn image_info(config: Config) -> vk::ImageCreateInfo<'static> {
         .initial_layout(vk::ImageLayout::UNDEFINED)
 }
 
-fn check_capabilities(
+/// What the driver says about the image as it is created, with `handle` as its external memory
+/// handle type: the limits of its format and the properties of its external memory.
+fn image_properties(
     instance: &ash::Instance,
     physical: vk::PhysicalDevice,
     format: vk::Format,
-    config: Config,
-) -> Result<(), Error> {
-    let mut external = vk::PhysicalDeviceExternalImageFormatInfo::default().handle_type(HANDLE);
+    handle: vk::ExternalMemoryHandleTypeFlags,
+) -> Result<(vk::ImageFormatProperties, vk::ExternalMemoryProperties), Error> {
+    let mut external = vk::PhysicalDeviceExternalImageFormatInfo::default().handle_type(handle);
     let info = vk::PhysicalDeviceImageFormatInfo2::default()
         .format(format)
         .ty(vk::ImageType::TYPE_2D)
@@ -1053,11 +1055,35 @@ fn check_capabilities(
         instance.get_physical_device_image_format_properties2(physical, &info, &mut properties)
     }
     .map_err(device_error)?;
-    let limits = properties.image_format_properties;
-    let memory = external_properties.external_memory_properties;
-    if !memory.external_memory_features.contains(
-        vk::ExternalMemoryFeatureFlags::EXPORTABLE | vk::ExternalMemoryFeatureFlags::IMPORTABLE,
-    ) || !memory.compatible_handle_types.contains(IMAGE_HANDLES)
+    Ok((
+        properties.image_format_properties,
+        external_properties.external_memory_properties,
+    ))
+}
+
+fn check_capabilities(
+    instance: &ash::Instance,
+    physical: vk::PhysicalDevice,
+    format: vk::Format,
+    config: Config,
+) -> Result<(), Error> {
+    let (limits, memory) = image_properties(instance, physical, format, HANDLE)?;
+    // The image lists every type of IMAGE_HANDLES, so each of them must work on its own as well.
+    for handle in [HANDLE, IMAGE_HANDLES & !HANDLE] {
+        if handle.is_empty() {
+            continue;
+        }
+        let (_, memory) = image_properties(instance, physical, format, handle)?;
+        if !memory.external_memory_features.contains(
+            vk::ExternalMemoryFeatureFlags::EXPORTABLE
+                | vk::ExternalMemoryFeatureFlags::IMPORTABLE,
+        ) {
+            return Err(device_error(
+                "exact mutable-format image does not support importable/exportable external memory",
+            ));
+        }
+    }
+    if !memory.compatible_handle_types.contains(IMAGE_HANDLES)
         || (platform::REEXPORT_REQUIRED
             && !memory.export_from_imported_handle_types.contains(HANDLE))
     {
@@ -1088,7 +1114,7 @@ fn check_capabilities(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
