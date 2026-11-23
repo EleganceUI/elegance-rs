@@ -23,6 +23,8 @@ fn the_platform_is_the_one_built_for() {
         Platform::Windows
     } else if cfg!(target_os = "macos") {
         Platform::MacOS
+    } else if cfg!(target_os = "mikros") {
+        Platform::Mikros
     } else {
         Platform::Linux
     };

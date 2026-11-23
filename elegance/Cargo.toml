@@ -17,3 +17,7 @@ dynamic = ["elegance-sys/dynamic"]
 # Build as a views module for the preview host (`cargo elegance preview` turns this on): exports
 # the module entry and registers #[preview] functions, which ordinary builds leave out.
 preview = ["dynamic"]
+
+[lints.rust]
+# Mikros is a custom target (a JSON target spec), which rustc's list of operating systems lacks.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("mikros"))'] }

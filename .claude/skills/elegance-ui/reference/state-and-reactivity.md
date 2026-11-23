@@ -489,7 +489,7 @@ impl AppHandle { pub fn quit(&self) }            // no-op if the App is gone
 - Posted while no App runs, the task waits for the next one (C++ doc, `app.h`).
 - A late task can run after the view that owned the state is gone: check `state.is_alive()` first.
 - `Timer`s, `effect`s and all state calls stay on the UI thread. There is no `task(async fn)` in the Rust crate (design.md lists it as future). Elegance has no HTTP/WebSocket/JSON library: use `ureq`/`reqwest`/`tungstenite`/`serde_json` as the docs suggest.
-- Platform: no per-platform differences are documented for these calls. (`Platform` has `Windows`, `MacOS`, `Linux` only; there is no Mikros variant in the Rust enum, `current_platform` maps anything else to Linux.)
+- Platform: no per-platform differences are documented for these calls. (`Platform` has `Windows`, `MacOS`, `Linux`, `Mikros`, and `Unknown(i32)` for values the binding doesn't name.)
 
 ## Environment
 

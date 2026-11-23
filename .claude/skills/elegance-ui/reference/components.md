@@ -1120,7 +1120,7 @@ Rust (`elegance` crate, `use elegance::prelude::*;`) reference for content views
 - [GPU images](#gpu-images)
 - [C++-only / not exposed in Rust](#c-only--not-exposed-in-rust)
 
-Conventions: reactive inputs take `impl IntoProp<T>` (a plain value, a `State`/`Computed`/`Binding`, or a closure `move || ...`); never pass a read value if it should update. Controls that edit a value take `impl IntoBinding<T>` (usually a `State<T>`). The platform enum is `Platform { Windows, MacOS, Linux }` (no Mikros variant; `current_platform()` reports anything else as Linux).
+Conventions: reactive inputs take `impl IntoProp<T>` (a plain value, a `State`/`Computed`/`Binding`, or a closure `move || ...`); never pass a read value if it should update. Controls that edit a value take `impl IntoBinding<T>` (usually a `State<T>`). The platform enum is `Platform { Windows, MacOS, Linux, Mikros, Unknown(i32) }` (non-exhaustive; `Unknown` holds a value the binding doesn't name).
 
 ---
 
@@ -1989,7 +1989,7 @@ let view = elg! { GpuImageView(bridge.image(), mode: .fit) };   // bridge.image(
 - C++ `ContentMode::fill` etc. are `.fill` / `ContentMode::Fill`.
 - Native `elg::GpuImageView` and the C `gpu_image.h` API (`elg_gpu_image_publish`) are reachable in Rust only through `elegance_sys::gpu_image` (unsafe) or `elegance-wgpu`.
 - Selection is `Selection` trait + `.selection(..)`; there is no list/`Selection` control view.
-- Mikros: nothing in these modules mentions it; platform back ends listed above are Windows/macOS/Linux only.
+- Mikros: only `Platform::Mikros` is mentioned in these modules; the platform back ends listed above are Windows/macOS/Linux only.
 
 ---
 
@@ -2498,7 +2498,7 @@ Import: the guide says `use elegance::desktop::*;`; the items are also re-export
 | `set_progress` | every window's taskbar button | Dock icon | where the launcher supports it |
 | `request_attention` | taskbar button flashes | Dock icon bounces | launcher-dependent |
 
-There is no Mikros variant in `Platform`; `current_platform()` returns Linux for anything not Windows/macOS.
+`Platform` also has `Mikros` and `Unknown(i32)` (a value the binding doesn't name); it is `#[non_exhaustive]`.
 
 ### choose_files / choose_folders / choose_save_file
 
@@ -2616,9 +2616,9 @@ request_attention(false);
 
 ```rust
 pub enum Platform { Windows, MacOS, Linux }   // Clone, Copy, Eq, Hash
-pub fn current_platform() -> Platform         // anything else counts as Linux
+pub fn current_platform() -> Platform         // a value the binding doesn't name is Unknown
 ```
-The platform the app was built for; runs at runtime (not const). No Mikros variant. Pair with `KeyModifiers::primary()` for the shortcut modifier.
+The platform the app was built for; runs at runtime (not const). Mikros has its own variant; unknown values are `Platform::Unknown`. Pair with `KeyModifiers::primary()` for the shortcut modifier.
 
 ```rust
 if current_platform() == Platform::MacOS { /* traffic-light layout */ }
@@ -3023,7 +3023,7 @@ elg! {
 - The `ELG_ACCESSIBILITY` CMake option (C++ build-time toggle of accessibility) has no Rust counterpart.
 - The guide `views-and-modifiers.mdx` lists a `help` popup modifier; no `help` exists in `ViewExt` (grep in elegance-rs/elegance/src) or `view.h` (unverified elsewhere): treat as not available.
 - Live-region announcements, custom accessibility actions beyond `accessibility_action`, and accessibility selection/cursor: not present (docs list live announcements as planned).
-- Platform::Mikros: no such variant.
+- Platform::Mikros: exists (value 3 of the C API).
 
 ## Doc-vs-code notes
 

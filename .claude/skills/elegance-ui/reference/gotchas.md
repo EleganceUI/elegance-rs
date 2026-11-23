@@ -192,10 +192,13 @@ App::new()
   `rust-version` in Cargo.toml.
 - Prebuilt targets: Windows MSVC x86_64/aarch64, macOS arm64/x86_64 (13.3+), Linux x86_64/aarch64 (glibc 2.35). Other
   targets build Elegance from source (CMake, vcpkg; long first build).
-- `Platform` has only `Windows`, `MacOS`, `Linux`; `current_platform()` returns Linux for anything else (including
-  Mikros, which has a C-level platform value but no Rust variant). On Mikros the C++ side reports `PlatformError` for
-  notifications, tray, audio output/recording, camera and video playback (from the gap analysis of the milestone-15
-  worktree headers); elegance-sys has no Mikros target entry.
+- `Platform` is `#[non_exhaustive]`: `Windows`, `MacOS`, `Linux`, `Mikros`, and `Unknown(i32)` for a value the
+  binding doesn't name (later library versions may add platforms), so match with a `_` arm. On Mikros the C++ side
+  reports `PlatformError` for notifications, tray, audio output/recording, camera and video playback (from the gap
+  analysis of the milestone-15 worktree headers).
+- Mikros (`x86_64-unknown-mikros`): elegance-sys links the system's `eleganceui.0.dlib` dynamically and nothing else
+  (no prebuilt, no CMake); `ELEGANCE_ROOT`, `ELEGANCE_BUILD_DIR`, `ELEGANCE_NATIVE_DIR`, `ELEGANCE_PREBUILT*`, ... and
+  the `dynamic`/`preview` features fail the build there. The linker must find the library (the sysroot, or `-L`).
 - Linux/macOS/Windows differences for dialogs, notification, tray: see components.md (Linux behaviour unverified).
 - Preview needs a source build and a display; see preview.md.
 

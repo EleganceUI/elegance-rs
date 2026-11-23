@@ -83,7 +83,8 @@ Prebuilt libraries are published for these targets:
 | Linux | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | glibc 2.35 |
 
 On other targets, or when you ask for one, elegance-sys builds Elegance from source with CMake
-and vcpkg. See [Building from source](docs/building.md#building-from-source).
+and vcpkg. See [Building from source](docs/building.md#building-from-source). On Mikros, apps link
+the system's Elegance library: see [Mikros](docs/building.md#mikros).
 
 ### Linking and distribution
 

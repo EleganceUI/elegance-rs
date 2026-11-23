@@ -6,8 +6,8 @@ description: Build and edit desktop GUIs with Elegance (elegance-rs, the `elegan
 # Elegance UI (Rust)
 
 Elegance is a declarative, SwiftUI-style GUI library with fine-grained reactivity, rendered on the GPU (WebGPU/Dawn) in
-one process, for Windows, macOS and Linux (C++ core; `elegance-rs` is the Rust binding; there is no Mikros variant in
-the Rust `Platform` enum, see gotchas). Views are cheap values that describe UI; modifiers wrap views; your view code runs
+one process, for Windows, macOS, Linux and Mikros (C++ core; `elegance-rs` is the Rust binding; for Mikros see
+gotchas). Views are cheap values that describe UI; modifiers wrap views; your view code runs
 once and only the small closures you pass where a value is expected re-run when the `State` they read changes. Version is
 0.x: the API can change between releases. The crate is a Git dependency, not on crates.io.
 

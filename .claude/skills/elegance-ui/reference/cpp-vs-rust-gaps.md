@@ -8,20 +8,20 @@ public C++ view/modifier/state/window/menu/tray/media/capture/gesture/style/them
 
 ## 1. Headline finding: Mikros
 - Worktree C++ adds `Platform::mikros` (include/elg/platform.h); C API `elg_current_platform()` returns 0 windows, 1 macos,
-  2 linux, 3 mikros. Rust `Platform` has only `Windows|MacOS|Linux` and `current_platform()` maps `_ => Linux`
-  (elegance/src/platform.rs), so on Mikros Rust reports Linux. C++ doc comment says later ABI levels may add platforms.
+  2 linux, 3 mikros. Rust `Platform` has `Mikros` too, and returns other values as `Unknown(i32)`
+  (elegance/src/platform.rs).
 - On Mikros the C++ headers say these throw `PlatformError`: audio output (`Sound`, `AudioPlayer`, `AudioStream`), audio
   recording (`AudioRecorder`), `Camera`, video playback (`VideoPlayer` when it would play), `notify`, `TrayIcon`.
   Rust wrappers returning `Result` surface it; ones returning `()` (`notify`, `AudioStream::start`, `Sound::play`, ...) go
-  through `ffi!` and panic. Neither the Rust docs nor README mention Mikros anywhere (grep: zero hits in elegance-rs, docs).
-- Mikros build: c/CMakeLists.txt builds `eleganceui.<major>.dlib` exporting only `elg_*` (c/exports.map). elegance-sys has no
-  Mikros target: not in `TARGETS` (build_prebuilt.rs), `vcpkg_triplet()` returns None for it (build_cmake.rs).
+  through `ffi!` and panic. docs/building.md describes the Mikros build.
+- Mikros build: c/CMakeLists.txt builds `eleganceui.<major>.dlib` exporting only `elg_*` (c/exports.map). elegance-sys links
+  it dynamically for the Mikros target (build_mikros.rs) and refuses every other way of getting Elegance there.
 - No Rust API for the Mikros-specific bits at all; nothing in the C API is Mikros-only beyond the platform value.
 
 ## 2. C++ features with no Rust counterpart
 | C++ name (header) | What | In C API? | Docs say C++-only? |
 |---|---|---|---|
-| `Platform::mikros` (platform.h) | 4th platform | yes (value 3) | no mention anywhere |
+| `Platform::mikros` (platform.h) | 4th platform | yes (value 3) | covered: `Platform::Mikros` |
 | `EnvironmentValues::get_named<T>/set_named<T>(name)`, `LayoutChild::value_named<T>` (environment.h, layout.h; worktree only) | read/set a key by name without a key type; T in bool,int,i32/i64,f32,f64,String,Color | yes (`elg_env_get_named_*`, `elg_env_set_named_*`, `elg_layout_child_value_*`) | yes: environment.mdx cpp-only block. Rust uses them internally (named.rs): a Rust `EnvironmentKey` whose Value is one of those types interoperates by name, but `get_named`/`set_named` are not public |
 | `ELG_MODULE`, `ELG_MODULE_WITH_APP_HASH`, `ELG_PREVIEW`, `HotReloadOptions`, `layout_hash<T...>()`, CMake `elegance_views_module`, `elegance_hot_reload`, `elg_add_application` (hot_reload.h, CMake) | views-module authoring, build glue | C API has `elg_hot_reload(...)` only | yes (hot-reload.mdx, desktop.mdx). Rust equivalents: `#[preview]`, `#[preview(root, app_hash = ...)]`, `layout_hash!`, `cargo elegance`, `HotReload` (feature `dynamic`) |
 | `ELG_TRACY` profiling, `ELG_ACCESSIBILITY` option, ELG_SANITIZER, `ELG_BUILD_SHARED` (CMake) | build options | n/a | yes (debugging.mdx, installation.mdx cpp-only). Prebuilt Rust package has accessibility on, no Tracy |
@@ -59,7 +59,7 @@ field), `WindowHandle` (every method), `WindowMaterial`, `TitleBar`, text editin
 | `EnvironmentValues::current_environment()` / `Environment<Key>()` | `EnvironmentValues::current()`, `Environment::<K>::new()` |
 | exceptions (`throws UsageError`) | panics, or `Result<_, Error>` from constructors/`run`; `notify` panics without an app bundle |
 | `App::window(desc, ContentFunction)` | `App::window(&self, desc, impl IntoView)`; `App::run() -> Result<ExitCode, Error>`; Rust-only `run_code()`, `handle() -> AppHandle`, `post_to_ui_thread` needs `Send` |
-| `Platform::windows/macos/linux` | `Platform::Windows/MacOS/Linux` (no Mikros) |
+| `Platform::windows/macos/linux/mikros` | `Platform::Windows/MacOS/Linux/Mikros`, plus `Unknown(i32)` |
 | `ELG_MODULE(Root)` / `ELG_MODULE(nullptr)` | `#[preview(root)]` / no root; `HotReload::new(path).build_command(..).watch([..]).show(..).app_hash(..)` exists only with cargo feature `dynamic` (`cargo elegance preview` sets `preview` = `dynamic`) |
 | Rust-only: `asset!`, `layout_hash!`, `DotValues`, `#[component]`, `#[elg_builder]`, `elg!`, `State::always_notify`, `Binding::read_only`, `Sound::load_data`, `VideoPlayer::file`, `WindowDesc::new(..).size(..)` builders |
 
@@ -82,7 +82,7 @@ from elegance-rs except user-defined ones, so snippets are consistent. Inline Ru
 4. README prebuilt table: Windows aarch64 and Linux aarch64 listed; "Ships beside the executable" row says only
    "Linux x86_64 | libaccesskit.so". On Linux ARM64 AccessKit is built from source by CI (c-api.yml l.117) so the aarch64 Linux
    package's shipped libs are unstated. CI of elegance-rs tests only Linux x86_64 (ubuntu-22.04), macos-15, windows-2025.
-5. Docs/README list platforms Windows/macOS/Linux only; the worktree C API/C++ also target Mikros (section 1); `Platform`
+5. Docs (windows.mdx, outside this repo) may list platforms Windows/macOS/Linux only; the worktree C API/C++ also target Mikros (section 1); `Platform`
    in docs (windows.mdx l.153) has 3 variants.
 6. docs guides/grids.mdx l.143: `resolve_grid_tracks` is mentioned for C++ only; Rust also exports `resolve_grid_tracks` and
    `grid_tracks_length`.

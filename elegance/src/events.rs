@@ -128,7 +128,7 @@ impl KeyModifiers {
         self.0 & modifier.0 != 0
     }
 
-    /// The platform's shortcut modifier: Cmd on macOS, Ctrl elsewhere.
+    /// The platform's shortcut modifier: Cmd on macOS, Ctrl elsewhere (Windows, Linux, Mikros).
     pub fn primary() -> KeyModifiers {
         KeyModifiers(unsafe { sys::elg_primary_modifier() })
     }
