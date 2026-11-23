@@ -15,6 +15,10 @@ pub(super) const NAMES: [&CStr; 2] = [
 ];
 pub(super) const MEMORY: vk::ExternalMemoryHandleTypeFlags =
     vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD;
+/// The handle types that the image's creation lists: the one that the consumer imports.
+pub(super) const IMAGE_HANDLES: vk::ExternalMemoryHandleTypeFlags = MEMORY;
+/// Whether the capability checks ask for exporting again what was imported.
+pub(super) const REEXPORT_REQUIRED: bool = true;
 pub(super) const SEMAPHORE: vk::ExternalSemaphoreHandleTypeFlags =
     vk::ExternalSemaphoreHandleTypeFlags::OPAQUE_FD;
 pub(super) const TRANSPORT: u32 = raw::TRANSPORT_VULKAN_OPAQUE_FD;
@@ -28,11 +32,11 @@ pub(super) struct Handles {
 }
 
 impl Handles {
-    pub(super) fn new(instance: &ash::Instance, device: &ash::Device) -> Self {
-        Self {
+    pub(super) fn new(instance: &ash::Instance, device: &ash::Device) -> Result<Self, Error> {
+        Ok(Self {
             memory: ash::khr::external_memory_fd::Device::new(instance, device),
             semaphore: ash::khr::external_semaphore_fd::Device::new(instance, device),
-        }
+        })
     }
 
     /// A descriptor for `memory`, which the caller owns.
@@ -94,7 +98,11 @@ pub(super) fn create_producer_semaphore(device: &ash::Device) -> Result<vk::Sema
     .map_err(device_error)
 }
 
-/// A semaphore for the consumer's, which `import_semaphore` fills.
+/// A semaphore for a consumer's, which `import_semaphore` fills.
+pub(super) fn memory_type_allowed(_: vk::MemoryPropertyFlags) -> bool {
+    true
+}
+
 pub(super) fn create_consumer_semaphore(device: &ash::Device) -> Result<vk::Semaphore, Error> {
     unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None) }
         .map_err(device_error)

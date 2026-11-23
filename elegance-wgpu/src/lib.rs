@@ -1,6 +1,7 @@
 //! Bounded external GPU images for Elegance. See the crate README for ownership
 //! and shutdown requirements. Native transports are Metal/IOSurface on macOS,
-//! DX12/DXGI on Windows, and Vulkan/opaque FD on Linux. Dawn must use a compatible
+//! DX12/DXGI on Windows, Vulkan/opaque FD on Linux, and Vulkan with Mikros handles on Mikros.
+//! Dawn must use a compatible
 //! backend on the same physical GPU; unsupported combinations fail explicitly.
 //!
 //! `Bridge::new` creates a dedicated producer device/queue. Unsafe
@@ -73,7 +74,7 @@ impl fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "mikros"))]
 mod common;
 
 #[cfg(target_os = "macos")]
@@ -86,9 +87,9 @@ mod dx12;
 #[cfg(target_os = "windows")]
 pub use dx12::Bridge;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "mikros"))]
 mod vulkan;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "mikros"))]
 pub use vulkan::Bridge;
 
 /// A tiny executor for the hardware tests, which avoids a runtime dependency.
@@ -154,9 +155,9 @@ mod tests {
 }
 
 /// Unsupported-platform placeholder with the same construction and submission API.
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "mikros")))]
 pub struct Bridge;
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "mikros")))]
 impl Bridge {
     pub async fn new(_: &wgpu::Adapter, _: Config) -> Result<Self, Error> {
         Err(Error::Unsupported)

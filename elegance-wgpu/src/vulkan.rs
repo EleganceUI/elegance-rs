@@ -1,4 +1,4 @@
-//! Linux OPAQUE_FD transport. `new` owns private queues; unsafe `from_device`
+//! Vulkan transport (Linux OPAQUE_FD, Mikros handles). `new` owns private queues; unsafe `from_device`
 //! attaches an externally serialized producer queue and a reserved retirement queue.
 //! Each publication owns a fresh dedicated allocation; unknown completion is
 //! quarantined (including its budget permit), never guessed from device loss.
@@ -21,7 +21,10 @@ use wgpu::hal::{self, api::Vulkan};
 #[cfg(target_os = "linux")]
 #[path = "vulkan_linux.rs"]
 mod platform;
-use platform::{Consumer, Handles, MEMORY as HANDLE};
+#[cfg(target_os = "mikros")]
+#[path = "vulkan_mikros.rs"]
+mod platform;
+use platform::{Consumer, Handles, IMAGE_HANDLES, MEMORY as HANDLE};
 // RESOURCE maps to precisely this layout in this fork's Vulkan HAL. Keeping
 // old == new is intentional: ownership changes, not the tracked image layout.
 const HANDOFF: vk::ImageLayout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
@@ -435,6 +438,8 @@ fn progress(retired: &mut Retirement) -> Result<bool, Error> {
         return Err(device_error("consumer returned unsupported Vulkan layouts"));
     }
     if !retired.submitted {
+        #[cfg(target_os = "mikros")]
+        let values: Vec<u64> = resources.consumers.iter().map(|c| c.value).collect();
         for consumer in resources.consumers.drain(..) {
             let semaphore = platform::create_consumer_semaphore(&c.raw)?;
             resources.semaphores.push(semaphore);
@@ -446,6 +451,10 @@ fn progress(retired: &mut Retirement) -> Result<bool, Error> {
             .wait_semaphores(&resources.semaphores)
             .wait_dst_stage_mask(&stages)
             .command_buffers(&commands);
+        #[cfg(target_os = "mikros")]
+        let mut timeline = vk::TimelineSemaphoreSubmitInfo::default().wait_semaphore_values(&values);
+        #[cfg(target_os = "mikros")]
+        let info = info.push_next(&mut timeline);
         unsafe { c.raw.queue_submit(c.retire_queue, &[info], a.retire_done) }
             .map_err(device_error)?;
         retired.submitted = true;
@@ -596,8 +605,10 @@ impl Bridge {
     /// Attach an existing Vulkan logical device/queue. Existing textures from
     /// this logical device can be passed to `copy_from` without another device.
     ///
-    /// Creation requirements: enable VK_KHR_external_memory_fd AND
-    /// VK_KHR_external_semaphore_fd (not merely physical-device support). Create
+    /// Creation requirements: enable the sharing extensions of the platform (on Linux
+    /// VK_KHR_external_memory_fd AND VK_KHR_external_semaphore_fd; on Mikros
+    /// VK_MIKROS_external_memory_handle AND VK_MIKROS_external_semaphore_handle), not merely
+    /// physical-device support. Create
     /// two unprotected queues in the producer's graphics family: when the HAL
     /// producer uses index 0, retirement uses index 1; otherwise it uses index 0.
     /// This same-family requirement is specific to attachment: `new` can instead
@@ -696,7 +707,7 @@ impl Bridge {
         check_capabilities(instance, physical, image_info(config).format, config)?;
         let memory = unsafe { instance.get_physical_device_memory_properties(physical) };
         let raw_device = hal_device.raw_device().clone();
-        let handles = Handles::new(instance, &raw_device);
+        let handles = Handles::new(instance, &raw_device)?;
         // attach's caller guarantees this queue was created with flags zero.
         let retire_queue = unsafe { raw_device.get_device_queue(retire_family, retire_index) };
         if retire_queue == vk::Queue::null() || retire_queue == producer_queue {
@@ -791,6 +802,15 @@ impl Bridge {
             .wait_dst_stage_mask(&stages)
             .command_buffers(&release)
             .signal_semaphores(&signals);
+        // The wait is on a binary semaphore, whose value is ignored.
+        #[cfg(target_os = "mikros")]
+        let (wait_values, signal_values) = ([0], [platform::PRODUCER_VALUE]);
+        #[cfg(target_os = "mikros")]
+        let mut timeline = vk::TimelineSemaphoreSubmitInfo::default()
+            .wait_semaphore_values(&wait_values)
+            .signal_semaphore_values(&signal_values);
+        #[cfg(target_os = "mikros")]
+        let submit = submit.push_next(&mut timeline);
         unsafe {
             self.context
                 .raw
@@ -799,8 +819,14 @@ impl Bridge {
         .map_err(device_error)?;
         let backing = guard.0.take().unwrap();
         // These exact structures (including pNext) remain live throughout synchronous import.
-        let mut external = vk::ExternalMemoryImageCreateInfo::default().handle_types(HANDLE);
+        let mut external = vk::ExternalMemoryImageCreateInfo::default().handle_types(IMAGE_HANDLES);
         let info = image_info(self.config).push_next(&mut external);
+        #[cfg(target_os = "mikros")]
+        let formats = platform::view_formats(info.format);
+        #[cfg(target_os = "mikros")]
+        let mut format_list = vk::ImageFormatListCreateInfo::default().view_formats(&formats);
+        #[cfg(target_os = "mikros")]
+        let info = info.push_next(&mut format_list);
         let frame = Frame {
             transport: platform::TRANSPORT,
             format: self.config.raw_format(),
@@ -859,8 +885,14 @@ impl Bridge {
             size: 0,
             permit,
         };
-        let mut external = vk::ExternalMemoryImageCreateInfo::default().handle_types(HANDLE);
+        let mut external = vk::ExternalMemoryImageCreateInfo::default().handle_types(IMAGE_HANDLES);
         let info = image_info(self.config).push_next(&mut external);
+        #[cfg(target_os = "mikros")]
+        let formats = platform::view_formats(info.format);
+        #[cfg(target_os = "mikros")]
+        let mut format_list = vk::ImageFormatListCreateInfo::default().view_formats(&formats);
+        #[cfg(target_os = "mikros")]
+        let info = info.push_next(&mut format_list);
         a.image = unsafe { d.create_image(&info, None) }.map_err(device_error)?;
         let requirements = unsafe { d.get_image_memory_requirements(a.image) };
         a.size = requirements.size;
@@ -869,7 +901,10 @@ impl Bridge {
             .memory_types_as_slice()
             .iter()
             .enumerate()
-            .filter(|(i, _)| requirements.memory_type_bits & (1u32 << i) != 0)
+            .filter(|(i, m)| {
+                requirements.memory_type_bits & (1u32 << i) != 0
+                    && platform::memory_type_allowed(m.property_flags)
+            })
             .max_by_key(|(_, m)| {
                 m.property_flags
                     .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
@@ -1006,6 +1041,12 @@ fn check_capabilities(
         .usage(IMAGE_USAGE)
         .flags(vk::ImageCreateFlags::MUTABLE_FORMAT)
         .push_next(&mut external);
+    #[cfg(target_os = "mikros")]
+    let formats = platform::view_formats(format);
+    #[cfg(target_os = "mikros")]
+    let mut format_list = vk::ImageFormatListCreateInfo::default().view_formats(&formats);
+    #[cfg(target_os = "mikros")]
+    let info = info.push_next(&mut format_list);
     let mut external_properties = vk::ExternalImageFormatProperties::default();
     let mut properties = vk::ImageFormatProperties2::default().push_next(&mut external_properties);
     unsafe {
@@ -1016,11 +1057,12 @@ fn check_capabilities(
     let memory = external_properties.external_memory_properties;
     if !memory.external_memory_features.contains(
         vk::ExternalMemoryFeatureFlags::EXPORTABLE | vk::ExternalMemoryFeatureFlags::IMPORTABLE,
-    ) || !memory.compatible_handle_types.contains(HANDLE)
-        || !memory.export_from_imported_handle_types.contains(HANDLE)
+    ) || !memory.compatible_handle_types.contains(IMAGE_HANDLES)
+        || (platform::REEXPORT_REQUIRED
+            && !memory.export_from_imported_handle_types.contains(HANDLE))
     {
         return Err(device_error(
-            "exact mutable-format image does not support importable/exportable OPAQUE_FD memory",
+            "exact mutable-format image does not support importable/exportable external memory",
         ));
     }
     if config.width > limits.max_extent.width

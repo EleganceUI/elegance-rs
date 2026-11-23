@@ -9,6 +9,7 @@ A bounded, zero-CPU-pixel-copy bridge from native Rust **wgpu 30.0.1** to Elegan
 | macOS | wgpu Metal → Dawn Metal, IOSurface + shared events | Implemented | Real Apple M4 Pro GPU tests and one/two-window publication passed |
 | Windows | wgpu DX12 → Dawn D3D12, shared DXGI textures + fences | Implemented | Rust MSVC cross-target check; native linking/GPU execution not tested |
 | Linux | wgpu Vulkan → Dawn Vulkan, dedicated opaque-FD memory + binary semaphores | Implemented | Rust Linux cross-target check and isolated host unit tests; native linking/GPU execution not tested |
+| Mikros | wgpu Vulkan → Dawn Vulkan, dedicated memory objects + kernel timeline semaphores, through the Mikros Vulkan extensions | Implemented | Builds for `x86_64-unknown-mikros`; GPU execution on Mikros not yet verified. Needs patched wgpu-core, wgpu, ash and libloading (no Vulkan backend for that OS upstream) |
 
 This is **not support for every Dawn backend**. D3D11, OpenGL/GLES, cross-adapter sharing, DMA-BUF, YUV/multi-plane images, and device-loss recovery are not implemented. Unsupported paths fail explicitly, with no CPU-copy fallback. Choose the same physical GPU on both sides; there is no automatic adapter negotiation.
 
@@ -61,6 +62,10 @@ let bridge = unsafe { Bridge::from_device(device, queue, config)? };
 **`from_device` is unsafe.** The handles must belong to the same logical device/queue pair. Serialize each **entire** bridge production call against all operations through all aliases of that queue: submissions, writes and native/HAL operations, including reentrant callbacks. A single dedicated renderer thread can satisfy this; otherwise use one shared queue lock. Enter with no outstanding staged external waits/signals. Do not destroy the device while bridge operations or retirement are outstanding. Read the constructor's full safety contract before use.
 
 `copy_from` requires a same-device, same-size/format, single-sample `COPY_SRC` texture. Submit source writes first. The bridge GPU-copies into its own shareable allocation; Elegance never reads the renderer's original texture. Subsequent renderer submissions can reuse that source normally.
+
+### Mikros device creation requirements
+
+`Bridge::new` enables `VK_MIKROS_external_memory_handle` and `VK_MIKROS_external_semaphore_handle` on its own device; a device given to `from_device` must have both enabled, with the same queue requirements as on Linux. Semaphores are timelines there: the producer signals value 1, and a release's timeline is waited at the value it reports. The image's memory comes from CPU-visible memory types.
 
 ### Linux device creation requirements
 
