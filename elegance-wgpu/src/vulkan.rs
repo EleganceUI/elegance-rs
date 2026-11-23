@@ -911,7 +911,7 @@ impl Bridge {
             })
             .map(|(i, _)| i as u32)
             .ok_or(Error::Allocation)?;
-        let mut export = vk::ExportMemoryAllocateInfo::default().handle_types(HANDLE);
+        let mut export = vk::ExportMemoryAllocateInfo::default().handle_types(IMAGE_HANDLES);
         let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().image(a.image);
         let allocate = vk::MemoryAllocateInfo::default()
             .allocation_size(a.size)
