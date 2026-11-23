@@ -12,15 +12,16 @@ use elegance_sys::gpu_image::{self as raw, Fence, Frame, Release};
 use std::{
     ffi::{c_void, CStr},
     mem::ManuallyDrop,
-    os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd},
+    os::fd::{AsRawFd, OwnedFd},
     sync::{atomic::Ordering, mpsc, Arc},
     time::Duration,
 };
 use wgpu::hal::{self, api::Vulkan};
 
-const HANDLE: vk::ExternalMemoryHandleTypeFlags = vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD;
-const SEM_HANDLE: vk::ExternalSemaphoreHandleTypeFlags =
-    vk::ExternalSemaphoreHandleTypeFlags::OPAQUE_FD;
+#[cfg(target_os = "linux")]
+#[path = "vulkan_linux.rs"]
+mod platform;
+use platform::{Consumer, Handles, MEMORY as HANDLE};
 // RESOURCE maps to precisely this layout in this fork's Vulkan HAL. Keeping
 // old == new is intentional: ownership changes, not the tracked image layout.
 const HANDOFF: vk::ImageLayout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
@@ -39,8 +40,7 @@ fn device_error(e: impl std::fmt::Display) -> Error {
 
 struct Context {
     raw: ash::Device,
-    memory_fd: ash::khr::external_memory_fd::Device,
-    semaphore_fd: ash::khr::external_semaphore_fd::Device,
+    handles: Handles,
     memory: vk::PhysicalDeviceMemoryProperties,
     producer_queue: vk::Queue,
     producer_family: u32,
@@ -109,7 +109,7 @@ impl<T> Drop for GpuLifetime<T> {
 }
 struct RetirementResources {
     backing: Backing,
-    fds: Vec<OwnedFd>,
+    consumers: Vec<Consumer>,
     semaphores: Vec<vk::Semaphore>,
 }
 impl Drop for RetirementResources {
@@ -138,7 +138,7 @@ impl Retirement {
             resources: GpuLifetime {
                 value: ManuallyDrop::new(RetirementResources {
                     backing,
-                    fds: Vec::new(),
+                    consumers: Vec::new(),
                     semaphores: Vec::new(),
                 }),
                 counts,
@@ -204,29 +204,14 @@ unsafe extern "C" fn released(userdata: *mut c_void, release: *const Release) {
         if !release.fences.is_null() {
             for i in 0..release.fence_count {
                 let fence = unsafe { &*release.fences.add(i) };
-                match duplicate_fence(fence) {
-                    Ok(fd) => retired.resources.value.fds.push(fd),
+                match platform::duplicate_fence(fence) {
+                    Ok(consumer) => retired.resources.value.consumers.push(consumer),
                     Err(_) => retired.failed = true,
                 }
             }
         }
     }
     send(&state.tx, retired);
-}
-
-// Never consume a callback's borrowed FD. Continue duplicating subsequent
-// fences even after a failure, and do no Vulkan work or GPU waits here.
-fn duplicate_fence(fence: &Fence) -> Result<OwnedFd, Error> {
-    if fence.type_ != raw::FENCE_VK_OPAQUE_FD || fence.fd < 0 || fence.value != 1 {
-        return Err(device_error(
-            "invalid consumer Vulkan binary semaphore fence",
-        ));
-    }
-    let fd = unsafe { libc::fcntl(fence.fd, libc::F_DUPFD_CLOEXEC, 0) };
-    if fd < 0 {
-        return Err(device_error(std::io::Error::last_os_error()));
-    }
-    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 fn range() -> vk::ImageSubresourceRange {
@@ -450,20 +435,10 @@ fn progress(retired: &mut Retirement) -> Result<bool, Error> {
         return Err(device_error("consumer returned unsupported Vulkan layouts"));
     }
     if !retired.submitted {
-        for fd in resources.fds.drain(..) {
-            let semaphore = unsafe {
-                c.raw
-                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
-            }
-            .map_err(device_error)?;
+        for consumer in resources.consumers.drain(..) {
+            let semaphore = platform::create_consumer_semaphore(&c.raw)?;
             resources.semaphores.push(semaphore);
-            let import = vk::ImportSemaphoreFdInfoKHR::default()
-                .semaphore(semaphore)
-                .handle_type(SEM_HANDLE)
-                .fd(fd.as_raw_fd());
-            unsafe { c.semaphore_fd.import_semaphore_fd(&import) }.map_err(device_error)?;
-            // OPAQUE_FD import consumes the duplicate only on success.
-            let _ = fd.into_raw_fd();
+            unsafe { c.handles.import_semaphore(semaphore, consumer) }?;
         }
         let commands = [unsafe { ownership_commands(a, Some(layouts)) }?];
         let stages = vec![vk::PipelineStageFlags::ALL_COMMANDS; resources.semaphores.len()];
@@ -541,10 +516,7 @@ impl Bridge {
         let physical = hal_adapter.raw_physical_device();
         let extensions = unsafe { instance.enumerate_device_extension_properties(physical) }
             .map_err(device_error)?;
-        for required in [
-            ash::khr::external_memory_fd::NAME,
-            ash::khr::external_semaphore_fd::NAME,
-        ] {
+        for required in platform::NAMES {
             if !extensions
                 .iter()
                 .any(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) } == required)
@@ -594,10 +566,7 @@ impl Bridge {
                 &desc.required_limits,
                 &desc.memory_hints,
                 Some(Box::new(|args| {
-                    for extension in [
-                        ash::khr::external_memory_fd::NAME,
-                        ash::khr::external_semaphore_fd::NAME,
-                    ] {
+                    for extension in platform::NAMES {
                         if !args.extensions.contains(&extension) {
                             args.extensions.push(extension);
                         }
@@ -697,10 +666,7 @@ impl Bridge {
         {
             return Err(Error::InvalidConfig);
         }
-        for required in [
-            ash::khr::external_memory_fd::NAME,
-            ash::khr::external_semaphore_fd::NAME,
-        ] {
+        for required in platform::NAMES {
             if !hal_device.enabled_device_extensions().contains(&required) {
                 return Err(device_error(format!(
                     "required Vulkan extension is not enabled on this logical device: {}",
@@ -730,8 +696,7 @@ impl Bridge {
         check_capabilities(instance, physical, image_info(config).format, config)?;
         let memory = unsafe { instance.get_physical_device_memory_properties(physical) };
         let raw_device = hal_device.raw_device().clone();
-        let memory_fd = ash::khr::external_memory_fd::Device::new(instance, &raw_device);
-        let semaphore_fd = ash::khr::external_semaphore_fd::Device::new(instance, &raw_device);
+        let handles = Handles::new(instance, &raw_device);
         // attach's caller guarantees this queue was created with flags zero.
         let retire_queue = unsafe { raw_device.get_device_queue(retire_family, retire_index) };
         if retire_queue == vk::Queue::null() || retire_queue == producer_queue {
@@ -744,8 +709,7 @@ impl Bridge {
             GpuImage::new(config.width, config.height, config.origin).map_err(device_error)?;
         let context = Arc::new(Context {
             raw: raw_device,
-            memory_fd,
-            semaphore_fd,
+            handles,
             memory,
             producer_queue,
             producer_family,
@@ -838,7 +802,7 @@ impl Bridge {
         let mut external = vk::ExternalMemoryImageCreateInfo::default().handle_types(HANDLE);
         let info = image_info(self.config).push_next(&mut external);
         let frame = Frame {
-            transport: raw::TRANSPORT_VULKAN_OPAQUE_FD,
+            transport: platform::TRANSPORT,
             format: self.config.raw_format(),
             width: self.config.width,
             height: self.config.height,
@@ -851,10 +815,10 @@ impl Bridge {
             vk_old_layout: HANDOFF.as_raw(),
             vk_new_layout: HANDOFF.as_raw(),
             producer_fence: Fence {
-                type_: raw::FENCE_VK_OPAQUE_FD,
+                type_: platform::FENCE,
                 handle: std::ptr::null_mut(),
                 fd: backing.allocation.producer_fd.as_ref().unwrap().as_raw_fd(),
-                value: 1,
+                value: platform::PRODUCER_VALUE,
             },
             token: 0,
             userdata: Box::into_raw(Box::new(Callback {
@@ -921,35 +885,11 @@ impl Bridge {
             .push_next(&mut dedicated);
         a.memory = unsafe { d.allocate_memory(&allocate, None) }.map_err(device_error)?;
         unsafe { d.bind_image_memory(a.image, a.memory, 0) }.map_err(device_error)?;
-        let fd = unsafe {
-            c.memory_fd.get_memory_fd(
-                &vk::MemoryGetFdInfoKHR::default()
-                    .memory(a.memory)
-                    .handle_type(HANDLE),
-            )
-        }
-        .map_err(device_error)?;
-        a.memory_fd = Some(unsafe { OwnedFd::from_raw_fd(fd) });
+        a.memory_fd = Some(unsafe { c.handles.export_memory(a.memory) }?);
         a.rendered = unsafe { d.create_semaphore(&vk::SemaphoreCreateInfo::default(), None) }
             .map_err(device_error)?;
-        let mut export_semaphore =
-            vk::ExportSemaphoreCreateInfo::default().handle_types(SEM_HANDLE);
-        a.producer = unsafe {
-            d.create_semaphore(
-                &vk::SemaphoreCreateInfo::default().push_next(&mut export_semaphore),
-                None,
-            )
-        }
-        .map_err(device_error)?;
-        let fd = unsafe {
-            c.semaphore_fd.get_semaphore_fd(
-                &vk::SemaphoreGetFdInfoKHR::default()
-                    .semaphore(a.producer)
-                    .handle_type(SEM_HANDLE),
-            )
-        }
-        .map_err(device_error)?;
-        a.producer_fd = Some(unsafe { OwnedFd::from_raw_fd(fd) });
+        a.producer = platform::create_producer_semaphore(d)?;
+        a.producer_fd = Some(unsafe { c.handles.export_semaphore(a.producer) }?);
         a.producer_done = unsafe { d.create_fence(&vk::FenceCreateInfo::default(), None) }
             .map_err(device_error)?;
         a.retire_done = unsafe { d.create_fence(&vk::FenceCreateInfo::default(), None) }
@@ -1102,28 +1042,7 @@ fn check_capabilities(
     ) {
         return Err(device_error("sRGB sampling view is unsupported"));
     }
-    let semaphore_info = vk::PhysicalDeviceExternalSemaphoreInfo::default().handle_type(SEM_HANDLE);
-    let mut semaphore = vk::ExternalSemaphoreProperties::default();
-    unsafe {
-        instance.get_physical_device_external_semaphore_properties(
-            physical,
-            &semaphore_info,
-            &mut semaphore,
-        )
-    };
-    // No SemaphoreTypeCreateInfo in the query/create chain: binary, not timeline.
-    if !semaphore.external_semaphore_features.contains(
-        vk::ExternalSemaphoreFeatureFlags::IMPORTABLE
-            | vk::ExternalSemaphoreFeatureFlags::EXPORTABLE,
-    ) || !semaphore.compatible_handle_types.contains(SEM_HANDLE)
-        || !semaphore
-            .export_from_imported_handle_types
-            .contains(SEM_HANDLE)
-    {
-        return Err(device_error(
-            "binary OPAQUE_FD semaphore import/export is unsupported",
-        ));
-    }
+    platform::check_semaphore(instance, physical)?;
     Ok(())
 }
 
@@ -1140,15 +1059,15 @@ mod tests {
             fd: source.as_raw_fd(),
             value: 1,
         };
-        let duplicate = duplicate_fence(&fence).unwrap();
+        let duplicate = platform::duplicate_fence(&fence).unwrap().fd;
         assert_ne!(duplicate.as_raw_fd(), source.as_raw_fd());
         drop(source);
         let flags = unsafe { libc::fcntl(duplicate.as_raw_fd(), libc::F_GETFD) };
         assert!(flags >= 0);
         assert_ne!(flags & libc::FD_CLOEXEC, 0);
-        assert!(duplicate_fence(&Fence { value: 2, ..fence }).is_err());
-        assert!(duplicate_fence(&Fence { fd: -1, ..fence }).is_err());
-        assert!(duplicate_fence(&Fence {
+        assert!(platform::duplicate_fence(&Fence { value: 2, ..fence }).is_err());
+        assert!(platform::duplicate_fence(&Fence { fd: -1, ..fence }).is_err());
+        assert!(platform::duplicate_fence(&Fence {
             type_: raw::FENCE_NONE,
             ..fence
         })
